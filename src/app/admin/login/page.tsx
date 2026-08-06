@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { auth } from "@/lib/firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { ShieldCheck, Lock, Mail, AlertCircle, ArrowRight } from "lucide-react";
+import { signInWithEmailAndPassword, sendEmailVerification, type User } from "firebase/auth";
+import { ShieldCheck, Lock, Mail, AlertCircle, ArrowRight, MailCheck } from "lucide-react";
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -15,14 +15,28 @@ export default function AdminLoginPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Email-verification flow (rules require a verified admin email)
+  const [pendingUser, setPendingUser] = useState<User | null>(null);
+  const [verifyInfo, setVerifyInfo] = useState("");
+  const [sendingVerify, setSendingVerify] = useState(false);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
+    setVerifyInfo("");
     setLoading(true);
 
     try {
       // Authenticate strictly against Firebase Auth. No client-side password fallback.
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+
+      // Admin operations require a verified email (see firestore.rules / storage.rules).
+      if (!cred.user.emailVerified) {
+        setPendingUser(cred.user);
+        setErrorMessage("");
+        return;
+      }
+
       if (typeof window !== "undefined") {
         localStorage.setItem("admin_session", "active");
       }
@@ -32,6 +46,21 @@ export default function AdminLoginPage() {
       setErrorMessage("อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือบัญชีนี้ยังไม่มีสิทธิ์ผู้ดูแลระบบ");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSendVerification = async () => {
+    if (!pendingUser) return;
+    setSendingVerify(true);
+    setVerifyInfo("");
+    try {
+      await sendEmailVerification(pendingUser);
+      setVerifyInfo("ส่งอีเมลยืนยันตัวตนแล้ว โปรดเปิดอีเมลแล้วกดลิงก์ยืนยัน จากนั้นกลับมาเข้าสู่ระบบอีกครั้ง");
+    } catch (err) {
+      console.warn("Send verification failed:", err);
+      setVerifyInfo("ส่งอีเมลยืนยันไม่สำเร็จ กรุณาลองใหม่อีกครั้งในภายหลัง");
+    } finally {
+      setSendingVerify(false);
     }
   };
 
@@ -92,6 +121,29 @@ export default function AdminLoginPage() {
               <div className="p-3 rounded-2xl bg-red-50 text-red-600 text-xs border border-red-200 flex items-center gap-2 font-semibold">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {pendingUser && (
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-3">
+                <div className="flex items-start gap-2 text-amber-800 text-xs font-semibold">
+                  <MailCheck className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>
+                    บัญชีนี้ยังไม่ได้ยืนยันอีเมล — ระบบผู้ดูแลต้องใช้อีเมลที่ยืนยันแล้ว
+                    กดปุ่มด้านล่างเพื่อรับลิงก์ยืนยัน แล้วกลับมาเข้าสู่ระบบอีกครั้ง
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSendVerification}
+                  disabled={sendingVerify}
+                  className="w-full py-2.5 rounded-xl bg-amber-500 text-white font-extrabold text-xs shadow-sm disabled:opacity-60 transition-all"
+                >
+                  {sendingVerify ? "กำลังส่ง..." : "ส่งอีเมลยืนยันตัวตน"}
+                </button>
+                {verifyInfo && (
+                  <p className="text-[11px] text-amber-700 font-medium">{verifyInfo}</p>
+                )}
               </div>
             )}
 
