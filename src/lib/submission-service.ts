@@ -8,9 +8,9 @@ import {
   setDoc, 
   updateDoc, 
   deleteDoc, 
-  query, 
-  where,
-  orderBy
+  query,
+  orderBy,
+  limit
 } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { Submission, TrainingSettings, GradeLevelOption, SubjectGroupOption, DashboardStats } from "./types";
@@ -79,6 +79,11 @@ export const DEFAULT_SETTINGS: TrainingSettings = {
 let memorySettingsCache: { data: TrainingSettings; timestamp: number } | null = null;
 let memorySubmissionsCache: { data: Submission[]; timestamp: number } | null = null;
 const CACHE_TTL_MS = 15000;
+
+// Upper bound on how many newest submissions we fetch in one read. Bounds Firestore
+// read cost/latency instead of downloading the entire collection. Client-side search
+// and filtering run over this most-recent window.
+const FETCH_CAP = 500;
 
 // Initial Mock 10 Submissions for full testing & verification
 const INITIAL_MOCK_SUBMISSIONS: Submission[] = [
@@ -528,9 +533,9 @@ export async function uploadFileToStorage(
 
   const timeoutPromise = new Promise<string>((resolve) => {
     setTimeout(() => {
-      console.warn("Storage upload 3s timeout reached, using instant DataURL fallback.");
+      console.warn("Storage upload 30s timeout reached, using instant DataURL fallback.");
       resolve(fallbackDataUrl);
-    }, 3000);
+    }, 30000);
   });
 
   const resultUrl = await Promise.race([storagePromise, timeoutPromise]);
@@ -597,12 +602,24 @@ export async function getSubmissions(params?: {
     rawList = [...memorySubmissionsCache.data];
   } else {
     try {
-      const snapshot = await getDocs(collection(db, "submissions"));
+      // Fetch only the most-recent window server-side (ordered + capped) instead of
+      // downloading the whole collection. Client-side search/filter runs over this window.
+      const submissionsQuery = query(
+        collection(db, "submissions"),
+        orderBy("createdAt", "desc"),
+        limit(FETCH_CAP)
+      );
+      const snapshot = await getDocs(submissionsQuery);
       if (!snapshot.empty) {
         rawList = snapshot.docs.map((doc) => ({
           id: doc.id,
           ...(doc.data() as Omit<Submission, "id">),
         }));
+        if (rawList.length >= FETCH_CAP) {
+          console.warn(
+            `getSubmissions: hit FETCH_CAP (${FETCH_CAP}). Older submissions beyond this window are not loaded; add pagination if needed.`
+          );
+        }
         memorySubmissionsCache = { data: rawList, timestamp: now };
       }
     } catch (err) {

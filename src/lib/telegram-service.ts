@@ -1,21 +1,31 @@
 /**
  * Telegram Bot Notification Helper Service
- * Bot Token: 8908660960:AAHHl8jZV8GEpUR40HeMHAP70bTu6IVfv_o
+ *
+ * SECURITY NOTE: In a static export the bot token is still shipped to the browser,
+ * so this is only a stop-gap. The token is read from an env var (not hardcoded) so it
+ * can be rotated without a code change. The proper fix is to move this call behind a
+ * server endpoint (e.g. a Firebase Cloud Function) so the token never reaches clients.
  */
 
-export const DEFAULT_TELEGRAM_BOT_TOKEN = "8908660960:AAHHl8jZV8GEpUR40HeMHAP70bTu6IVfv_o";
+export const DEFAULT_TELEGRAM_BOT_TOKEN =
+  process.env.NEXT_PUBLIC_TELEGRAM_BOT_TOKEN || "";
 
 export async function sendTelegramNotification(message: string, customChatId?: string): Promise<boolean> {
   try {
-    let token = DEFAULT_TELEGRAM_BOT_TOKEN;
+    const token = DEFAULT_TELEGRAM_BOT_TOKEN;
     let chatId = customChatId;
 
-    // Check if custom chatId or token saved in localStorage/settings
+    // Check if custom chatId saved in localStorage/settings
     if (typeof window !== "undefined") {
       const savedChatId = localStorage.getItem("telegram_chat_id");
       if (savedChatId && !chatId) {
         chatId = savedChatId;
       }
+    }
+
+    if (!token) {
+      console.warn("Telegram Notification skipped: NEXT_PUBLIC_TELEGRAM_BOT_TOKEN is not configured.");
+      return false;
     }
 
     if (!chatId) {

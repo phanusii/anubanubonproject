@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { Submission } from "@/lib/types";
-import { FileText, Image as ImageIcon, Calendar, User, School, Sparkles, ExternalLink, HardDrive } from "lucide-react";
+import { FileText, Image as ImageIcon, User, School, ExternalLink, HardDrive } from "lucide-react";
 import { isGoogleDriveLink } from "@/lib/google-drive-utils";
 
 interface MasonryCardProps {
@@ -12,6 +13,7 @@ interface MasonryCardProps {
 export default function MasonryCard({ submission, onClick }: MasonryCardProps) {
   const isPdf = submission.fileType === "pdf";
   const isDrive = submission.fileType === "drive" || isGoogleDriveLink(submission.fileURL);
+  const [imgError, setImgError] = useState(false);
 
   return (
     <div
@@ -21,17 +23,14 @@ export default function MasonryCard({ submission, onClick }: MasonryCardProps) {
       <div className="space-y-3">
         {/* Preview Thumbnail Container */}
         <div className="relative aspect-4/3 rounded-2xl overflow-hidden bg-slate-100/80 border border-slate-100 flex items-center justify-center group-hover:shadow-md transition-all">
-          {submission.thumbnail ? (
+          {submission.thumbnail && !imgError ? (
             <img
               src={submission.thumbnail}
               alt={submission.projectTitle}
               loading="lazy"
               decoding="async"
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-              onError={(e) => {
-                // Fallback to placeholder if thumbnail fails to load
-                (e.target as HTMLElement).style.display = "none";
-              }}
+              onError={() => setImgError(true)}
             />
           ) : isPdf ? (
             <div className="flex flex-col items-center justify-center p-6 text-red-500 space-y-2">
@@ -68,7 +67,7 @@ export default function MasonryCard({ submission, onClick }: MasonryCardProps) {
               ครูสายชั้น{submission.gradeLevel}
             </span>
             <span className="px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-blue-600/90 backdrop-blur-md text-white shadow-xs">
-              กลุ่มสาระ{submission.subjectGroup}
+              {submission.subjectGroup}
             </span>
           </div>
 
