@@ -138,21 +138,21 @@ export default function AdminMastersPage() {
     if (!newGradeName.trim()) return;
     const newId = String(Date.now());
     const maxOrder = gradeLevels.reduce((max, item) => Math.max(max, item.order), 0);
-    await saveGradeLevel({ id: newId, name: newGradeName.trim(), order: maxOrder + 1 });
+    const updated = await saveGradeLevel({ id: newId, name: newGradeName.trim(), order: maxOrder + 1 });
+    setGradeLevels(updated);
     setNewGradeName("");
-    loadAllMasters();
   };
 
   const handleUpdateGrade = async (item: GradeLevelOption) => {
-    await saveGradeLevel(item);
+    const updated = await saveGradeLevel(item);
+    setGradeLevels(updated);
     setEditingGrade(null);
-    loadAllMasters();
   };
 
   const handleDeleteGrade = async (id: string) => {
     if (confirm("คุณต้องการลบสายชั้นนี้ใช่หรือไม่?")) {
-      await deleteGradeLevel(id);
-      loadAllMasters();
+      const updated = await deleteGradeLevel(id);
+      setGradeLevels(updated);
     }
   };
 
@@ -162,21 +162,21 @@ export default function AdminMastersPage() {
     if (!newSubjectName.trim()) return;
     const newId = String(Date.now());
     const maxOrder = subjectGroups.reduce((max, item) => Math.max(max, item.order), 0);
-    await saveSubjectGroup({ id: newId, name: newSubjectName.trim(), order: maxOrder + 1 });
+    const updated = await saveSubjectGroup({ id: newId, name: newSubjectName.trim(), order: maxOrder + 1 });
+    setSubjectGroups(updated);
     setNewSubjectName("");
-    loadAllMasters();
   };
 
   const handleUpdateSubject = async (item: SubjectGroupOption) => {
-    await saveSubjectGroup(item);
+    const updated = await saveSubjectGroup(item);
+    setSubjectGroups(updated);
     setEditingSubject(null);
-    loadAllMasters();
   };
 
   const handleDeleteSubject = async (id: string) => {
     if (confirm("คุณต้องการลบกลุ่มสาระนี้ใช่หรือไม่?")) {
-      await deleteSubjectGroup(id);
-      loadAllMasters();
+      const updated = await deleteSubjectGroup(id);
+      setSubjectGroups(updated);
     }
   };
 

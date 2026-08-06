@@ -271,6 +271,20 @@ function saveLocalSubmissions(subs: Submission[]) {
 }
 
 /**
+ * Delete a file from Firebase Storage by its download URL
+ */
+export async function deleteStorageFileByUrl(url?: string): Promise<void> {
+  if (!url || !url.includes("firebasestorage.googleapis.com")) return;
+  try {
+    const fileRef = ref(storage, url);
+    await deleteObject(fileRef);
+    console.log("Successfully deleted old storage file:", url);
+  } catch (err) {
+    console.warn("Storage delete file by URL warning:", err);
+  }
+}
+
+/**
  * Synchronous Instant Submissions Getter for 0ms initial render (Never shows 0 items!)
  */
 export function getInstantSubmissions(): Submission[] {
@@ -384,10 +398,16 @@ export async function getTrainingSettings(forceRefresh = false): Promise<Trainin
 }
 
 /**
- * Save / Update Training Settings
+ * Save / Update Training Settings (automatically deletes old logo/banner file if updated)
  */
 export async function updateTrainingSettings(settings: Partial<TrainingSettings>): Promise<void> {
   const current = await getTrainingSettings();
+  
+  // If logo URL is changing, delete old logo file from Firebase Storage automatically
+  if (settings.schoolLogoUrl && current.schoolLogoUrl && settings.schoolLogoUrl !== current.schoolLogoUrl) {
+    deleteStorageFileByUrl(current.schoolLogoUrl).catch(() => {});
+  }
+
   const updated = { ...current, ...settings };
   memorySettingsCache = { data: updated, timestamp: Date.now() };
 
@@ -527,7 +547,7 @@ export async function createSubmission(submissionData: Omit<Submission, "id" | "
 }
 
 /**
- * Replace / Update an existing submission file and metadata
+ * Replace / Update an existing submission file and metadata (Automatically deletes old file from Firebase Storage!)
  */
 export async function replaceSubmission(oldId: string, submissionData: Omit<Submission, "id" | "uploadDate" | "createdAt">): Promise<Submission> {
   await deleteSubmission(oldId);
@@ -634,30 +654,28 @@ export async function getSubmissions(params?: {
  * Delete Submission (Deletes document and associated Firebase Storage file)
  */
 export async function deleteSubmission(id: string): Promise<void> {
+  const localSubs = getLocalSubmissions();
+  const targetSub = localSubs.find((s) => s.id === id);
+  if (targetSub?.fileURL) {
+    await deleteStorageFileByUrl(targetSub.fileURL);
+  }
+
   try {
     const docRef = doc(db, "submissions", id);
     const snapshot = await getDoc(docRef);
     if (snapshot.exists()) {
       const data = snapshot.data() as Submission;
-
-      // Delete Firebase Storage file if applicable
-      if (data.fileURL && data.fileURL.includes("firebasestorage.googleapis.com")) {
-        try {
-          const fileRef = ref(storage, data.fileURL);
-          await deleteObject(fileRef);
-        } catch (storageErr) {
-          console.warn("Firebase Storage deleteObject warning:", storageErr);
-        }
+      if (data.fileURL) {
+        await deleteStorageFileByUrl(data.fileURL);
       }
     }
-
     await deleteDoc(docRef);
   } catch (err) {
     console.warn("Firestore delete submission error:", err);
   }
 
-  const subs = getLocalSubmissions().filter((s) => s.id !== id);
-  saveLocalSubmissions(subs);
+  const filtered = localSubs.filter((s) => s.id !== id);
+  saveLocalSubmissions(filtered);
 }
 
 /**

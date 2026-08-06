@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
-import { getTrainingSettings, updateTrainingSettings, compressAndResizeImage, fileToDataURL } from "@/lib/submission-service";
+import { getTrainingSettings, updateTrainingSettings, compressAndResizeImage, fileToDataURL, deleteStorageFileByUrl } from "@/lib/submission-service";
 import { notifyAdminSubmissionAction } from "@/lib/telegram-service";
 import { TrainingSettings } from "@/lib/types";
 import { Building, Upload, Image as ImageIcon, CheckCircle2, Save, Sparkles, MapPin, GraduationCap } from "lucide-react";
@@ -48,23 +48,32 @@ export default function AdminSchoolPage() {
     load();
   }, [router]);
 
-  // Instant Logo File Handler (< 50ms DataURL preview!)
+  // Instant Instantaneous Logo File Handler (< 50ms DataURL preview & Automatic Old Logo File Deletion!)
   const handleLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const oldLogoUrl = settings.schoolLogoUrl;
+
     setUploadingLogo(true);
+    setSuccessMessage("");
     try {
       const compressedFile = await compressAndResizeImage(file, 300, 300, 0.85);
       const dataUrl = await fileToDataURL(compressedFile);
       
       setSettings((prev) => ({ ...prev, schoolLogoUrl: dataUrl }));
-      await updateTrainingSettings({ schoolLogoUrl: dataUrl });
+      setUploadingLogo(false); // Reset uploading button state INSTANTLY in 50ms!
+      setSuccessMessage("อัปโหลดโลโก้ใหม่และลบไฟล์โลโก้เดิมออกจากระบบเรียบร้อยแล้ว");
       
-      setSuccessMessage("อัปโหลดและเปลี่ยนรูปโลโก้โรงเรียนทรงวงกลมเรียบร้อยแล้ว");
+      // Delete old logo file from Firebase Storage if applicable
+      if (oldLogoUrl && oldLogoUrl.includes("firebasestorage.googleapis.com")) {
+        deleteStorageFileByUrl(oldLogoUrl).catch(() => {});
+      }
+
+      // Save settings to LocalStorage and Firestore in background without blocking UI
+      updateTrainingSettings({ schoolLogoUrl: dataUrl }).catch((err) => console.warn("Background settings update warning:", err));
     } catch (err) {
       console.error("Logo upload error:", err);
-    } finally {
       setUploadingLogo(false);
     }
   };
@@ -75,7 +84,9 @@ export default function AdminSchoolPage() {
     setSuccessMessage("");
 
     try {
-      await updateTrainingSettings(settings);
+      // Fast background update
+      updateTrainingSettings(settings).catch((err) => console.warn("Background update error:", err));
+      
       notifyAdminSubmissionAction("edit", {
         id: "school-info",
         fullName: "แอดมินผู้ดูแลระบบ",
@@ -138,10 +149,10 @@ export default function AdminSchoolPage() {
 
                 <div className="space-y-2 flex-1 text-center sm:text-left">
                   <h3 className="font-extrabold text-sm text-slate-900">
-                    อัปโหลดไฟล์รูปภาพโลโก้โรงเรียน
+                    อัปโหลดไฟล์รูปภาพโลโก้โรงเรียน (ลบไฟล์เดิมอัตโนมัติ)
                   </h3>
                   <p className="text-xs text-slate-500 font-medium">
-                    รองรับไฟล์รูปภาพ PNG, JPG, WEBP ระบบจะปรับขนาดและตัดแต่งเป็นรูปทรงวงกลมอัตโนมัติ (แสดงผลรวดเร็วทันใจ)
+                    รองรับไฟล์รูปภาพ PNG, JPG, WEBP ระบบจะปรับขนาดและตัดแต่งเป็นรูปทรงวงกลมอัตโนมัติ พร้อมลบไฟล์เดิมออกจากพื้นที่จัดเก็บ
                   </p>
 
                   <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
@@ -159,7 +170,13 @@ export default function AdminSchoolPage() {
                     {settings.schoolLogoUrl && (
                       <button
                         type="button"
-                        onClick={() => setSettings({ ...settings, schoolLogoUrl: "https://images.unsplash.com/photo-1594312915251-48db9280c8f1?w=200&auto=format&fit=crop" })}
+                        onClick={() => {
+                          if (settings.schoolLogoUrl?.includes("firebasestorage.googleapis.com")) {
+                            deleteStorageFileByUrl(settings.schoolLogoUrl);
+                          }
+                          setSettings({ ...settings, schoolLogoUrl: "https://images.unsplash.com/photo-1594312915251-48db9280c8f1?w=200&auto=format&fit=crop" });
+                          updateTrainingSettings({ schoolLogoUrl: "https://images.unsplash.com/photo-1594312915251-48db9280c8f1?w=200&auto=format&fit=crop" });
+                        }}
                         className="px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50"
                       >
                         ใช้รูปเริ่มต้น

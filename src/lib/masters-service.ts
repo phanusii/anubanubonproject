@@ -7,8 +7,8 @@ import { DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "./submission-servi
 let cachedGradeLevels: GradeLevelOption[] | null = null;
 let cachedSubjectGroups: SubjectGroupOption[] | null = null;
 
-export async function getGradeLevels(): Promise<GradeLevelOption[]> {
-  if (cachedGradeLevels && cachedGradeLevels.length > 0) {
+export async function getGradeLevels(forceRefresh = false): Promise<GradeLevelOption[]> {
+  if (!forceRefresh && cachedGradeLevels) {
     return cachedGradeLevels;
   }
 
@@ -17,7 +17,7 @@ export async function getGradeLevels(): Promise<GradeLevelOption[]> {
     if (local) {
       try { 
         const parsed = JSON.parse(local);
-        if (parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           cachedGradeLevels = parsed;
           return parsed;
         }
@@ -37,17 +37,17 @@ export async function getGradeLevels(): Promise<GradeLevelOption[]> {
       return items;
     }
   } catch (err) {
-    console.warn("Firestore getGradeLevels error, using default grade levels:", err);
+    console.warn("Firestore getGradeLevels error:", err);
   }
 
-  cachedGradeLevels = DEFAULT_GRADE_LEVELS;
+  cachedGradeLevels = [...DEFAULT_GRADE_LEVELS];
   if (typeof window !== "undefined") {
     localStorage.setItem("app_grade_levels", JSON.stringify(DEFAULT_GRADE_LEVELS));
   }
-  return DEFAULT_GRADE_LEVELS;
+  return [...DEFAULT_GRADE_LEVELS];
 }
 
-export async function saveGradeLevel(item: GradeLevelOption): Promise<void> {
+export async function saveGradeLevel(item: GradeLevelOption): Promise<GradeLevelOption[]> {
   const current = await getGradeLevels();
   const existingIdx = current.findIndex((g) => g.id === item.id);
   if (existingIdx >= 0) {
@@ -66,9 +66,11 @@ export async function saveGradeLevel(item: GradeLevelOption): Promise<void> {
   } catch (err) {
     console.warn("Firestore saveGradeLevel error:", err);
   }
+
+  return [...current];
 }
 
-export async function deleteGradeLevel(id: string): Promise<void> {
+export async function deleteGradeLevel(id: string): Promise<GradeLevelOption[]> {
   const current = await getGradeLevels();
   const filtered = current.filter((g) => g.id !== id);
 
@@ -82,10 +84,12 @@ export async function deleteGradeLevel(id: string): Promise<void> {
   } catch (err) {
     console.warn("Firestore deleteGradeLevel error:", err);
   }
+
+  return [...filtered];
 }
 
-export async function getSubjectGroups(): Promise<SubjectGroupOption[]> {
-  if (cachedSubjectGroups && cachedSubjectGroups.length > 0) {
+export async function getSubjectGroups(forceRefresh = false): Promise<SubjectGroupOption[]> {
+  if (!forceRefresh && cachedSubjectGroups) {
     return cachedSubjectGroups;
   }
 
@@ -94,7 +98,7 @@ export async function getSubjectGroups(): Promise<SubjectGroupOption[]> {
     if (local) {
       try { 
         const parsed = JSON.parse(local);
-        if (parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           cachedSubjectGroups = parsed;
           return parsed;
         }
@@ -114,17 +118,17 @@ export async function getSubjectGroups(): Promise<SubjectGroupOption[]> {
       return items;
     }
   } catch (err) {
-    console.warn("Firestore getSubjectGroups error, using default subject groups:", err);
+    console.warn("Firestore getSubjectGroups error:", err);
   }
 
-  cachedSubjectGroups = DEFAULT_SUBJECT_GROUPS;
+  cachedSubjectGroups = [...DEFAULT_SUBJECT_GROUPS];
   if (typeof window !== "undefined") {
     localStorage.setItem("app_subject_groups", JSON.stringify(DEFAULT_SUBJECT_GROUPS));
   }
-  return DEFAULT_SUBJECT_GROUPS;
+  return [...DEFAULT_SUBJECT_GROUPS];
 }
 
-export async function saveSubjectGroup(item: SubjectGroupOption): Promise<void> {
+export async function saveSubjectGroup(item: SubjectGroupOption): Promise<SubjectGroupOption[]> {
   const current = await getSubjectGroups();
   const existingIdx = current.findIndex((s) => s.id === item.id);
   if (existingIdx >= 0) {
@@ -143,9 +147,11 @@ export async function saveSubjectGroup(item: SubjectGroupOption): Promise<void> 
   } catch (err) {
     console.warn("Firestore saveSubjectGroup error:", err);
   }
+
+  return [...current];
 }
 
-export async function deleteSubjectGroup(id: string): Promise<void> {
+export async function deleteSubjectGroup(id: string): Promise<SubjectGroupOption[]> {
   const current = await getSubjectGroups();
   const filtered = current.filter((s) => s.id !== id);
 
@@ -159,4 +165,6 @@ export async function deleteSubjectGroup(id: string): Promise<void> {
   } catch (err) {
     console.warn("Firestore deleteSubjectGroup error:", err);
   }
+
+  return [...filtered];
 }
