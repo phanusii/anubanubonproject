@@ -22,10 +22,26 @@ export default function Navbar() {
 
   useEffect(() => {
     async function loadSettings() {
-      const s = await getTrainingSettings();
+      const s = await getTrainingSettings(true);
       setSettings(s);
     }
     loadSettings();
+
+    const handleUpdate = () => {
+      loadSettings();
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("settings_updated", handleUpdate);
+      window.addEventListener("storage", handleUpdate);
+    }
+
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("settings_updated", handleUpdate);
+        window.removeEventListener("storage", handleUpdate);
+      }
+    };
   }, []);
 
   const navItems = [

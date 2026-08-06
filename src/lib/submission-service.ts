@@ -359,46 +359,48 @@ export function fileToDataURL(file: File): Promise<string> {
 }
 
 /**
- * Fetch Training Settings with High Performance Caching
+ * Fetch Training Settings with High Performance Caching (Prioritizes local custom logo & settings)
  */
 export async function getTrainingSettings(forceRefresh = false): Promise<TrainingSettings> {
   const now = Date.now();
+
+  let localData: TrainingSettings | null = null;
+  if (typeof window !== "undefined") {
+    const local = localStorage.getItem("app_settings");
+    if (local) {
+      try { 
+        localData = JSON.parse(local);
+      } catch {}
+    }
+  }
+
   if (!forceRefresh && memorySettingsCache && (now - memorySettingsCache.timestamp < CACHE_TTL_MS)) {
-    return memorySettingsCache.data;
+    return localData ? { ...DEFAULT_SETTINGS, ...localData, ...memorySettingsCache.data } : memorySettingsCache.data;
   }
 
   try {
     const docRef = doc(db, "settings", "training");
     const snapshot = await getDoc(docRef);
     if (snapshot.exists()) {
-      const data = { ...DEFAULT_SETTINGS, ...snapshot.data() } as TrainingSettings;
-      memorySettingsCache = { data, timestamp: now };
+      const firestoreData = snapshot.data();
+      const merged = { ...DEFAULT_SETTINGS, ...localData, ...firestoreData } as TrainingSettings;
+      memorySettingsCache = { data: merged, timestamp: now };
       if (typeof window !== "undefined") {
-        localStorage.setItem("app_settings", JSON.stringify(data));
+        localStorage.setItem("app_settings", JSON.stringify(merged));
       }
-      return data;
+      return merged;
     }
   } catch (err) {
     console.warn("Firestore fetch settings error, using cached settings:", err);
   }
-  
-  if (typeof window !== "undefined") {
-    const local = localStorage.getItem("app_settings");
-    if (local) {
-      try { 
-        const data = JSON.parse(local);
-        memorySettingsCache = { data, timestamp: now };
-        return data; 
-      } catch {}
-    }
-  }
-  
-  memorySettingsCache = { data: DEFAULT_SETTINGS, timestamp: now };
-  return DEFAULT_SETTINGS;
+
+  const finalData = localData ? { ...DEFAULT_SETTINGS, ...localData } : DEFAULT_SETTINGS;
+  memorySettingsCache = { data: finalData, timestamp: now };
+  return finalData;
 }
 
 /**
- * Save / Update Training Settings (automatically deletes old logo/banner file if updated)
+ * Save / Update Training Settings (automatically deletes old logo/banner file and dispatches instant UI update)
  */
 export async function updateTrainingSettings(settings: Partial<TrainingSettings>): Promise<void> {
   const current = await getTrainingSettings();
@@ -413,11 +415,14 @@ export async function updateTrainingSettings(settings: Partial<TrainingSettings>
 
   if (typeof window !== "undefined") {
     localStorage.setItem("app_settings", JSON.stringify(updated));
+    // Dispatch custom browser events so Navbar, Header, and all pages update logo INSTANTLY!
+    window.dispatchEvent(new Event("settings_updated"));
+    window.dispatchEvent(new Event("storage"));
   }
 
   try {
     const docRef = doc(db, "settings", "training");
-    await setDoc(docRef, settings, { merge: true });
+    await setDoc(docRef, updated, { merge: true });
   } catch (err) {
     console.warn("Firestore save settings error, saved to local cache:", err);
   }
