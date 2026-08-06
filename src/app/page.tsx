@@ -8,7 +8,8 @@ import MasonryCard from "@/components/MasonryCard";
 import SubmissionModal from "@/components/SubmissionModal";
 import { getSubmissions, getTrainingSettings, getInstantSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
-import { Submission, TrainingSettings, GradeLevelOption, SubjectGroupOption } from "@/lib/types";
+import { getActiveProject } from "@/lib/projects-service";
+import { Submission, TrainingSettings, GradeLevelOption, SubjectGroupOption, Project } from "@/lib/types";
 import { 
   Send, 
   Search, 
@@ -25,6 +26,7 @@ import {
 export default function Home() {
   const [submissions, setSubmissions] = useState<Submission[]>(getInstantSubmissions());
   const [settings, setSettings] = useState<TrainingSettings>(getInstantSettings());
+  const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
   const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>(DEFAULT_SUBJECT_GROUPS);
   // Only show the skeleton on a genuinely cold start (no cached/instant data yet).
@@ -41,14 +43,17 @@ export default function Home() {
   useEffect(() => {
     async function loadDataParallel() {
       try {
-        const [settingsData, subsData, glsData, sgsData] = await Promise.all([
+        const [settingsData, active, glsData, sgsData] = await Promise.all([
           getTrainingSettings(true),
-          getSubmissions({ limitNum: 12 }),
+          getActiveProject(),
           getGradeLevels(),
           getSubjectGroups(),
         ]);
+        // Latest works from the active round (falls back to all if no round yet).
+        const subsData = await getSubmissions({ limitNum: 12, projectId: active?.id });
 
         if (settingsData) setSettings(settingsData);
+        setActiveProject(active);
         if (subsData.length > 0) setSubmissions(subsData);
         if (glsData.length > 0) setGradeLevels(glsData);
         if (sgsData.length > 0) setSubjectGroups(sgsData);
@@ -102,12 +107,12 @@ export default function Home() {
             {/* Header Badge */}
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/20 backdrop-blur-md text-xs font-bold border border-white/30 shadow-xs">
               <Sparkles className="w-4 h-4 text-amber-300 animate-pulse" />
-              <span>{settings?.categoryType || "การส่งผลงานนวัตกรรมการเรียนรู้"} ปีการศึกษา {settings?.academicYear || "2569"}</span>
+              <span>{activeProject?.categoryType || settings?.categoryType || "การส่งผลงานนวัตกรรมการเรียนรู้"} ปีการศึกษา {activeProject?.academicYear || settings?.academicYear || "2569"}</span>
             </div>
 
             {/* Title */}
             <h1 className="text-2xl sm:text-4xl md:text-5xl font-extrabold tracking-tight leading-tight text-white drop-shadow-xs">
-              {settings?.trainingName || "โครงการส่งเสริมและพัฒนานวัตกรรมการจัดการเรียนรู้เชิงรุก (Active Learning)"}
+              {activeProject?.name || settings?.trainingName || "โครงการส่งเสริมและพัฒนานวัตกรรมการจัดการเรียนรู้เชิงรุก (Active Learning)"}
             </h1>
 
             {/* School & Educational Area */}
@@ -124,7 +129,7 @@ export default function Home() {
 
             {/* Description */}
             <p className="text-xs sm:text-sm text-blue-50/90 leading-relaxed font-medium line-clamp-3">
-              {settings?.trainingDescription || "ขอเชิญชวนข้าราชการครูและบุคลากรทางการศึกษา ร่วมส่งผลงานแผนการจัดการเรียนรู้ สื่อดิจิทัล และผลงานนวัตกรรมเพื่อการเรียนรู้"}
+              {activeProject?.description || settings?.trainingDescription || "ขอเชิญชวนข้าราชการครูและบุคลากรทางการศึกษา ร่วมส่งผลงานแผนการจัดการเรียนรู้ สื่อดิจิทัล และผลงานนวัตกรรมเพื่อการเรียนรู้"}
             </p>
 
             {/* Active Filter Mode Indicator */}

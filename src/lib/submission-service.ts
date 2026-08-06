@@ -598,6 +598,7 @@ export async function getSubmissions(params?: {
   sortBy?: "newest" | "oldest" | "name";
   limitNum?: number;
   ignoreProjectFilter?: boolean;
+  projectId?: string; // filter to a specific training round/project
   forceRefresh?: boolean;
 }): Promise<Submission[]> {
   const now = Date.now();
@@ -679,6 +680,11 @@ export async function getSubmissions(params?: {
     results = results.filter((s) => s.subjectGroup === params.subjectGroup);
   }
 
+  // Filter by training round/project
+  if (params?.projectId) {
+    results = results.filter((s) => s.projectId === params.projectId);
+  }
+
   // Sorting
   if (params?.sortBy === "oldest") {
     results.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
@@ -711,6 +717,7 @@ export async function getSubmissionsPage(params?: {
   pageSize?: number;
   cursor?: QueryDocumentSnapshot<DocumentData> | null;
   ignoreProjectFilter?: boolean;
+  projectId?: string; // filter to a specific training round/project
 }): Promise<SubmissionsPage> {
   const pageSize = params?.pageSize ?? 60;
 
@@ -739,6 +746,11 @@ export async function getSubmissionsPage(params?: {
           return text.includes(filterKey);
         });
       }
+    }
+
+    // Filter to a specific training round/project (by stamped projectId).
+    if (params?.projectId) {
+      items = items.filter((s) => s.projectId === params.projectId);
     }
 
     return { items, cursor: lastDoc, hasMore };

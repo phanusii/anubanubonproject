@@ -8,6 +8,9 @@ export interface Submission {
   subjectGroup: string;
   projectTitle: string;
   description?: string;
+  // Which training round/project this submission belongs to (stamped at creation)
+  projectId?: string;
+  projectName?: string;
   fileType: string; // 'pdf' | 'png' | 'jpg' | 'jpeg' | 'webp' | 'drive'
   fileURL: string;
   fileName?: string;
@@ -35,12 +38,34 @@ export interface TrainingSettings {
   categoryType?: string; // "การส่งผลงานการอบรม" | "การส่งผลงานโครงการ" | "การประกวดผลงานนวัตกรรม"
   academicYear?: string; // "2569"
   workSlotTitles?: string[]; // Custom slot titles defined by Admin
-  // Active Project Display Filter Settings
+  // Active Project Display Filter Settings (legacy text-match; superseded by activeProjectId)
   activeProjectFilterMode?: 'all' | 'specific'; // 'all' | 'specific'
   activeProjectFilterName?: string; // Specific training/project name to filter public display
+  // The training round/project currently open for submission and shown by default
+  activeProjectId?: string;
   // Telegram Bot Notification Settings
   telegramChatId?: string;
   telegramNotificationsEnabled?: boolean;
+}
+
+/**
+ * A training round / project. Multiple can exist over time; one is "active"
+ * (open for submission and shown by default on the public gallery).
+ */
+export interface Project {
+  id: string;
+  name: string;
+  categoryType?: string;
+  academicYear?: string;
+  description?: string;
+  bannerUrl?: string;
+  openDate?: string;
+  closeDate?: string;
+  workSlotTitles: string[];
+  maxUpload: number;
+  status?: 'active' | 'closed';
+  createdAt?: number;
+  order?: number;
 }
 
 export interface GradeLevelOption {
