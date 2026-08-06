@@ -517,34 +517,7 @@ export default function SubmitPage() {
                   </select>
                 </div>
 
-                {/* School */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-slate-700">
-                    โรงเรียน / หน่วยงาน <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="โรงเรียนอนุบาลอุบลราชธานี"
-                    value={school}
-                    onChange={(e) => setSchool(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition-all text-sm"
-                  />
-                </div>
-
-                {/* Province */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-slate-700">
-                    จังหวัด
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="อุบลราชธานี"
-                    value={province}
-                    onChange={(e) => setProvince(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition-all text-sm"
-                  />
-                </div>
+                {/* School & province are auto-filled from settings; fields removed from the form. */}
               </div>
             </div>
 
