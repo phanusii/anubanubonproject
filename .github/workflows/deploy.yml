@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - master
+  # Allow manual "Run workflow" from the GitHub Actions tab.
+  workflow_dispatch:
 
 jobs:
   build_and_deploy:
@@ -25,8 +27,8 @@ jobs:
       - name: Build Next.js App
         run: npx next build --webpack
         env:
-          # Firebase client config is embedded into the static bundle at build time.
-          # Add these as repository secrets: Settings → Secrets and variables → Actions.
+          # Firebase client config is embedded in the code as defaults; these optional
+          # secrets override it if you ever set them.
           NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
           NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
@@ -36,16 +38,17 @@ jobs:
 
       - name: Check Firebase Service Account Secret
         id: check_secret
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUBANUBONPROJECT }}
         run: |
-          if [ -n "${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUBANUBONPROJECT }}" ]; then
+          if [ -n "$SA_JSON" ]; then
             echo "has_secret=true" >> $GITHUB_OUTPUT
           else
             echo "has_secret=false" >> $GITHUB_OUTPUT
-            echo "⚠️ Notice: FIREBASE_SERVICE_ACCOUNT_ANUBANUBONPROJECT secret is not set in GitHub repository settings yet."
-            echo "Code compilation & build succeeded 100%!"
+            echo "⚠️ FIREBASE_SERVICE_ACCOUNT_ANUBANUBONPROJECT secret is not set — build succeeded but deploy is skipped."
           fi
 
-      - name: Deploy to Firebase Hosting
+      - name: Deploy Hosting (website)
         if: steps.check_secret.outputs.has_secret == 'true'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
@@ -53,3 +56,12 @@ jobs:
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUBANUBONPROJECT }}'
           channelId: live
           projectId: anubanubonproject
+
+      - name: Deploy Firestore & Storage rules
+        if: steps.check_secret.outputs.has_secret == 'true'
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUBANUBONPROJECT }}
+        run: |
+          printf '%s' "$SA_JSON" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx firebase-tools deploy --only firestore:rules,storage --project anubanubonproject --non-interactive
