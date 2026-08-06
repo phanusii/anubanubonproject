@@ -1,0 +1,17 @@
+{
+  "name": "functions",
+  "description": "Cloud Functions for the training submission app (server-side Telegram notifications)",
+  "type": "module",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "scripts": {
+    "serve": "firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "firebase-functions": "^6.1.0"
+  },
+  "private": true
+}
