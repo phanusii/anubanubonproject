@@ -1,0 +1,39 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check admin auth
+    function isAdmin() {
+      return request.auth != null;
+    }
+
+    // Settings collection
+    match /settings/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Grade Levels collection
+    match /gradeLevels/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Subject Groups collection
+    match /subjectGroups/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Submissions collection
+    match /submissions/{submissionId} {
+      // Public user can read all submissions and create new ones
+      allow read: if true;
+      allow create: if true;
+      
+      // Update and delete strictly restricted to Admin
+      allow update, delete: if isAdmin();
+    }
+  }
+}

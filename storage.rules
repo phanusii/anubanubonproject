@@ -1,0 +1,21 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{year}/{month}/{fileName} {
+      // Allow public read for portfolio showcase
+      allow read: if true;
+
+      // Allow create if file size <= 50MB and type is pdf, png, jpg, jpeg, webp
+      allow create: if request.resource.size <= 50 * 1024 * 1024
+                    && (request.resource.contentType.matches('application/pdf')
+                        || request.resource.contentType.matches('image/png')
+                        || request.resource.contentType.matches('image/jpeg')
+                        || request.resource.contentType.matches('image/jpg')
+                        || request.resource.contentType.matches('image/webp'));
+
+      // Delete & Update allowed for Admin
+      allow update, delete: if request.auth != null;
+    }
+  }
+}

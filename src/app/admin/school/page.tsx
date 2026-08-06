@@ -1,0 +1,260 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
+import AdminSidebar from "@/components/AdminSidebar";
+import { getTrainingSettings, updateTrainingSettings, compressAndResizeImage, fileToDataURL } from "@/lib/submission-service";
+import { notifyAdminSubmissionAction } from "@/lib/telegram-service";
+import { TrainingSettings } from "@/lib/types";
+import { Building, Upload, Image as ImageIcon, CheckCircle2, Save, Sparkles, MapPin, GraduationCap } from "lucide-react";
+
+export default function AdminSchoolPage() {
+  const router = useRouter();
+
+  const [settings, setSettings] = useState<TrainingSettings>({
+    maxUpload: 10,
+    trainingName: "",
+    trainingDescription: "",
+    openDate: "",
+    closeDate: "",
+    bannerUrl: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=1200&auto=format&fit=crop",
+    allowSubmissions: true,
+    schoolLogoUrl: "https://images.unsplash.com/photo-1594312915251-48db9280c8f1?w=200&auto=format&fit=crop",
+    schoolName: "โรงเรียนอนุบาลอุบลราชธานี",
+    educationalArea: "สำนักงานเขตพื้นที่การศึกษาประถมศึกษาอุบลราชธานี เขต 1",
+    categoryType: "การส่งผลงานนวัตกรรมการเรียนรู้",
+    academicYear: "2569",
+  });
+
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const session = localStorage.getItem("admin_session");
+      if (!session) {
+        router.push("/admin/login");
+        return;
+      }
+    }
+
+    async function load() {
+      const data = await getTrainingSettings();
+      setSettings(data);
+    }
+    load();
+  }, [router]);
+
+  // Instant Logo File Handler (< 50ms DataURL preview!)
+  const handleLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingLogo(true);
+    try {
+      const compressedFile = await compressAndResizeImage(file, 300, 300, 0.85);
+      const dataUrl = await fileToDataURL(compressedFile);
+      
+      setSettings((prev) => ({ ...prev, schoolLogoUrl: dataUrl }));
+      await updateTrainingSettings({ schoolLogoUrl: dataUrl });
+      
+      setSuccessMessage("อัปโหลดและเปลี่ยนรูปโลโก้โรงเรียนทรงวงกลมเรียบร้อยแล้ว");
+    } catch (err) {
+      console.error("Logo upload error:", err);
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setSuccessMessage("");
+
+    try {
+      await updateTrainingSettings(settings);
+      notifyAdminSubmissionAction("edit", {
+        id: "school-info",
+        fullName: "แอดมินผู้ดูแลระบบ",
+        projectTitle: `อัปเดตข้อมูลโรงเรียน: ${settings.schoolName}`,
+      }).catch((err) => console.warn("Telegram error:", err));
+
+      setSuccessMessage("บันทึกข้อมูลโรงเรียนและเปลี่ยนรูปโลโก้เรียบร้อยแล้ว");
+    } catch (err) {
+      console.error("Save school info error:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <Navbar />
+
+      <div className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 flex flex-col md:flex-row gap-6">
+        <AdminSidebar />
+
+        <main className="flex-1 space-y-6">
+          {/* Page Header */}
+          <div className="glass-panel p-6 rounded-3xl border border-white bg-white shadow-xs space-y-1">
+            <h1 className="text-2xl font-extrabold text-slate-900 flex items-center gap-2">
+              <Building className="w-6 h-6 text-blue-600" />
+              <span>ข้อมูลโรงเรียน & อัปโหลดรูปโลโก้โรงเรียน</span>
+            </h1>
+            <p className="text-xs font-semibold text-slate-500">
+              จัดการชื่อโรงเรียน สังกัดเขตพื้นที่การศึกษา อัปโหลดโลโก้โรงเรียนทรงวงกลม และภาพแบนเนอร์ส่วนหัว
+            </p>
+          </div>
+
+          <form onSubmit={handleSave} className="glass-panel p-6 sm:p-8 rounded-3xl border border-white space-y-6 shadow-xs bg-white">
+            {/* School Logo Section */}
+            <div className="p-6 rounded-3xl bg-blue-50/70 border border-blue-100 space-y-4">
+              <div className="flex items-center gap-2 text-blue-900 font-extrabold text-sm pb-2 border-b border-blue-100">
+                <ImageIcon className="w-5 h-5 text-blue-600" />
+                <span>โลโก้โรงเรียน (รูปทรงวงกลม)</span>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-6">
+                <div className="relative group shrink-0">
+                  <img
+                    src={settings.schoolLogoUrl || "https://images.unsplash.com/photo-1594312915251-48db9280c8f1?w=200&auto=format&fit=crop"}
+                    alt="School Logo"
+                    className="w-28 h-28 rounded-full object-cover border-4 border-white shadow-lg ring-4 ring-blue-500/20"
+                  />
+                  <label className="absolute inset-0 rounded-full bg-slate-900/40 text-white flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-[10px] font-bold">
+                    <Upload className="w-5 h-5 mb-1" />
+                    <span>เปลี่ยนโลโก้</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLogoFileChange}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                <div className="space-y-2 flex-1 text-center sm:text-left">
+                  <h3 className="font-extrabold text-sm text-slate-900">
+                    อัปโหลดไฟล์รูปภาพโลโก้โรงเรียน
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    รองรับไฟล์รูปภาพ PNG, JPG, WEBP ระบบจะปรับขนาดและตัดแต่งเป็นรูปทรงวงกลมอัตโนมัติ (แสดงผลรวดเร็วทันใจ)
+                  </p>
+
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+                    <label className="px-5 py-2.5 rounded-2xl ios-gradient-blue text-white font-extrabold text-xs shadow-md shadow-blue-500/20 cursor-pointer flex items-center gap-2 hover:scale-105 transition-all">
+                      <Upload className="w-4 h-4" />
+                      <span>{uploadingLogo ? "กำลังอัปโหลด..." : "เลือกรูปภาพโลโก้ใหม่"}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleLogoFileChange}
+                        className="hidden"
+                      />
+                    </label>
+
+                    {settings.schoolLogoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setSettings({ ...settings, schoolLogoUrl: "https://images.unsplash.com/photo-1594312915251-48db9280c8f1?w=200&auto=format&fit=crop" })}
+                        className="px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50"
+                      >
+                        ใช้รูปเริ่มต้น
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* School Name & Area Info Inputs */}
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Building className="w-4 h-4 text-blue-600" />
+                  <span>ชื่อโรงเรียน <span className="text-red-500">*</span></span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="เช่น โรงเรียนอนุบาลอุบลราชธานี"
+                  value={settings.schoolName || ""}
+                  onChange={(e) => setSettings({ ...settings, schoolName: e.target.value })}
+                  className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-bold text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4 text-blue-600" />
+                  <span>สังกัด / เขตพื้นที่การศึกษา <span className="text-red-500">*</span></span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="เช่น สำนักงานเขตพื้นที่การศึกษาประถมศึกษาอุบลราชธานี เขต 1"
+                  value={settings.educationalArea || ""}
+                  onChange={(e) => setSettings({ ...settings, educationalArea: e.target.value })}
+                  className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-bold text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Banner URL Section */}
+            <div className="space-y-3 pt-2">
+              <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <ImageIcon className="w-4 h-4 text-blue-600" />
+                <span>URL รูปภาพแบนเนอร์ส่วนหัว (Header Banner)</span>
+              </label>
+              <input
+                type="url"
+                placeholder="https://..."
+                value={settings.bannerUrl || ""}
+                onChange={(e) => setSettings({ ...settings, bannerUrl: e.target.value })}
+                className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
+              />
+
+              {settings.bannerUrl && (
+                <div className="rounded-2xl overflow-hidden border border-slate-200 h-36 relative shadow-xs">
+                  <img
+                    src={settings.bannerUrl}
+                    alt="Banner Preview"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-slate-900/20 flex items-center justify-center">
+                    <span className="px-3 py-1 rounded-full bg-black/50 text-white text-[11px] font-bold backdrop-blur-md">
+                      ตัวอย่างการแสดงผลแบนเนอร์ส่วนหัว
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {successMessage && (
+              <div className="p-4 rounded-2xl bg-emerald-50 text-emerald-700 text-sm border border-emerald-200 flex items-center gap-2 font-bold animate-in fade-in">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                <span>{successMessage}</span>
+              </div>
+            )}
+
+            <div className="pt-4 border-t border-slate-100 flex justify-end">
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-8 py-3.5 rounded-2xl ios-gradient-blue text-white font-extrabold text-sm shadow-md shadow-blue-500/25 flex items-center gap-2 hover:scale-[1.02] transition-all disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                <span>{saving ? "กำลังบันทึก..." : "บันทึกข้อมูลโรงเรียนและโลโก้"}</span>
+              </button>
+            </div>
+          </form>
+        </main>
+      </div>
+
+      <Footer />
+    </div>
+  );
+}
