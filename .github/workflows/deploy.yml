@@ -57,11 +57,24 @@ jobs:
           channelId: live
           projectId: anubanubonproject
 
-      - name: Deploy Firestore & Storage rules
+      - name: Deploy Firestore rules
         if: steps.check_secret.outputs.has_secret == 'true'
         env:
           SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUBANUBONPROJECT }}
         run: |
           printf '%s' "$SA_JSON" > "$RUNNER_TEMP/sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
-          npx firebase-tools deploy --only firestore:rules,storage --project anubanubonproject --non-interactive
+          npx firebase-tools deploy --only firestore:rules --project anubanubonproject --non-interactive
+
+      - name: Deploy Storage rules
+        # Storage rules deploy needs the service account to have the "Service Usage
+        # Consumer" role; if it doesn't, don't fail the whole deploy — the website and
+        # Firestore rules still ship. Grant that role to enable this step.
+        if: steps.check_secret.outputs.has_secret == 'true'
+        continue-on-error: true
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUBANUBONPROJECT }}
+        run: |
+          printf '%s' "$SA_JSON" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx firebase-tools deploy --only storage --project anubanubonproject --non-interactive
