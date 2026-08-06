@@ -316,23 +316,24 @@ export async function uploadFileToStorage(
   rawFile: File, 
   onProgress?: (percent: number) => void
 ): Promise<string> {
-  if (onProgress) onProgress(20);
+  if (onProgress) onProgress(10);
 
-  // 1. Compress Image Client-Side first (< 200KB)
+  // 1. Compress images client-side (PDFs and other files upload as-is).
   let fileToUpload = rawFile;
   if (rawFile.type.startsWith("image/")) {
     try {
       fileToUpload = await compressAndResizeImage(rawFile, 800, 800, 0.8);
-      if (onProgress) onProgress(50);
     } catch (compressErr) {
       console.warn("Image compression fallback:", compressErr);
     }
   }
+  if (onProgress) onProgress(15);
 
-  // Lazily build the base64 fallback only if the upload actually fails/times out.
-  // (Pre-encoding it here would delay the upload start for large files.)
-  let fallbackPromise: Promise<string> | null = null;
-  const getFallback = () => (fallbackPromise ??= fileToDataURL(fileToUpload));
+  // An inline base64 fallback is only safe for SMALL files — Firestore documents are
+  // capped at ~1MB, so a multi-MB PDF as base64 would break the write. Large files must
+  // reach Storage; if that fails we surface an error instead of saving a broken document.
+  const SMALL_FILE_LIMIT = 500 * 1024;
+  const canInlineFallback = fileToUpload.size <= SMALL_FILE_LIMIT;
 
   const now = new Date();
   const year = now.getFullYear();
@@ -341,46 +342,56 @@ export async function uploadFileToStorage(
   const ext = fileToUpload.name.split(".").pop() || "bin";
   const path = `uploads/${year}/${month}/${Date.now()}_${randomId}.${ext}`;
 
-  // 2. Race between Storage Upload and a safety timeout (fallback: inline DataURL)
-  const storagePromise = new Promise<string>((resolve) => {
+  return new Promise<string>((resolve, reject) => {
+    let settled = false;
+    const done = (fn: () => void) => { if (!settled) { settled = true; fn(); } };
+    const failOrFallback = async (message: string) => {
+      if (settled) return;
+      if (canInlineFallback) {
+        const dataUrl = await fileToDataURL(fileToUpload);
+        done(() => resolve(dataUrl));
+      } else {
+        done(() => reject(new Error(message)));
+      }
+    };
+
+    let uploadTask: ReturnType<typeof uploadBytesResumable>;
     try {
-      const storageRef = ref(storage, path);
-      const uploadTask = uploadBytesResumable(storageRef, fileToUpload);
-
-      uploadTask.on(
-        "state_changed",
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          if (onProgress) onProgress(Math.min(95, Math.max(50, Math.round(progress))));
-        },
-        async (error) => {
-          console.warn("Storage upload task error, returning DataURL fallback:", error);
-          resolve(await getFallback());
-        },
-        async () => {
-          try {
-            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-            resolve(downloadURL);
-          } catch {
-            resolve(await getFallback());
-          }
-        }
-      );
+      uploadTask = uploadBytesResumable(ref(storage, path), fileToUpload);
     } catch {
-      getFallback().then(resolve);
+      failOrFallback("เริ่มอัปโหลดไม่สำเร็จ ลองใหม่ หรือแนบเป็นลิงก์ Google Drive สำหรับไฟล์ใหญ่");
+      return;
     }
-  });
 
-  const timeoutPromise = new Promise<string>((resolve) => {
-    setTimeout(async () => {
-      console.warn("Storage upload 30s timeout reached, using instant DataURL fallback.");
-      resolve(await getFallback());
-    }, 30000);
-  });
+    // Hard cap so a truly stuck upload doesn't hang forever (real uploads report progress).
+    const hardTimeout = setTimeout(() => {
+      try { uploadTask.cancel(); } catch {}
+      failOrFallback("อัปโหลดใช้เวลานานเกินไป (ไฟล์ใหญ่หรืออินเทอร์เน็ตช้า) — ลองใหม่ หรือแนบเป็นลิงก์ Google Drive แทน");
+    }, 180000);
 
-  const resultUrl = await Promise.race([storagePromise, timeoutPromise]);
-  if (onProgress) onProgress(100);
-  return resultUrl;
+    uploadTask.on(
+      "state_changed",
+      (snapshot) => {
+        const pct = snapshot.totalBytes > 0 ? (snapshot.bytesTransferred / snapshot.totalBytes) * 100 : 0;
+        if (onProgress) onProgress(Math.min(95, Math.max(15, Math.round(pct))));
+      },
+      (error) => {
+        clearTimeout(hardTimeout);
+        console.warn("Storage upload error:", error);
+        failOrFallback("อัปโหลดไฟล์ไม่สำเร็จ ลองใหม่อีกครั้ง หรือแนบเป็นลิงก์ Google Drive แทน");
+      },
+      async () => {
+        clearTimeout(hardTimeout);
+        try {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          if (onProgress) onProgress(100);
+          done(() => resolve(downloadURL));
+        } catch {
+          failOrFallback("อัปโหลดสำเร็จแต่ดึงลิงก์ไฟล์ไม่ได้ ลองใหม่อีกครั้ง");
+        }
+      }
+    );
+  });
 }
 
 /**
