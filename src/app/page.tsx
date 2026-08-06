@@ -6,7 +6,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import MasonryCard from "@/components/MasonryCard";
 import SubmissionModal from "@/components/SubmissionModal";
-import { getSubmissions, getTrainingSettings } from "@/lib/submission-service";
+import { getSubmissions, getTrainingSettings, getInstantSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { Submission, TrainingSettings, GradeLevelOption, SubjectGroupOption } from "@/lib/types";
 import { 
@@ -23,11 +23,11 @@ import {
 } from "lucide-react";
 
 export default function Home() {
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [settings, setSettings] = useState<TrainingSettings | null>(null);
-  const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>([]);
-  const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [submissions, setSubmissions] = useState<Submission[]>(getInstantSubmissions());
+  const [settings, setSettings] = useState<TrainingSettings>(getInstantSettings());
+  const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
+  const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>(DEFAULT_SUBJECT_GROUPS);
+  const [loading, setLoading] = useState(false);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -40,23 +40,19 @@ export default function Home() {
   useEffect(() => {
     async function loadDataParallel() {
       try {
-        setLoading(true);
-        // High Speed Parallel Fetching
         const [settingsData, subsData, glsData, sgsData] = await Promise.all([
-          getTrainingSettings(),
+          getTrainingSettings(true),
           getSubmissions({ limitNum: 12 }),
           getGradeLevels(),
           getSubjectGroups(),
         ]);
 
-        setSettings(settingsData);
-        setSubmissions(subsData);
-        setGradeLevels(glsData);
-        setSubjectGroups(sgsData);
+        if (settingsData) setSettings(settingsData);
+        if (subsData.length > 0) setSubmissions(subsData);
+        if (glsData.length > 0) setGradeLevels(glsData);
+        if (sgsData.length > 0) setSubjectGroups(sgsData);
       } catch (err) {
         console.error("Error loading home page data:", err);
-      } finally {
-        setLoading(false);
       }
     }
 

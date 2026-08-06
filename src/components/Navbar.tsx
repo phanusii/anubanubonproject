@@ -12,18 +12,18 @@ import {
   X,
   Sparkles
 } from "lucide-react";
-import { getTrainingSettings } from "@/lib/submission-service";
+import { getTrainingSettings, getInstantSettings } from "@/lib/submission-service";
 import { TrainingSettings } from "@/lib/types";
 
 export default function Navbar() {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [settings, setSettings] = useState<TrainingSettings | null>(null);
+  const [settings, setSettings] = useState<TrainingSettings>(getInstantSettings());
 
   useEffect(() => {
     async function loadSettings() {
       const s = await getTrainingSettings(true);
-      setSettings(s);
+      if (s) setSettings(s);
     }
     loadSettings();
 
@@ -55,13 +55,15 @@ export default function Navbar() {
     <nav className="sticky top-0 z-50 glass-panel border-b border-white/80 shadow-xs bg-white/85">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20">
-          {/* Logo & Brand with Circular Logo */}
+          {/* Logo & Brand with Circular Logo (Instant 0ms frame 0 render) */}
           <Link href="/" className="flex items-center gap-3 group">
             {settings?.schoolLogoUrl ? (
               <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-md shadow-blue-500/10 bg-white shrink-0 group-hover:scale-105 transition-transform duration-300 flex items-center justify-center p-0.5">
                 <img
                   src={settings.schoolLogoUrl}
                   alt="School Logo"
+                  loading="eager"
+                  decoding="sync"
                   className="w-full h-full object-cover rounded-full"
                 />
               </div>

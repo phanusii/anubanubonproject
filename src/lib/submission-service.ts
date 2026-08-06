@@ -285,6 +285,25 @@ export async function deleteStorageFileByUrl(url?: string): Promise<void> {
 }
 
 /**
+ * Synchronous Instant Settings Getter for 0ms initial render (Never shows blank/fallback on frame 0!)
+ */
+export function getInstantSettings(): TrainingSettings {
+  if (memorySettingsCache) {
+    return memorySettingsCache.data;
+  }
+  if (typeof window !== "undefined") {
+    const local = localStorage.getItem("app_settings");
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        return { ...DEFAULT_SETTINGS, ...parsed };
+      } catch {}
+    }
+  }
+  return DEFAULT_SETTINGS;
+}
+
+/**
  * Synchronous Instant Submissions Getter for 0ms initial render (Never shows 0 items!)
  */
 export function getInstantSubmissions(): Submission[] {
