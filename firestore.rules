@@ -2,10 +2,34 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper function to check admin auth
+
+    // The email allowed to perform admin operations. Update this to your admin account.
+    // (Rules are public config, not a secret — the actual protection is Firebase Auth.)
+    function adminEmail() {
+      return '18403p@gmail.com';
+    }
+
+    // True only for a signed-in, verified admin account.
     function isAdmin() {
-      return request.auth != null;
+      return request.auth != null
+             && request.auth.token.email == adminEmail()
+             && request.auth.token.email_verified == true;
+    }
+
+    // Basic shape/length validation for a public submission.
+    // (Document-size / base64-bloat control is handled app-side by uploading to
+    // Storage rather than inlining blobs; size caps here would silently reject
+    // fallback writes and cause confusing data loss, so they are intentionally omitted.)
+    function isValidSubmission() {
+      return request.resource.data.fullName is string
+             && request.resource.data.fullName.size() > 0
+             && request.resource.data.fullName.size() <= 200
+             && request.resource.data.projectTitle is string
+             && request.resource.data.projectTitle.size() <= 500
+             && request.resource.data.school is string
+             && request.resource.data.school.size() <= 300
+             && (!('description' in request.resource.data)
+                 || request.resource.data.description.size() <= 3000);
     }
 
     // Settings collection
@@ -26,13 +50,19 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Teachers collection
+    match /teachers/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Submissions collection
     match /submissions/{submissionId} {
-      // Public user can read all submissions and create new ones
+      // Public can read all submissions and create validated new ones.
       allow read: if true;
-      allow create: if true;
-      
-      // Update and delete strictly restricted to Admin
+      allow create: if isValidSubmission();
+
+      // Update and delete strictly restricted to the admin account.
       allow update, delete: if isAdmin();
     }
   }

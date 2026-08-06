@@ -2,6 +2,14 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+
+    // The email allowed to perform admin operations. Keep in sync with firestore.rules.
+    function isAdmin() {
+      return request.auth != null
+             && request.auth.token.email == '18403p@gmail.com'
+             && request.auth.token.email_verified == true;
+    }
+
     match /uploads/{year}/{month}/{fileName} {
       // Allow public read for portfolio showcase
       allow read: if true;
@@ -14,8 +22,8 @@ service firebase.storage {
                         || request.resource.contentType.matches('image/jpg')
                         || request.resource.contentType.matches('image/webp'));
 
-      // Delete & Update allowed for Admin
-      allow update, delete: if request.auth != null;
+      // Delete & Update restricted to the admin account.
+      allow update, delete: if isAdmin();
     }
   }
 }

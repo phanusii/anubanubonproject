@@ -13,13 +13,18 @@ export async function generatePdfThumbnail(file: File): Promise<string> {
           
           // Import pdfjs dynamically client-side
           const pdfjsLib = await import("pdfjs-dist");
-          pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+          // Serve the worker locally (bundled into /public) instead of an external CDN,
+          // so thumbnail generation does not depend on unpkg availability.
+          pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
           const loadingTask = pdfjsLib.getDocument({ data: typedarray });
           const pdf = await loadingTask.promise;
           const page = await pdf.getPage(1);
 
-          const scale = 1.0;
+          // Downscale so the stored thumbnail stays small (target ~600px wide).
+          const baseViewport = page.getViewport({ scale: 1.0 });
+          const MAX_THUMB_WIDTH = 600;
+          const scale = Math.min(1.0, MAX_THUMB_WIDTH / baseViewport.width);
           const viewport = page.getViewport({ scale });
           const canvas = document.createElement("canvas");
           const context = canvas.getContext("2d");
@@ -39,7 +44,7 @@ export async function generatePdfThumbnail(file: File): Promise<string> {
           };
 
           await page.render(renderContext).promise;
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+          const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
           resolve(dataUrl);
         } catch (err) {
           console.warn("Failed to render PDF thumbnail with pdfjs:", err);

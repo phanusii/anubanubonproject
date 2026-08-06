@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { auth } from "@/lib/firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { ShieldCheck, Lock, Mail, AlertCircle, ArrowRight } from "lucide-react";
+import { signInWithEmailAndPassword, sendEmailVerification, type User } from "firebase/auth";
+import { ShieldCheck, Lock, Mail, AlertCircle, ArrowRight, MailCheck } from "lucide-react";
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -15,34 +15,52 @@ export default function AdminLoginPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Email-verification flow (rules require a verified admin email)
+  const [pendingUser, setPendingUser] = useState<User | null>(null);
+  const [verifyInfo, setVerifyInfo] = useState("");
+  const [sendingVerify, setSendingVerify] = useState(false);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
+    setVerifyInfo("");
     setLoading(true);
 
-    const targetEmail = "18403p@gmail.com";
-    const targetPassword = "1234";
-
     try {
-      // Try Firebase Auth login first
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      // Authenticate strictly against Firebase Auth. No client-side password fallback.
+      const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+
+      // Admin operations require a verified email (see firestore.rules / storage.rules).
+      if (!cred.user.emailVerified) {
+        setPendingUser(cred.user);
+        setErrorMessage("");
+        return;
+      }
+
       if (typeof window !== "undefined") {
         localStorage.setItem("admin_session", "active");
       }
       router.push("/admin/dashboard");
-    } catch (err: any) {
-      console.warn("Firebase Auth login failed, checking passcode fallback:", err);
-      // Admin credential check for 18403p@gmail.com / 1234
-      if ((email.trim().toLowerCase() === targetEmail || email.trim() === "admin") && password === targetPassword) {
-        if (typeof window !== "undefined") {
-          localStorage.setItem("admin_session", "active");
-        }
-        router.push("/admin/dashboard");
-      } else {
-        setErrorMessage("อีเมลหรือรหัสผ่าน Admin ไม่ถูกต้อง (ใช้อีเมล 18403p@gmail.com / รหัสผ่าน 1234)");
-      }
+    } catch (err) {
+      console.warn("Admin login failed:", err);
+      setErrorMessage("อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือบัญชีนี้ยังไม่มีสิทธิ์ผู้ดูแลระบบ");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSendVerification = async () => {
+    if (!pendingUser) return;
+    setSendingVerify(true);
+    setVerifyInfo("");
+    try {
+      await sendEmailVerification(pendingUser);
+      setVerifyInfo("ส่งอีเมลยืนยันตัวตนแล้ว โปรดเปิดอีเมลแล้วกดลิงก์ยืนยัน จากนั้นกลับมาเข้าสู่ระบบอีกครั้ง");
+    } catch (err) {
+      console.warn("Send verification failed:", err);
+      setVerifyInfo("ส่งอีเมลยืนยันไม่สำเร็จ กรุณาลองใหม่อีกครั้งในภายหลัง");
+    } finally {
+      setSendingVerify(false);
     }
   };
 
@@ -74,7 +92,7 @@ export default function AdminLoginPage() {
                 <input
                   type="email"
                   required
-                  placeholder="18403p@gmail.com"
+                  placeholder="อีเมลผู้ดูแลระบบ"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
@@ -91,7 +109,7 @@ export default function AdminLoginPage() {
                 <input
                   type="password"
                   required
-                  placeholder="1234"
+                  placeholder="รหัสผ่าน"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
@@ -103,6 +121,29 @@ export default function AdminLoginPage() {
               <div className="p-3 rounded-2xl bg-red-50 text-red-600 text-xs border border-red-200 flex items-center gap-2 font-semibold">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {pendingUser && (
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 space-y-3">
+                <div className="flex items-start gap-2 text-amber-800 text-xs font-semibold">
+                  <MailCheck className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>
+                    บัญชีนี้ยังไม่ได้ยืนยันอีเมล — ระบบผู้ดูแลต้องใช้อีเมลที่ยืนยันแล้ว
+                    กดปุ่มด้านล่างเพื่อรับลิงก์ยืนยัน แล้วกลับมาเข้าสู่ระบบอีกครั้ง
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSendVerification}
+                  disabled={sendingVerify}
+                  className="w-full py-2.5 rounded-xl bg-amber-500 text-white font-extrabold text-xs shadow-sm disabled:opacity-60 transition-all"
+                >
+                  {sendingVerify ? "กำลังส่ง..." : "ส่งอีเมลยืนยันตัวตน"}
+                </button>
+                {verifyInfo && (
+                  <p className="text-[11px] text-amber-700 font-medium">{verifyInfo}</p>
+                )}
               </div>
             )}
 
@@ -118,7 +159,7 @@ export default function AdminLoginPage() {
 
           <div className="text-center pt-2 border-t border-slate-100">
             <p className="text-[11px] text-slate-500 font-medium">
-              อีเมลสำหรับเข้าสู่ระบบผู้ดูแล: <code className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-md font-bold">18403p@gmail.com</code> / รหัสผ่าน: <code className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-md font-bold">1234</code>
+              เฉพาะผู้ดูแลระบบที่ได้รับสิทธิ์เท่านั้น หากลืมรหัสผ่านโปรดติดต่อผู้ดูแลระบบหลัก
             </p>
           </div>
         </div>

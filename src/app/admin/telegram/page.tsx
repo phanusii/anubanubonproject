@@ -147,13 +147,15 @@ export default function AdminTelegramPage() {
                 </label>
               </div>
 
-              {/* API Token Box */}
+              {/* API Token Box (masked — full token is never shown in the UI) */}
               <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-800">
                   HTTP API Token (บอทมาตรฐานระบบ)
                 </label>
                 <div className="p-3.5 rounded-2xl bg-white border border-blue-200 font-mono text-xs text-blue-700 font-bold truncate shadow-2xs">
-                  {DEFAULT_TELEGRAM_BOT_TOKEN}
+                  {DEFAULT_TELEGRAM_BOT_TOKEN
+                    ? `${DEFAULT_TELEGRAM_BOT_TOKEN.slice(0, 6)}••••••••••••  (ตั้งค่าแล้ว)`
+                    : "ยังไม่ได้ตั้งค่า Token (กำหนดผ่าน NEXT_PUBLIC_TELEGRAM_BOT_TOKEN)"}
                 </div>
               </div>
 

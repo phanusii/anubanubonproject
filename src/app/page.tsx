@@ -27,7 +27,8 @@ export default function Home() {
   const [settings, setSettings] = useState<TrainingSettings>(getInstantSettings());
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
   const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>(DEFAULT_SUBJECT_GROUPS);
-  const [loading, setLoading] = useState(false);
+  // Only show the skeleton on a genuinely cold start (no cached/instant data yet).
+  const [loading, setLoading] = useState(() => getInstantSubmissions().length === 0);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -53,6 +54,8 @@ export default function Home() {
         if (sgsData.length > 0) setSubjectGroups(sgsData);
       } catch (err) {
         console.error("Error loading home page data:", err);
+      } finally {
+        setLoading(false);
       }
     }
 
@@ -90,6 +93,7 @@ export default function Home() {
             src={settings?.bannerUrl || "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=1200&auto=format&fit=crop"}
             alt="Training Banner"
             loading="eager"
+            fetchPriority="high"
             decoding="async"
             className="absolute inset-0 w-full h-full object-cover"
           />

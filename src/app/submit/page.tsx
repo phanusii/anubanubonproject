@@ -149,7 +149,7 @@ export default function SubmitPage() {
       if (last.subjectGroup) setSubjectGroup(last.subjectGroup);
     }
 
-    const max = settings?.maxUpload || 3;
+    const max = settings?.maxUpload || 10;
     if (existingList.length < max) {
       const emptyIdx = existingList.length;
       setSelectedSlotIndex(emptyIdx);
@@ -316,7 +316,7 @@ export default function SubmitPage() {
     setIsSuccess(false);
   };
 
-  const maxUpload = settings?.maxUpload || 3;
+  const maxUpload = settings?.maxUpload || 10;
 
   return (
     <div className="min-h-screen flex flex-col">

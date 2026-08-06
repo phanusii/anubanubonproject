@@ -8,23 +8,13 @@ let cachedGradeLevels: GradeLevelOption[] | null = null;
 let cachedSubjectGroups: SubjectGroupOption[] | null = null;
 
 export async function getGradeLevels(forceRefresh = false): Promise<GradeLevelOption[]> {
+  // Session in-memory cache avoids refetching repeatedly within a page view.
   if (!forceRefresh && cachedGradeLevels) {
     return cachedGradeLevels;
   }
 
-  if (typeof window !== "undefined") {
-    const local = localStorage.getItem("app_grade_levels");
-    if (local) {
-      try { 
-        const parsed = JSON.parse(local);
-        if (Array.isArray(parsed)) {
-          cachedGradeLevels = parsed;
-          return parsed;
-        }
-      } catch {}
-    }
-  }
-
+  // Firestore is the source of truth. Read it first so edits sync across devices;
+  // localStorage is only a fallback when Firestore is unreachable.
   try {
     const snapshot = await getDocs(collection(db, "gradeLevels"));
     if (!snapshot.empty) {
@@ -37,9 +27,24 @@ export async function getGradeLevels(forceRefresh = false): Promise<GradeLevelOp
       return items;
     }
   } catch (err) {
-    console.warn("Firestore getGradeLevels error:", err);
+    console.warn("Firestore getGradeLevels error, falling back to local cache:", err);
   }
 
+  // Fallback 1: last-known localStorage snapshot.
+  if (typeof window !== "undefined") {
+    const local = localStorage.getItem("app_grade_levels");
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          cachedGradeLevels = parsed;
+          return parsed;
+        }
+      } catch {}
+    }
+  }
+
+  // Fallback 2: built-in defaults.
   cachedGradeLevels = [...DEFAULT_GRADE_LEVELS];
   if (typeof window !== "undefined") {
     localStorage.setItem("app_grade_levels", JSON.stringify(DEFAULT_GRADE_LEVELS));
@@ -93,19 +98,7 @@ export async function getSubjectGroups(forceRefresh = false): Promise<SubjectGro
     return cachedSubjectGroups;
   }
 
-  if (typeof window !== "undefined") {
-    const local = localStorage.getItem("app_subject_groups");
-    if (local) {
-      try { 
-        const parsed = JSON.parse(local);
-        if (Array.isArray(parsed)) {
-          cachedSubjectGroups = parsed;
-          return parsed;
-        }
-      } catch {}
-    }
-  }
-
+  // Firestore is the source of truth; localStorage is only a fallback.
   try {
     const snapshot = await getDocs(collection(db, "subjectGroups"));
     if (!snapshot.empty) {
@@ -118,7 +111,20 @@ export async function getSubjectGroups(forceRefresh = false): Promise<SubjectGro
       return items;
     }
   } catch (err) {
-    console.warn("Firestore getSubjectGroups error:", err);
+    console.warn("Firestore getSubjectGroups error, falling back to local cache:", err);
+  }
+
+  if (typeof window !== "undefined") {
+    const local = localStorage.getItem("app_subject_groups");
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          cachedSubjectGroups = parsed;
+          return parsed;
+        }
+      } catch {}
+    }
   }
 
   cachedSubjectGroups = [...DEFAULT_SUBJECT_GROUPS];
