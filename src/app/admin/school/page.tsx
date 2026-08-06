@@ -31,6 +31,7 @@ export default function AdminSchoolPage() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -63,15 +64,13 @@ export default function AdminSchoolPage() {
       
       setSettings((prev) => ({ ...prev, schoolLogoUrl: dataUrl }));
       setUploadingLogo(false); // Reset uploading button state INSTANTLY in 50ms!
-      setSuccessMessage("อัปโหลดโลโก้ใหม่และลบไฟล์โลโก้เดิมออกจากระบบเรียบร้อยแล้ว");
-      
+      setSuccessMessage('เลือกโลโก้ใหม่แล้ว — กดปุ่ม "บันทึก" ด้านล่างเพื่อยืนยันและบันทึกขึ้นระบบ');
+
       // Delete old logo file from Firebase Storage if applicable
       if (oldLogoUrl && oldLogoUrl.includes("firebasestorage.googleapis.com")) {
         deleteStorageFileByUrl(oldLogoUrl).catch(() => {});
       }
-
-      // Save settings to LocalStorage and Firestore in background without blocking UI
-      updateTrainingSettings({ schoolLogoUrl: dataUrl }).catch((err) => console.warn("Background settings update warning:", err));
+      // Persist happens on Save (handleSave) so we can confirm it reached the cloud.
     } catch (err) {
       console.error("Logo upload error:", err);
       setUploadingLogo(false);
@@ -82,20 +81,27 @@ export default function AdminSchoolPage() {
     e.preventDefault();
     setSaving(true);
     setSuccessMessage("");
+    setErrorMessage("");
 
     try {
-      // Fast background update
-      updateTrainingSettings(settings).catch((err) => console.warn("Background update error:", err));
-      
+      const cloudSaved = await updateTrainingSettings(settings);
+
       notifyAdminSubmissionAction("edit", {
         id: "school-info",
         fullName: "แอดมินผู้ดูแลระบบ",
         projectTitle: `อัปเดตข้อมูลโรงเรียน: ${settings.schoolName}`,
       }).catch((err) => console.warn("Telegram error:", err));
 
-      setSuccessMessage("บันทึกข้อมูลโรงเรียนและเปลี่ยนรูปโลโก้เรียบร้อยแล้ว");
+      if (cloudSaved) {
+        setSuccessMessage("บันทึกข้อมูลโรงเรียนและโลโก้ขึ้นระบบเรียบร้อยแล้ว (แสดงผลทุกอุปกรณ์)");
+      } else {
+        setErrorMessage(
+          "บันทึกในเครื่องนี้แล้ว แต่ยังขึ้นระบบ (คลาวด์) ไม่สำเร็จ — โลโก้จะไม่แสดงบนอุปกรณ์อื่น โปรดออกจากระบบแล้วเข้าสู่ระบบผู้ดูแลใหม่ด้วยอีเมล/รหัสผ่าน แล้วกดบันทึกอีกครั้ง"
+        );
+      }
     } catch (err) {
       console.error("Save school info error:", err);
+      setErrorMessage("เกิดข้อผิดพลาดในการบันทึก กรุณาลองใหม่");
     } finally {
       setSaving(false);
     }
@@ -254,6 +260,13 @@ export default function AdminSchoolPage() {
               <div className="p-4 rounded-2xl bg-emerald-50 text-emerald-700 text-sm border border-emerald-200 flex items-center gap-2 font-bold animate-in fade-in">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
                 <span>{successMessage}</span>
+              </div>
+            )}
+
+            {errorMessage && (
+              <div className="p-4 rounded-2xl bg-amber-50 text-amber-800 text-sm border border-amber-200 flex items-start gap-2 font-bold animate-in fade-in">
+                <CheckCircle2 className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <span>{errorMessage}</span>
               </div>
             )}
 

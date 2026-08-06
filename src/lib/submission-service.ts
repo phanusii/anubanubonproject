@@ -264,9 +264,14 @@ export async function getTrainingSettings(forceRefresh = false): Promise<Trainin
 /**
  * Save / Update Training Settings (automatically deletes old logo/banner file and dispatches instant UI update)
  */
-export async function updateTrainingSettings(settings: Partial<TrainingSettings>): Promise<void> {
+/**
+ * Save settings to localStorage (instant) and Firestore (shared across devices).
+ * Returns true only if the Firestore write succeeded — callers should warn the admin
+ * when it returns false, because otherwise the change lives only in this browser.
+ */
+export async function updateTrainingSettings(settings: Partial<TrainingSettings>): Promise<boolean> {
   const current = await getTrainingSettings();
-  
+
   // If logo URL is changing, delete old logo file from Firebase Storage automatically
   if (settings.schoolLogoUrl && current.schoolLogoUrl && settings.schoolLogoUrl !== current.schoolLogoUrl) {
     deleteStorageFileByUrl(current.schoolLogoUrl).catch(() => {});
@@ -285,8 +290,10 @@ export async function updateTrainingSettings(settings: Partial<TrainingSettings>
   try {
     const docRef = doc(db, "settings", "training");
     await setDoc(docRef, updated, { merge: true });
+    return true;
   } catch (err) {
-    console.warn("Firestore save settings error, saved to local cache:", err);
+    console.warn("Firestore save settings error, saved to local cache only:", err);
+    return false;
   }
 }
 
