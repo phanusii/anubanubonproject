@@ -10,7 +10,10 @@ import {
   deleteDoc, 
   query,
   orderBy,
-  limit
+  limit,
+  startAfter,
+  QueryDocumentSnapshot,
+  DocumentData
 } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { Submission, TrainingSettings, GradeLevelOption, SubjectGroupOption, DashboardStats } from "./types";
@@ -689,6 +692,59 @@ export async function getSubmissions(params?: {
   }
 
   return results;
+}
+
+export interface SubmissionsPage {
+  items: Submission[];
+  cursor: QueryDocumentSnapshot<DocumentData> | null;
+  hasMore: boolean;
+}
+
+/**
+ * Cursor-based pagination for the gallery ("load more"). Fetches one page ordered
+ * newest-first; pass the returned `cursor` back in to fetch the next page. This lets
+ * the gallery scale beyond FETCH_CAP without downloading everything at once.
+ */
+export async function getSubmissionsPage(params?: {
+  pageSize?: number;
+  cursor?: QueryDocumentSnapshot<DocumentData> | null;
+  ignoreProjectFilter?: boolean;
+}): Promise<SubmissionsPage> {
+  const pageSize = params?.pageSize ?? 60;
+
+  try {
+    const base = collection(db, "submissions");
+    const pageQuery = params?.cursor
+      ? query(base, orderBy("createdAt", "desc"), startAfter(params.cursor), limit(pageSize))
+      : query(base, orderBy("createdAt", "desc"), limit(pageSize));
+
+    const snapshot = await getDocs(pageQuery);
+    let items = snapshot.docs.map((d) => ({
+      id: d.id,
+      ...(d.data() as Omit<Submission, "id">),
+    }));
+
+    const lastDoc = snapshot.docs.length > 0 ? snapshot.docs[snapshot.docs.length - 1] : null;
+    const hasMore = snapshot.docs.length === pageSize;
+
+    // Apply the admin "specific project" display filter, matching getSubmissions().
+    if (!params?.ignoreProjectFilter) {
+      const settings = await getTrainingSettings();
+      if (settings.activeProjectFilterMode === "specific" && settings.activeProjectFilterName?.trim()) {
+        const filterKey = settings.activeProjectFilterName.trim().toLowerCase();
+        items = items.filter((s) => {
+          const text = [s.projectTitle, s.description || ""].join(" ").toLowerCase();
+          return text.includes(filterKey);
+        });
+      }
+    }
+
+    return { items, cursor: lastDoc, hasMore };
+  } catch (err) {
+    console.warn("getSubmissionsPage error, falling back to local submissions:", err);
+    const local = getLocalSubmissions().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    return { items: local, cursor: null, hasMore: false };
+  }
 }
 
 /**
