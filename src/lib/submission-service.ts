@@ -494,8 +494,10 @@ export async function uploadFileToStorage(
     }
   }
 
-  // Generate instant DataURL ready as fallback
-  const fallbackDataUrl = await fileToDataURL(fileToUpload);
+  // Lazily build the base64 fallback only if the upload actually fails/times out.
+  // (Pre-encoding it here would delay the upload start for large files.)
+  let fallbackPromise: Promise<string> | null = null;
+  const getFallback = () => (fallbackPromise ??= fileToDataURL(fileToUpload));
 
   const now = new Date();
   const year = now.getFullYear();
@@ -504,7 +506,7 @@ export async function uploadFileToStorage(
   const ext = fileToUpload.name.split(".").pop() || "bin";
   const path = `uploads/${year}/${month}/${Date.now()}_${randomId}.${ext}`;
 
-  // 2. Race between Storage Upload and 3-second Safety Timeout
+  // 2. Race between Storage Upload and a safety timeout (fallback: inline DataURL)
   const storagePromise = new Promise<string>((resolve) => {
     try {
       const storageRef = ref(storage, path);
@@ -516,28 +518,28 @@ export async function uploadFileToStorage(
           const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
           if (onProgress) onProgress(Math.min(95, Math.max(50, Math.round(progress))));
         },
-        (error) => {
+        async (error) => {
           console.warn("Storage upload task error, returning DataURL fallback:", error);
-          resolve(fallbackDataUrl);
+          resolve(await getFallback());
         },
         async () => {
           try {
             const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
             resolve(downloadURL);
           } catch {
-            resolve(fallbackDataUrl);
+            resolve(await getFallback());
           }
         }
       );
     } catch {
-      resolve(fallbackDataUrl);
+      getFallback().then(resolve);
     }
   });
 
   const timeoutPromise = new Promise<string>((resolve) => {
-    setTimeout(() => {
+    setTimeout(async () => {
       console.warn("Storage upload 30s timeout reached, using instant DataURL fallback.");
-      resolve(fallbackDataUrl);
+      resolve(await getFallback());
     }, 30000);
   });
 

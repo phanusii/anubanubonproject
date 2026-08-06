@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Upload, FileText, Image as ImageIcon, X, AlertCircle } from "lucide-react";
+import { Upload, FileText, Image as ImageIcon, X, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { generatePdfThumbnail } from "@/lib/pdf-thumbnail";
 
 interface FileUploadPreviewProps {
@@ -112,7 +112,11 @@ export default function FileUploadPreview({
           </p>
         </div>
       ) : (
-        <div className="glass-panel p-4 rounded-3xl border border-blue-200 space-y-3 bg-white">
+        <div
+          className={`glass-panel p-4 rounded-3xl border space-y-3 bg-white transition-colors ${
+            uploadProgress >= 100 ? "border-emerald-300 ring-2 ring-emerald-500/20" : "border-blue-200"
+          }`}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 overflow-hidden">
               <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 font-bold">
@@ -132,7 +136,7 @@ export default function FileUploadPreview({
               </div>
             </div>
 
-            {!isUploading && (
+            {!isUploading && uploadProgress < 100 && (
               <button
                 type="button"
                 onClick={removeFile}
@@ -155,19 +159,60 @@ export default function FileUploadPreview({
                 alt="File Preview"
                 className="max-h-44 object-contain rounded-xl"
               />
+
+              {/* Uploading spinner overlay */}
+              {isUploading && uploadProgress < 100 && (
+                <div className="absolute inset-0 bg-slate-900/25 backdrop-blur-[1px] flex items-center justify-center">
+                  <Loader2 className="w-9 h-9 text-white animate-spin" />
+                </div>
+              )}
+
+              {/* Success check overlay */}
+              {uploadProgress >= 100 && (
+                <div className="absolute inset-0 bg-emerald-500/15 flex items-center justify-center animate-in fade-in zoom-in-95">
+                  <span className="p-2.5 rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/40">
+                    <CheckCircle2 className="w-8 h-8" />
+                  </span>
+                </div>
+              )}
             </div>
           ) : null}
 
-          {/* Upload Progress Bar */}
-          {isUploading && (
-            <div className="space-y-1 pt-1">
-              <div className="flex justify-between text-xs text-slate-600 font-bold">
-                <span>กำลังอัปโหลดไฟล์ไปที่ Firebase Storage...</span>
-                <span>{uploadProgress}%</span>
+          {/* Upload status: stage-aware progress + success */}
+          {(isUploading || uploadProgress >= 100) && (
+            <div className="space-y-1.5 pt-1">
+              <div className="flex justify-between items-center text-xs font-bold">
+                <span
+                  className={`flex items-center gap-1.5 ${
+                    uploadProgress >= 100 ? "text-emerald-600" : "text-slate-600"
+                  }`}
+                >
+                  {uploadProgress >= 100 ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>อัปโหลดสำเร็จ พร้อมส่งแล้ว!</span>
+                    </>
+                  ) : uploadProgress < 50 ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>กำลังบีบอัดและเตรียมไฟล์...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>กำลังอัปโหลด...</span>
+                    </>
+                  )}
+                </span>
+                <span className={uploadProgress >= 100 ? "text-emerald-600" : "text-slate-600"}>
+                  {uploadProgress}%
+                </span>
               </div>
               <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
                 <div
-                  className="ios-gradient-blue h-full transition-all duration-300 rounded-full"
+                  className={`h-full transition-all duration-300 rounded-full ${
+                    uploadProgress >= 100 ? "bg-emerald-500" : "ios-gradient-blue"
+                  }`}
                   style={{ width: `${uploadProgress}%` }}
                 />
               </div>
