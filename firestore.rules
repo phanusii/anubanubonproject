@@ -49,6 +49,12 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Training rounds / projects collection
+    match /projects/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Teachers collection
     match /teachers/{document} {
       allow read: if true;

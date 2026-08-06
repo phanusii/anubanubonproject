@@ -12,15 +12,17 @@ import {
   replaceSubmission
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
+import { getActiveProject } from "@/lib/projects-service";
 import { getTeachers, TeacherItem } from "@/lib/teachers-service";
 import { notifyNewSubmissionEvent } from "@/lib/telegram-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
-import { TrainingSettings, GradeLevelOption, SubjectGroupOption, Submission } from "@/lib/types";
+import { TrainingSettings, GradeLevelOption, SubjectGroupOption, Submission, Project } from "@/lib/types";
 import { Send, CheckCircle2, AlertCircle, Sparkles, User, FileText, RefreshCw, HelpCircle, HardDrive, Link as LinkIcon, Upload, Check, Users, PlusCircle, Lock } from "lucide-react";
 import confetti from "canvas-confetti";
 
 export default function SubmitPage() {
   const [settings, setSettings] = useState<TrainingSettings | null>(null);
+  const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>([]);
   const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>([]);
   const [teacherList, setTeacherList] = useState<TeacherItem[]>([]);
@@ -68,14 +70,16 @@ export default function SubmitPage() {
 
   useEffect(() => {
     async function initData() {
-      const [s, gls, sgs, ts] = await Promise.all([
+      const [s, proj, gls, sgs, ts] = await Promise.all([
         getTrainingSettings(),
+        getActiveProject(),
         getGradeLevels(),
         getSubjectGroups(),
         getTeachers(),
       ]);
 
       setSettings(s);
+      setActiveProject(proj);
       setGradeLevels(gls);
       const defaultGrade = gls.length > 0 ? gls[0].name : "ป.1";
       setGradeLevel(defaultGrade);
@@ -86,7 +90,9 @@ export default function SubmitPage() {
       setTeacherList(ts);
       setSchool(s.schoolName || "โรงเรียนอนุบาลอุบลราชธานี");
 
-      const slot0Title = s?.workSlotTitles?.[0] || "ชิ้นที่ 1: ผลงานการเรียนรู้/สื่อการสอน";
+      // Prefer the active round's slot titles, falling back to global settings.
+      const slotTitles = proj?.workSlotTitles || s?.workSlotTitles;
+      const slot0Title = slotTitles?.[0] || "ชิ้นที่ 1: ผลงานการเรียนรู้/สื่อการสอน";
       setProjectTitle(slot0Title);
     }
     initData();
@@ -94,9 +100,13 @@ export default function SubmitPage() {
 
   const teachersInCurrentGrade = teacherList.filter((t) => t.gradeLevel === gradeLevel);
 
+  // Slot titles + max come from the active round when available.
+  const slotTitles = activeProject?.workSlotTitles || settings?.workSlotTitles;
+  const maxUpload = activeProject?.maxUpload || settings?.maxUpload || 10;
+
   const getSlotTitle = (slotIdx: number): string => {
-    if (settings?.workSlotTitles && settings.workSlotTitles[slotIdx]) {
-      return settings.workSlotTitles[slotIdx];
+    if (slotTitles && slotTitles[slotIdx]) {
+      return slotTitles[slotIdx];
     }
     return `ชิ้นที่ ${slotIdx + 1}: ผลงานการเรียนรู้/สื่อการสอน`;
   };
@@ -137,11 +147,15 @@ export default function SubmitPage() {
     if (!nameVal.trim()) return;
     setIsCheckingLimit(true);
 
-    const existingList = await getUserSubmissionsByName(nameVal.trim());
+    const allUserSubs = await getUserSubmissionsByName(nameVal.trim());
+    // Slots are per-round: only count the user's submissions in the active round.
+    const existingList = activeProject
+      ? allUserSubs.filter((s) => s.projectId === activeProject.id)
+      : allUserSubs;
     setUserExistingSubmissions(existingList);
 
-    if (existingList.length > 0) {
-      const last = existingList[0];
+    if (allUserSubs.length > 0) {
+      const last = allUserSubs[0];
       if (!position) setPosition(last.position);
       if (last.school) setSchool(last.school);
       if (last.province && !province) setProvince(last.province);
@@ -149,7 +163,7 @@ export default function SubmitPage() {
       if (last.subjectGroup) setSubjectGroup(last.subjectGroup);
     }
 
-    const max = settings?.maxUpload || 10;
+    const max = maxUpload;
     if (existingList.length < max) {
       const emptyIdx = existingList.length;
       setSelectedSlotIndex(emptyIdx);
@@ -259,6 +273,8 @@ export default function SubmitPage() {
         submissionMethod,
         driveLink: driveUrl.trim(),
         driveFileId: driveFileId || undefined,
+        // Stamp the training round/project this submission belongs to (omit if none active)
+        ...(activeProject ? { projectId: activeProject.id, projectName: activeProject.name } : {}),
       };
 
       if (replacingSubmissionId) {
@@ -318,8 +334,6 @@ export default function SubmitPage() {
     setReplacingSubmissionId(null);
     setIsSuccess(false);
   };
-
-  const maxUpload = settings?.maxUpload || 10;
 
   return (
     <div className="min-h-screen flex flex-col">

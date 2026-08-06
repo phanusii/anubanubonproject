@@ -8,8 +8,9 @@ import MasonryCard from "@/components/MasonryCard";
 import SubmissionModal from "@/components/SubmissionModal";
 import { getSubmissionsPage, getTrainingSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
-import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings } from "@/lib/types";
-import { Search, SlidersHorizontal, Sparkles, FolderKanban } from "lucide-react";
+import { getProjects, getActiveProject } from "@/lib/projects-service";
+import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings, Project } from "@/lib/types";
+import { Search, SlidersHorizontal, Sparkles, FolderKanban, Layers } from "lucide-react";
 
 const PAGE_SIZE = 60;
 
@@ -19,6 +20,10 @@ export default function GalleryPage() {
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
   const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>(DEFAULT_SUBJECT_GROUPS);
   const [settings, setSettings] = useState<TrainingSettings | null>(null);
+
+  // Training rounds / projects — tabs to browse works by round ("all" = every round)
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("all");
 
   // Pagination state
   const [cursor, setCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
@@ -33,34 +38,66 @@ export default function GalleryPage() {
   // Selected Submission Modal
   const [activeSubmission, setActiveSubmission] = useState<Submission | null>(null);
 
+  const projectIdParam = (pid: string) => (pid === "all" ? undefined : pid);
+
+  // Load (or reload) the first page for a given round selection.
+  const fetchFirstPage = async (pid: string) => {
+    try {
+      const page = await getSubmissionsPage({ pageSize: PAGE_SIZE, projectId: projectIdParam(pid) });
+      setSubmissions(page.items);
+      setCursor(page.cursor);
+      setHasMore(page.hasMore);
+    } catch (err) {
+      console.error("Gallery fetch first page error:", err);
+    }
+  };
+
   useEffect(() => {
     async function loadInitial() {
       try {
-        const [page, gls, sgs, st] = await Promise.all([
-          getSubmissionsPage({ pageSize: PAGE_SIZE }),
+        const [projs, active, gls, sgs, st] = await Promise.all([
+          getProjects(),
+          getActiveProject(),
           getGradeLevels(),
           getSubjectGroups(),
           getTrainingSettings(),
         ]);
 
-        if (page.items.length > 0) setSubmissions(page.items);
-        setCursor(page.cursor);
-        setHasMore(page.hasMore);
         if (gls && gls.length > 0) setGradeLevels(gls);
         if (sgs && sgs.length > 0) setSubjectGroups(sgs);
         if (st) setSettings(st);
+        setProjects(projs);
+
+        // Default to the active round (falls back to "all" when no rounds exist yet).
+        const initialPid = active?.id || "all";
+        setSelectedProjectId(initialPid);
+        await fetchFirstPage(initialPid);
       } catch (err) {
         console.error("Gallery page initial load error:", err);
       }
     }
     loadInitial();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const selectProject = (pid: string) => {
+    if (pid === selectedProjectId) return;
+    setSelectedProjectId(pid);
+    setSubmissions([]);
+    setCursor(null);
+    setHasMore(false);
+    fetchFirstPage(pid);
+  };
 
   const handleLoadMore = async () => {
     if (isLoadingMore || !hasMore) return;
     setIsLoadingMore(true);
     try {
-      const page = await getSubmissionsPage({ pageSize: PAGE_SIZE, cursor });
+      const page = await getSubmissionsPage({
+        pageSize: PAGE_SIZE,
+        cursor,
+        projectId: projectIdParam(selectedProjectId),
+      });
       setSubmissions((prev) => {
         const seen = new Set(prev.map((s) => s.id));
         const merged = [...prev];
@@ -128,6 +165,45 @@ export default function GalleryPage() {
             </div>
           )}
         </div>
+
+        {/* Round / project tabs — pick a training round, or view every round */}
+        {projects.length > 0 && (
+          <div className="glass-panel p-3 sm:p-4 rounded-3xl border border-white bg-white shadow-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="flex items-center gap-1.5 text-xs font-bold text-slate-700 pr-1">
+                <Layers className="w-4 h-4 text-blue-600" />
+                <span>เลือกรอบ:</span>
+              </span>
+              {projects.map((p) => {
+                const isSel = selectedProjectId === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => selectProject(p.id)}
+                    className={`px-4 py-2 rounded-2xl text-xs font-extrabold transition-all ${
+                      isSel
+                        ? "ios-gradient-blue text-white shadow-md shadow-blue-500/25"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {p.name}
+                    {p.id === settings?.activeProjectId ? " · เปิดรับอยู่" : ""}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => selectProject("all")}
+                className={`px-4 py-2 rounded-2xl text-xs font-extrabold transition-all ${
+                  selectedProjectId === "all"
+                    ? "ios-gradient-blue text-white shadow-md shadow-blue-500/25"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                ทั้งหมด
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Multi-Field Search & Filter Controls */}
         <div className="glass-panel p-4 sm:p-6 rounded-3xl border border-white space-y-4 shadow-sm bg-white">

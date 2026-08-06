@@ -2,16 +2,17 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { 
-  LayoutDashboard, 
-  FileCheck2, 
-  Settings, 
-  Layers, 
-  LogOut, 
+import {
+  LayoutDashboard,
+  FileCheck2,
+  Settings,
+  Layers,
+  LogOut,
   Home,
   Sparkles,
   Bell,
-  Building
+  Building,
+  CalendarRange
 } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
@@ -34,6 +35,7 @@ export default function AdminSidebar() {
 
   const navs = [
     { label: "Dashboard สรุปผล", href: "/admin/dashboard", icon: LayoutDashboard },
+    { label: "จัดการรอบ/โครงการ", href: "/admin/projects", icon: CalendarRange },
     { label: "จัดการผลงาน", href: "/admin/submissions", icon: FileCheck2 },
     { label: "กำหนดค่าการอบรม", href: "/admin/settings", icon: Settings },
     { label: "ข้อมูลโรงเรียน & โลโก้", href: "/admin/school", icon: Building },
