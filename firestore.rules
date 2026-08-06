@@ -9,11 +9,10 @@ service cloud.firestore {
       return '18403p@gmail.com';
     }
 
-    // True only for a signed-in, verified admin account.
+    // True only for the signed-in admin account.
     function isAdmin() {
       return request.auth != null
-             && request.auth.token.email == adminEmail()
-             && request.auth.token.email_verified == true;
+             && request.auth.token.email == adminEmail();
     }
 
     // Basic shape/length validation for a public submission.
