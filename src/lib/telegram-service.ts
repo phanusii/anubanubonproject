@@ -1,21 +1,21 @@
 /**
  * Telegram Bot Notification Helper Service
  *
- * SECURITY NOTE: In a static export the bot token is still shipped to the browser,
- * so this is only a stop-gap. The token is read from an env var (not hardcoded) so it
- * can be rotated without a code change. The proper fix is to move this call behind a
- * server endpoint (e.g. a Firebase Cloud Function) so the token never reaches clients.
+ * The bot token is NEVER present in the client. Notifications are sent through a
+ * same-origin server endpoint (Firebase Cloud Function via the Hosting rewrite
+ * `/api/telegram-notify`), which holds the token in Secret Manager. See functions/index.js.
  */
 
-export const DEFAULT_TELEGRAM_BOT_TOKEN =
-  process.env.NEXT_PUBLIC_TELEGRAM_BOT_TOKEN || "";
+// Same-origin endpoint backed by the `telegramNotify` Cloud Function. Overridable for
+// local testing via NEXT_PUBLIC_TELEGRAM_ENDPOINT.
+const TELEGRAM_ENDPOINT =
+  process.env.NEXT_PUBLIC_TELEGRAM_ENDPOINT || "/api/telegram-notify";
 
 export async function sendTelegramNotification(message: string, customChatId?: string): Promise<boolean> {
   try {
-    const token = DEFAULT_TELEGRAM_BOT_TOKEN;
     let chatId = customChatId;
 
-    // Check if custom chatId saved in localStorage/settings
+    // Chat id is not secret; it may be configured by the admin and cached locally.
     if (typeof window !== "undefined") {
       const savedChatId = localStorage.getItem("telegram_chat_id");
       if (savedChatId && !chatId) {
@@ -23,31 +23,18 @@ export async function sendTelegramNotification(message: string, customChatId?: s
       }
     }
 
-    if (!token) {
-      console.warn("Telegram Notification skipped: NEXT_PUBLIC_TELEGRAM_BOT_TOKEN is not configured.");
-      return false;
-    }
-
     if (!chatId) {
       console.warn("Telegram Notification skipped: No Chat ID specified yet.");
       return false;
     }
 
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
-    const response = await fetch(url, {
+    const response = await fetch(TELEGRAM_ENDPOINT, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-        parse_mode: "HTML",
-        disable_web_page_preview: false,
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, chatId }),
     });
 
-    const resData = await response.json();
+    const resData = await response.json().catch(() => ({ ok: false }));
     return resData.ok === true;
   } catch (err) {
     console.error("Telegram notification fetch error:", err);

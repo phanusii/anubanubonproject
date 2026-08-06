@@ -5,6 +5,10 @@
   "storage": {
     "rules": "storage.rules"
   },
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20"
+  },
   "hosting": {
     "public": "out",
     "ignore": [
@@ -13,6 +17,15 @@
       "**/node_modules/**"
     ],
     "cleanUrls": true,
-    "trailingSlash": false
+    "trailingSlash": false,
+    "rewrites": [
+      {
+        "source": "/api/telegram-notify",
+        "function": {
+          "functionId": "telegramNotify",
+          "region": "asia-southeast1"
+        }
+      }
+    ]
   }
 }

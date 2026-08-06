@@ -14,16 +14,17 @@ NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 NEXT_PUBLIC_FIREBASE_APP_ID=
 
 # --- Telegram bot ---
-# NOTE: In a static export this value is still shipped to the browser. Treat it as
-# semi-public and rotate it via BotFather if it leaks. The proper fix is to send
-# notifications from a server (Cloud Function), where the token stays private.
-NEXT_PUBLIC_TELEGRAM_BOT_TOKEN=
+# The bot token is NOT a client env var anymore. It is stored server-side in Secret
+# Manager and used by the telegramNotify Cloud Function. See FUNCTIONS_SETUP.md.
+# (Optional) Override the notify endpoint for local testing only:
+# NEXT_PUBLIC_TELEGRAM_ENDPOINT=
 ```
 
 ## Required manual steps after this change
 
 1. **Rotate the Telegram bot token** — the previous token was committed in source and must be
-   considered compromised. In BotFather run `/revoke`, then put the new token in the env vars above.
+   considered compromised. In BotFather run `/revoke`, then store the NEW token server-side with
+   `firebase functions:secrets:set TELEGRAM_BOT_TOKEN` (see FUNCTIONS_SETUP.md). It is no longer a client env var.
 2. **Create the Firebase Auth admin user** — the admin login now uses Firebase Authentication only
    (no hardcoded password). In the Firebase Console → Authentication:
    - Enable the **Email/Password** provider.

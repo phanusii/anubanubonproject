@@ -6,7 +6,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getTrainingSettings, updateTrainingSettings } from "@/lib/submission-service";
-import { sendTelegramNotification, DEFAULT_TELEGRAM_BOT_TOKEN } from "@/lib/telegram-service";
+import { sendTelegramNotification } from "@/lib/telegram-service";
 import { TrainingSettings } from "@/lib/types";
 import { Bell, Send, CheckCircle2, AlertCircle, ShieldCheck, RefreshCw, Save, Sparkles } from "lucide-react";
 
@@ -147,15 +147,16 @@ export default function AdminTelegramPage() {
                 </label>
               </div>
 
-              {/* API Token Box (masked — full token is never shown in the UI) */}
+              {/* Token is stored server-side (Secret Manager) and never exposed to the browser. */}
               <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-800">
                   HTTP API Token (บอทมาตรฐานระบบ)
                 </label>
-                <div className="p-3.5 rounded-2xl bg-white border border-blue-200 font-mono text-xs text-blue-700 font-bold truncate shadow-2xs">
-                  {DEFAULT_TELEGRAM_BOT_TOKEN
-                    ? `${DEFAULT_TELEGRAM_BOT_TOKEN.slice(0, 6)}••••••••••••  (ตั้งค่าแล้ว)`
-                    : "ยังไม่ได้ตั้งค่า Token (กำหนดผ่าน NEXT_PUBLIC_TELEGRAM_BOT_TOKEN)"}
+                <div className="p-3.5 rounded-2xl bg-white border border-blue-200 text-xs text-slate-600 font-semibold shadow-2xs">
+                  🔒 Token ถูกเก็บไว้ฝั่งเซิร์ฟเวอร์อย่างปลอดภัย (Secret Manager) และไม่แสดงในเบราว์เซอร์
+                  <br />
+                  ตั้งค่า/เปลี่ยนได้ด้วยคำสั่ง{" "}
+                  <code className="font-mono text-blue-700">firebase functions:secrets:set TELEGRAM_BOT_TOKEN</code>
                 </div>
               </div>
 
