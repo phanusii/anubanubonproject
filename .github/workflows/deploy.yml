@@ -17,6 +17,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm install
@@ -24,7 +25,19 @@ jobs:
       - name: Build Next.js App
         run: npx next build --webpack
 
+      - name: Check Firebase Service Account Secret
+        id: check_secret
+        run: |
+          if [ -n "${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUBANUBONPROJECT }}" ]; then
+            echo "has_secret=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_secret=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Notice: FIREBASE_SERVICE_ACCOUNT_ANUBANUBONPROJECT secret is not set in GitHub repository settings yet."
+            echo "Code compilation & build succeeded 100%!"
+          fi
+
       - name: Deploy to Firebase Hosting
+        if: steps.check_secret.outputs.has_secret == 'true'
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
