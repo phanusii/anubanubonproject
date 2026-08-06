@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Submission } from "@/lib/types";
 import { FileText, Image as ImageIcon, User, School, ExternalLink, HardDrive } from "lucide-react";
 import { isGoogleDriveLink } from "@/lib/google-drive-utils";
+import { gradeLabel } from "@/lib/format";
 
 interface MasonryCardProps {
   submission: Submission;
@@ -64,7 +65,7 @@ export default function MasonryCard({ submission, onClick }: MasonryCardProps) {
           {/* Badges Overlay */}
           <div className="absolute top-2.5 left-2.5 flex flex-wrap gap-1.5 z-10">
             <span className="px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-white/90 backdrop-blur-md text-slate-800 shadow-xs border border-white">
-              ครูสายชั้น{submission.gradeLevel}
+              {gradeLabel(submission.gradeLevel)}
             </span>
             <span className="px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-blue-600/90 backdrop-blur-md text-white shadow-xs">
               {submission.subjectGroup}

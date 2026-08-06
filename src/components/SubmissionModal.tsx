@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Submission } from "@/lib/types";
 import { X, Download, User, Building, MapPin, Tag, BookOpen, Calendar, ExternalLink, ZoomIn, HardDrive } from "lucide-react";
 import { extractGoogleDriveFileId, getGoogleDrivePreviewUrl, getGoogleDriveDownloadUrl } from "@/lib/google-drive-utils";
+import { gradeLabel } from "@/lib/format";
 
 interface SubmissionModalProps {
   submission: Submission | null;
@@ -139,7 +140,7 @@ export default function SubmissionModal({ submission, onClose }: SubmissionModal
                   <Tag className="w-4 h-4 text-amber-500 mt-1 shrink-0" />
                   <div>
                     <span className="text-xs text-slate-400 block font-semibold">สายชั้นที่สอน</span>
-                    <span className="font-bold text-slate-900">ครูสายชั้น{submission.gradeLevel}</span>
+                    <span className="font-bold text-slate-900">{gradeLabel(submission.gradeLevel)}</span>
                   </div>
                 </div>
 

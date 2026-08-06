@@ -9,6 +9,7 @@ import SubmissionModal from "@/components/SubmissionModal";
 import { getSubmissionsPage, getTrainingSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getProjects, getActiveProject } from "@/lib/projects-service";
+import { gradeLabel } from "@/lib/format";
 import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings, Project } from "@/lib/types";
 import { Search, SlidersHorizontal, Sparkles, FolderKanban, Layers } from "lucide-react";
 
@@ -236,7 +237,7 @@ export default function GalleryPage() {
                 <option value="ทั้งหมด">ทุกสายชั้น (อ.1 - ป.6)</option>
                 {gradeLevels.map((gl) => (
                   <option key={gl.id} value={gl.name}>
-                    ครูสายชั้น{gl.name}
+                    {gradeLabel(gl.name)}
                   </option>
                 ))}
               </select>

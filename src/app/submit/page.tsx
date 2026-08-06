@@ -16,6 +16,7 @@ import { getActiveProject } from "@/lib/projects-service";
 import { getTeachers, TeacherItem } from "@/lib/teachers-service";
 import { notifyNewSubmissionEvent } from "@/lib/telegram-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
+import { gradeLabel } from "@/lib/format";
 import { TrainingSettings, GradeLevelOption, SubjectGroupOption, Submission, Project } from "@/lib/types";
 import { Send, CheckCircle2, AlertCircle, Sparkles, User, FileText, RefreshCw, HelpCircle, HardDrive, Link as LinkIcon, Upload, Check, Users, PlusCircle, Lock } from "lucide-react";
 import confetti from "canvas-confetti";
@@ -138,7 +139,7 @@ export default function SubmitPage() {
     if (selected) {
       setFullName(selected.fullName);
       setPosition(selected.position);
-      setSubjectGroup(selected.subjectGroup);
+      if (selected.subjectGroup) setSubjectGroup(selected.subjectGroup);
       handleCheckUserSubmissions(selected.fullName);
     }
   };
@@ -414,7 +415,7 @@ export default function SubmitPage() {
                   >
                     {gradeLevels.map((gl) => (
                       <option key={gl.id} value={gl.name}>
-                        ครูสายชั้น{gl.name}
+                        {gradeLabel(gl.name)}
                       </option>
                     ))}
                   </select>
@@ -424,7 +425,7 @@ export default function SubmitPage() {
                 <div className="space-y-2 sm:col-span-2">
                   <div className="flex items-center justify-between">
                     <label className="block text-sm font-extrabold text-slate-800">
-                      2. เลือกรายชื่อครูในสายชั้น{gradeLevel} <span className="text-red-500">*</span>
+                      2. เลือกรายชื่อ{gradeLabel(gradeLevel)} <span className="text-red-500">*</span>
                     </label>
                     <button
                       type="button"
@@ -450,7 +451,7 @@ export default function SubmitPage() {
                       className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition-all text-sm"
                     >
                       <option value="" disabled>
-                        -- เลือกรายชื่อครูสายชั้น{gradeLevel} ({teachersInCurrentGrade.length} ท่าน) --
+                        -- เลือกรายชื่อ{gradeLabel(gradeLevel)} ({teachersInCurrentGrade.length} ท่าน) --
                       </option>
                       {teachersInCurrentGrade.map((t) => (
                         <option key={t.id} value={t.id}>

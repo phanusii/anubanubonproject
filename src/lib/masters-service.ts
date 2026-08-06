@@ -93,6 +93,24 @@ export async function deleteGradeLevel(id: string): Promise<GradeLevelOption[]> 
   return [...filtered];
 }
 
+/**
+ * Replace the entire grade-level list (deletes existing, then saves the given set).
+ * Used by the admin school-roster import.
+ */
+export async function replaceAllGradeLevels(
+  items: { name: string; order: number }[]
+): Promise<GradeLevelOption[]> {
+  const current = await getGradeLevels(true);
+  for (const g of current) {
+    await deleteGradeLevel(g.id);
+  }
+  let result: GradeLevelOption[] = [];
+  for (const it of items) {
+    result = await saveGradeLevel({ id: `grade-${it.order}`, name: it.name, order: it.order });
+  }
+  return result;
+}
+
 export async function getSubjectGroups(forceRefresh = false): Promise<SubjectGroupOption[]> {
   if (!forceRefresh && cachedSubjectGroups) {
     return cachedSubjectGroups;

@@ -1,5 +1,5 @@
 import { db } from "./firebase";
-import { collection, getDocs, doc, setDoc, deleteDoc, addDoc, query, where } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch } from "firebase/firestore";
 
 export interface TeacherItem {
   id: string;
@@ -98,4 +98,41 @@ export async function deleteTeacher(id: string): Promise<void> {
 
   const current = getLocalTeachers().filter((t) => t.id !== id);
   saveLocalTeachers(current);
+}
+
+/**
+ * Replace the entire teacher roster in one go (deletes existing, then batch-adds).
+ * Used by the admin import to load the full school roster. Returns count added.
+ */
+export async function bulkReplaceTeachers(
+  items: (Omit<TeacherItem, "id" | "subjectGroup"> & { subjectGroup?: string })[]
+): Promise<number> {
+  const built: TeacherItem[] = items.map((it, i) => ({
+    ...it,
+    subjectGroup: it.subjectGroup ?? "",
+    id: `teacher-${Date.now()}-${i}`,
+    createdAt: Date.now(),
+  }));
+
+  try {
+    // Delete all existing teacher docs (batched).
+    const snapshot = await getDocs(collection(db, "teachers"));
+    const existing = snapshot.docs;
+    for (let i = 0; i < existing.length; i += 450) {
+      const batch = writeBatch(db);
+      existing.slice(i, i + 450).forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+    // Add the new roster (batched).
+    for (let i = 0; i < built.length; i += 450) {
+      const batch = writeBatch(db);
+      built.slice(i, i + 450).forEach((t) => batch.set(doc(db, "teachers", t.id), t));
+      await batch.commit();
+    }
+  } catch (err) {
+    console.warn("bulkReplaceTeachers error (saved locally only):", err);
+  }
+
+  saveLocalTeachers(built);
+  return built.length;
 }
