@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import type { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import MasonryCard from "@/components/MasonryCard";
 import SubmissionModal from "@/components/SubmissionModal";
-import { getSubmissions, getTrainingSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
+import { getSubmissionsPage, getTrainingSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings } from "@/lib/types";
-import { Search, SlidersHorizontal, Sparkles, FolderKanban, CheckCircle2, Layers, BookOpen } from "lucide-react";
+import { Search, SlidersHorizontal, Sparkles, FolderKanban } from "lucide-react";
+
+const PAGE_SIZE = 60;
 
 export default function GalleryPage() {
   // Instant synchronous initialization for 0ms frame-0 render (Never displays 0 items!)
@@ -17,6 +20,11 @@ export default function GalleryPage() {
   const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>(DEFAULT_SUBJECT_GROUPS);
   const [settings, setSettings] = useState<TrainingSettings | null>(null);
 
+  // Pagination state
+  const [cursor, setCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
   // Search & Filter state
   const [search, setSearch] = useState("");
   const [selectedGrade, setSelectedGrade] = useState("ทั้งหมด");
@@ -24,28 +32,51 @@ export default function GalleryPage() {
 
   // Selected Submission Modal
   const [activeSubmission, setActiveSubmission] = useState<Submission | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    async function loadData() {
+    async function loadInitial() {
       try {
-        const [subs, gls, sgs, st] = await Promise.all([
-          getSubmissions(),
+        const [page, gls, sgs, st] = await Promise.all([
+          getSubmissionsPage({ pageSize: PAGE_SIZE }),
           getGradeLevels(),
           getSubjectGroups(),
           getTrainingSettings(),
         ]);
 
-        if (subs && subs.length > 0) setSubmissions(subs);
+        if (page.items.length > 0) setSubmissions(page.items);
+        setCursor(page.cursor);
+        setHasMore(page.hasMore);
         if (gls && gls.length > 0) setGradeLevels(gls);
         if (sgs && sgs.length > 0) setSubjectGroups(sgs);
         if (st) setSettings(st);
       } catch (err) {
-        console.error("Gallery page refresh error:", err);
+        console.error("Gallery page initial load error:", err);
       }
     }
-    loadData();
+    loadInitial();
   }, []);
+
+  const handleLoadMore = async () => {
+    if (isLoadingMore || !hasMore) return;
+    setIsLoadingMore(true);
+    try {
+      const page = await getSubmissionsPage({ pageSize: PAGE_SIZE, cursor });
+      setSubmissions((prev) => {
+        const seen = new Set(prev.map((s) => s.id));
+        const merged = [...prev];
+        for (const item of page.items) {
+          if (!seen.has(item.id)) merged.push(item);
+        }
+        return merged;
+      });
+      setCursor(page.cursor);
+      setHasMore(page.hasMore);
+    } catch (err) {
+      console.error("Gallery load-more error:", err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   // Instant In-Memory Filter with useMemo (0ms latency!)
   const filteredSubmissions = useMemo(() => {
@@ -157,6 +188,7 @@ export default function GalleryPage() {
             <p className="text-base font-extrabold text-slate-700">ไม่พบผลงานตามเงื่อนไขที่เลือก</p>
             <p className="text-xs text-slate-500 font-medium">
               ลองปรับเปลี่ยนคำค้นหา หรือ เลือกทุกสายชั้น / ทุกกลุ่มสาระ
+              {hasMore && " หรือกดปุ่มโหลดผลงานเพิ่มเติมด้านล่างเพื่อค้นหาให้ครอบคลุมมากขึ้น"}
             </p>
           </div>
         ) : (
@@ -168,6 +200,22 @@ export default function GalleryPage() {
                 onClick={() => setActiveSubmission(sub)}
               />
             ))}
+          </div>
+        )}
+
+        {/* Load More (cursor-based pagination) */}
+        {hasMore && (
+          <div className="flex flex-col items-center gap-2 pt-2">
+            <button
+              onClick={handleLoadMore}
+              disabled={isLoadingMore}
+              className="px-8 py-3.5 rounded-2xl ios-gradient-blue text-white font-extrabold text-sm shadow-md shadow-blue-500/25 disabled:opacity-60 disabled:cursor-not-allowed hover:scale-[1.02] transition-all"
+            >
+              {isLoadingMore ? "กำลังโหลด..." : "โหลดผลงานเพิ่มเติม"}
+            </button>
+            <p className="text-[11px] text-slate-400 font-medium">
+              กำลังค้นหาจากผลงาน {submissions.length} รายการที่โหลดแล้ว — กดเพื่อโหลดเพิ่ม
+            </p>
           </div>
         )}
       </main>
