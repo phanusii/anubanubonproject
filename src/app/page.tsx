@@ -229,7 +229,7 @@ export default function Home() {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
               {Array.from({ length: 8 }).map((_, idx) => (
                 <div key={idx} className="glass-panel rounded-3xl p-4 space-y-3 animate-pulse border border-slate-100 bg-white">
-                  <div className="aspect-4/3 bg-slate-200 rounded-2xl" />
+                  <div className="aspect-[210/297] bg-slate-200 rounded-2xl" />
                   <div className="h-4 bg-slate-200 rounded-lg w-3/4" />
                   <div className="h-3 bg-slate-150 rounded-lg w-1/2" />
                 </div>

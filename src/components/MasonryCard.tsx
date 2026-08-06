@@ -21,15 +21,15 @@ export default function MasonryCard({ submission, onClick }: MasonryCardProps) {
       className="glass-panel group rounded-3xl p-4 cursor-pointer border border-white hover:border-blue-200 transition-all duration-300 hover:shadow-xl hover:-translate-y-1.5 flex flex-col justify-between space-y-4 bg-white/90"
     >
       <div className="space-y-3">
-        {/* Preview Thumbnail Container */}
-        <div className="relative aspect-4/3 rounded-2xl overflow-hidden bg-slate-100/80 border border-slate-100 flex items-center justify-center group-hover:shadow-md transition-all">
+        {/* Preview Thumbnail Container — A4 portrait to fit PDF-page thumbnails */}
+        <div className="relative aspect-[210/297] rounded-2xl overflow-hidden bg-white border border-slate-100 flex items-center justify-center group-hover:shadow-md transition-all">
           {submission.thumbnail && !imgError ? (
             <img
               src={submission.thumbnail}
               alt={submission.projectTitle}
               loading="lazy"
               decoding="async"
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+              className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500"
               onError={() => setImgError(true)}
             />
           ) : isPdf ? (
