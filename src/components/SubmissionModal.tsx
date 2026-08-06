@@ -22,7 +22,7 @@ export default function SubmissionModal({ submission, onClose }: SubmissionModal
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-4xl max-h-[90vh] glass-panel rounded-3xl shadow-2xl border border-white flex flex-col overflow-hidden bg-white">
+      <div className="relative w-full max-w-5xl max-h-[90vh] glass-panel rounded-3xl shadow-2xl border border-white flex flex-col overflow-hidden bg-white">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-white/80">
           <div className="flex items-center gap-2 max-w-xl truncate">
@@ -79,20 +79,21 @@ export default function SubmissionModal({ submission, onClose }: SubmissionModal
                 </a>
               </div>
             ) : isPdf ? (
-              <div className="w-full h-full min-h-[450px] flex flex-col items-center justify-center">
+              <div className="w-full flex flex-col">
+                {/* Native scrollable PDF viewer (page navigation, zoom, scroll) */}
                 <iframe
-                  src={`${submission.fileURL}#toolbar=0`}
-                  className="w-full h-[450px] rounded-2xl border border-slate-200/80 bg-white shadow-sm"
+                  src={submission.fileURL}
+                  className="w-full h-[72vh] min-h-[420px] rounded-2xl border border-slate-200/80 bg-white shadow-sm"
                   title="PDF Preview"
                 />
                 <a
                   href={submission.fileURL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-3 flex items-center gap-2 text-xs font-bold text-blue-600 hover:underline"
+                  className="mt-3 self-center flex items-center gap-2 text-xs font-bold text-blue-600 hover:underline"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span>เปิด PDF ในหน้าใหม่</span>
+                  <span>เปิด PDF เต็มหน้าจอ (ถ้าเลื่อนดูในนี้ไม่ได้ เช่นบนมือถือ)</span>
                 </a>
               </div>
             ) : (
@@ -146,7 +147,7 @@ export default function SubmissionModal({ submission, onClose }: SubmissionModal
                   <BookOpen className="w-4 h-4 text-purple-500 mt-1 shrink-0" />
                   <div>
                     <span className="text-xs text-slate-400 block font-semibold">กลุ่มสาระการเรียนรู้</span>
-                    <span className="font-bold text-slate-900">กลุ่มสาระการเรียนรู้{submission.subjectGroup}</span>
+                    <span className="font-bold text-slate-900">{submission.subjectGroup}</span>
                   </div>
                 </div>
 
