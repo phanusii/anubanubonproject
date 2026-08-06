@@ -278,6 +278,9 @@ export default function SubmitPage() {
         fileType: ext,
         fileURL,
         isReplacement: Boolean(replacingSubmissionId),
+        // Chat id from Firestore settings so notifications work from any teacher's device
+        // (not just the admin's browser where it may be cached in localStorage).
+        chatId: settings?.telegramChatId,
       }).catch((e) => console.warn("Telegram notification error:", e));
 
       setIsUploading(false);

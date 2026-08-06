@@ -68,6 +68,7 @@ export async function notifyNewSubmissionEvent(data: {
   fileType: string;
   fileURL: string;
   isReplacement?: boolean;
+  chatId?: string;
 }) {
   const icon = data.isReplacement ? "🔄 [อัปเดตแทนที่ผลงานเดิม]" : "📥 [ส่งผลงานใหม่]";
   const message = `
@@ -83,7 +84,7 @@ export async function notifyNewSubmissionEvent(data: {
 <i>⏰ เวลา: ${new Date().toLocaleString("th-TH")}</i>
 `.trim();
 
-  return await sendTelegramNotification(message);
+  return await sendTelegramNotification(message, data.chatId);
 }
 
 /**
