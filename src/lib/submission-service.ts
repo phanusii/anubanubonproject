@@ -406,7 +406,7 @@ export async function uploadFileToStorage(
 // abuse guard. Both can be overridden by env for a different deployment.
 const DRIVE_UPLOAD_URL =
   process.env.NEXT_PUBLIC_DRIVE_UPLOAD_URL ||
-  "https://script.google.com/macros/s/AKfycbxHvMbNl3CxMyAC850aLp0lWt42JJqUYv3rhKQt_1DeZcT_0p03TrbxL6zzhm6X6iPl/exec";
+  "https://script.google.com/macros/s/AKfycbwDlzoiq0ljMyKnk_tNljq6-NY3mqSsV7r5s1-XSgu-fiFmTsEQt3Y-oW1ff5Ki3Zmr/exec";
 const DRIVE_UPLOAD_SECRET = process.env.NEXT_PUBLIC_DRIVE_UPLOAD_SECRET || "anuban-upload-2569";
 
 export interface DriveUploadResult {
