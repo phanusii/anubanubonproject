@@ -207,23 +207,21 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
               >
                 ทั้งหมด
               </button>
+
+              {/* Work count — inside the round panel, right after ทั้งหมด */}
+              <span className="ml-auto inline-flex items-center gap-2 pl-2 pr-4 py-1.5 rounded-2xl bg-blue-50 border border-blue-100">
+                <span className="w-7 h-7 rounded-xl ios-gradient-blue text-white flex items-center justify-center shadow-sm shadow-blue-500/25">
+                  <FolderKanban className="w-3.5 h-3.5" />
+                </span>
+                <span className="text-xs font-bold text-slate-600">ผลงานทั้งหมด</span>
+                <span className="text-lg font-extrabold text-blue-600 leading-none">
+                  {filteredSubmissions.length}
+                </span>
+                <span className="text-xs font-bold text-slate-600">ชิ้น</span>
+              </span>
             </div>
           </div>
         )}
-
-        {/* Work count for the selected round — shown right after the round tabs */}
-        <div className="flex justify-center">
-          <span className="inline-flex items-center gap-2.5 pl-2 pr-5 py-2 rounded-2xl bg-white border border-blue-100 shadow-sm">
-            <span className="w-8 h-8 rounded-xl ios-gradient-blue text-white flex items-center justify-center shadow-sm shadow-blue-500/25">
-              <FolderKanban className="w-4 h-4" />
-            </span>
-            <span className="text-sm font-bold text-slate-600">ผลงานทั้งหมด</span>
-            <span className="text-xl font-extrabold text-blue-600 leading-none">
-              {filteredSubmissions.length}
-            </span>
-            <span className="text-sm font-bold text-slate-600">ชิ้น</span>
-          </span>
-        </div>
 
         {/* Multi-Field Search & Filter Controls */}
         <div className="glass-panel p-4 sm:p-6 rounded-3xl border border-white space-y-4 shadow-sm bg-white">
