@@ -421,7 +421,8 @@ export interface DriveUploadResult {
  */
 export async function uploadFileToGoogleDrive(
   file: File,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string }
 ): Promise<DriveUploadResult> {
   if (onProgress) onProgress(5);
   const dataUrl = await fileToDataURL(file);
@@ -433,6 +434,11 @@ export async function uploadFileToGoogleDrive(
     mimeType: file.type || "application/octet-stream",
     data: base64,
     secret: DRIVE_UPLOAD_SECRET,
+    // Folder path in Drive: <projectName>/<gradeLevel>/<submitterName>/  file named by workLabel
+    projectName: meta?.projectName || "",
+    gradeLevel: meta?.gradeLevel || "",
+    submitterName: meta?.submitterName || "",
+    workLabel: meta?.workLabel || "",
   });
 
   // IMPORTANT: use fetch WITHOUT any upload progress listener. Adding an XHR upload

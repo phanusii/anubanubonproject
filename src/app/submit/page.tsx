@@ -248,9 +248,16 @@ export default function SubmitPage() {
 
       if (submissionMethod === 'file' && selectedFile) {
         // Upload the file into the school's Google Drive; then treat it like a Drive item.
-        const uploaded = await uploadFileToGoogleDrive(selectedFile, (progress) => {
-          setUploadProgress(progress);
-        });
+        const uploaded = await uploadFileToGoogleDrive(
+          selectedFile,
+          (progress) => setUploadProgress(progress),
+          {
+            projectName: activeProject?.name || settings?.trainingName || "ผลงานอบรม",
+            gradeLevel: gradeLevel,
+            submitterName: fullName.trim(),
+            workLabel: `งานชิ้นที่ ${selectedSlotIndex + 1}`,
+          }
+        );
         fileURL = uploaded.url;
         ext = selectedFile.name.split(".").pop()?.toLowerCase() || "bin";
         effectiveMethod = 'drive';
