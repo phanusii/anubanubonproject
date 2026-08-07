@@ -66,7 +66,7 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20">
           {/* Logo & Brand */}
-          <a href="#gallery" className="flex items-center gap-3 group">
+          <a href="/#gallery" className="flex items-center gap-3 group">
             {settings?.schoolLogoUrl ? (
               <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-md shadow-blue-500/10 bg-white shrink-0 group-hover:scale-105 transition-transform duration-300 flex items-center justify-center p-0.5">
                 <img
@@ -103,7 +103,7 @@ export default function Navbar() {
                   : "text-slate-600 hover:text-slate-900 hover:bg-white/80"
               }`;
               return item.hash ? (
-                <a key={item.href} href={item.href} className={className}>
+                <a key={item.href} href={`/${item.href}`} className={className}>
                   <Icon className="w-4 h-4" />
                   <span>{item.label}</span>
                 </a>
@@ -142,7 +142,7 @@ export default function Navbar() {
             return item.hash ? (
               <a
                 key={item.href}
-                href={item.href}
+                href={`/${item.href}`}
                 onClick={() => setMobileMenuOpen(false)}
                 className={className}
               >
