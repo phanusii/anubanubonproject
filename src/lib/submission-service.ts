@@ -435,35 +435,42 @@ export async function uploadFileToGoogleDrive(
     secret: DRIVE_UPLOAD_SECRET,
   });
 
-  return new Promise<DriveUploadResult>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", DRIVE_UPLOAD_URL, true);
-    // text/plain keeps this a "simple" cross-origin request (no CORS preflight,
-    // which Apps Script cannot answer).
-    xhr.setRequestHeader("Content-Type", "text/plain;charset=utf-8");
-    xhr.timeout = 180000;
-    xhr.upload.onprogress = (ev) => {
-      if (ev.lengthComputable && onProgress) {
-        onProgress(Math.min(90, 15 + Math.round((ev.loaded / ev.total) * 75)));
-      }
-    };
-    xhr.onload = () => {
-      try {
-        const res = JSON.parse(xhr.responseText);
-        if (res && res.ok && res.url) {
-          if (onProgress) onProgress(100);
-          resolve({ url: res.url, id: res.id, name: res.name });
-        } else {
-          reject(new Error("อัปโหลดขึ้น Google Drive ไม่สำเร็จ" + (res?.error ? `: ${res.error}` : "")));
-        }
-      } catch {
-        reject(new Error("อ่านผลลัพธ์จาก Google Drive ไม่ได้ กรุณาลองใหม่อีกครั้ง"));
-      }
-    };
-    xhr.onerror = () => reject(new Error("เชื่อมต่อ Google Drive ไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ต"));
-    xhr.ontimeout = () => reject(new Error("อัปโหลดใช้เวลานานเกินไป — ลองไฟล์ที่เล็กลง หรือใช้วิธีวางลิงก์ Google Drive"));
-    xhr.send(payload);
-  });
+  // IMPORTANT: use fetch WITHOUT any upload progress listener. Adding an XHR upload
+  // listener makes the request "non-simple" and triggers a CORS preflight (OPTIONS),
+  // which Apps Script cannot answer. text/plain body keeps it a simple request.
+  // fetch gives no upload progress, so we animate the bar while it's in flight.
+  let pct = 20;
+  const timer = setInterval(() => {
+    pct = Math.min(90, pct + 4);
+    if (onProgress) onProgress(pct);
+  }, 500);
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180000);
+
+  try {
+    const res = await fetch(DRIVE_UPLOAD_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: payload,
+      signal: controller.signal,
+    });
+    const json = await res.json().catch(() => null);
+    clearInterval(timer);
+    clearTimeout(timeout);
+    if (json && json.ok && json.url) {
+      if (onProgress) onProgress(100);
+      return { url: json.url, id: json.id, name: json.name };
+    }
+    throw new Error("อัปโหลดขึ้น Google Drive ไม่สำเร็จ" + (json?.error ? `: ${json.error}` : ""));
+  } catch (err) {
+    clearInterval(timer);
+    clearTimeout(timeout);
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.includes("Google Drive")) throw err;
+    if (msg.includes("abort")) throw new Error("อัปโหลดใช้เวลานานเกินไป — ลองไฟล์เล็กลง หรือใช้วิธีวางลิงก์ Google Drive");
+    throw new Error("เชื่อมต่อ Google Drive ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+  }
 }
 
 /**
