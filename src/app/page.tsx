@@ -9,6 +9,7 @@ import SubmissionModal from "@/components/SubmissionModal";
 import { getSubmissions, getTrainingSettings, getInstantSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
+import { submitVerb } from "@/lib/format";
 import { Submission, TrainingSettings, GradeLevelOption, SubjectGroupOption, Project } from "@/lib/types";
 import { 
   Send, 
@@ -86,6 +87,8 @@ export default function Home() {
     return matchesSearch && matchesGrade && matchesSubject;
   });
 
+  const verb = submitVerb(activeProject?.kind);
+
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
@@ -147,7 +150,7 @@ export default function Home() {
                 className="px-6 py-3.5 rounded-2xl bg-white text-blue-600 font-extrabold text-sm shadow-lg hover:bg-blue-50 hover:scale-105 transition-all duration-200 flex items-center gap-2"
               >
                 <Send className="w-4 h-4" />
-                <span>ส่งผลงานนวัตกรรม</span>
+                <span>{verb}</span>
               </Link>
               <Link
                 href="/gallery"

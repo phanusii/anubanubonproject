@@ -55,6 +55,8 @@ export interface TrainingSettings {
 export interface Project {
   id: string;
   name: string;
+  // 'training' (การอบรม) → wording uses "ส่งงาน"; 'project' (โครงการ) → "ส่งผลงาน"
+  kind?: 'training' | 'project';
   categoryType?: string;
   academicYear?: string;
   description?: string;

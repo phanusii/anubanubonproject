@@ -19,6 +19,7 @@ function blankProject(settings: TrainingSettings | null): Project {
   return {
     id: `proj-${Date.now()}`,
     name: "",
+    kind: "project",
     categoryType: settings?.categoryType || "การส่งผลงานนวัตกรรมการเรียนรู้",
     academicYear: settings?.academicYear || "2569",
     description: "",
@@ -213,6 +214,31 @@ export default function AdminProjectsPage() {
                   onChange={(e) => setEditing({ ...editing, name: e.target.value })}
                   className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-900 text-sm font-bold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-800">ประเภทกิจกรรม (มีผลต่อคำบนเว็บ)</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {([
+                    { key: "training", title: "การอบรม", sub: 'ใช้คำว่า "ส่งงาน"' },
+                    { key: "project", title: "โครงการ", sub: 'ใช้คำว่า "ส่งผลงาน"' },
+                  ] as const).map((opt) => {
+                    const active = (editing.kind || "project") === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setEditing({ ...editing, kind: opt.key })}
+                        className={`p-3.5 rounded-2xl border text-left transition-all ${
+                          active ? "bg-white border-blue-500 ring-2 ring-blue-500/20" : "bg-white/60 border-slate-200 hover:border-blue-300"
+                        }`}
+                      >
+                        <span className="font-extrabold text-sm text-slate-900 block">{opt.title}</span>
+                        <span className="text-[11px] text-slate-500">{opt.sub}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

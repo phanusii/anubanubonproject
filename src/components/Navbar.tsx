@@ -13,17 +13,22 @@ import {
   Sparkles
 } from "lucide-react";
 import { getTrainingSettings, getInstantSettings } from "@/lib/submission-service";
+import { getActiveProject } from "@/lib/projects-service";
+import { submitVerb } from "@/lib/format";
 import { TrainingSettings } from "@/lib/types";
 
 export default function Navbar() {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settings, setSettings] = useState<TrainingSettings>(getInstantSettings());
+  const [projectKind, setProjectKind] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     async function loadSettings() {
       const s = await getTrainingSettings(true);
       if (s) setSettings(s);
+      const active = await getActiveProject();
+      setProjectKind(active?.kind);
     }
     loadSettings();
 
@@ -46,7 +51,7 @@ export default function Navbar() {
 
   const navItems = [
     { label: "หน้าแรก", href: "/", icon: FileCheck },
-    { label: "ส่งผลงาน", href: "/submit", icon: Send },
+    { label: submitVerb(projectKind), href: "/submit", icon: Send },
     { label: "ดูผลงานทั้งหมด", href: "/gallery", icon: LayoutGrid },
     { label: "ผู้ดูแลระบบ", href: "/admin/login", icon: ShieldCheck },
   ];

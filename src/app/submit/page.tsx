@@ -16,7 +16,7 @@ import { getActiveProject } from "@/lib/projects-service";
 import { getTeachers, TeacherItem } from "@/lib/teachers-service";
 import { notifyNewSubmissionEvent } from "@/lib/telegram-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
-import { gradeLabel } from "@/lib/format";
+import { gradeLabel, submitVerb } from "@/lib/format";
 import { TrainingSettings, GradeLevelOption, SubjectGroupOption, Submission, Project } from "@/lib/types";
 import { Send, CheckCircle2, AlertCircle, Sparkles, User, FileText, RefreshCw, HelpCircle, HardDrive, Link as LinkIcon, Upload, Check, Users, PlusCircle, Lock } from "lucide-react";
 import confetti from "canvas-confetti";
@@ -104,6 +104,7 @@ export default function SubmitPage() {
   // Slot titles + max come from the active round when available.
   const slotTitles = activeProject?.workSlotTitles || settings?.workSlotTitles;
   const maxUpload = activeProject?.maxUpload || settings?.maxUpload || 10;
+  const verb = submitVerb(activeProject?.kind); // "ส่งงาน" (อบรม) หรือ "ส่งผลงาน" (โครงการ)
 
   const getSlotTitle = (slotIdx: number): string => {
     if (slotTitles && slotTitles[slotIdx]) {
@@ -357,7 +358,7 @@ export default function SubmitPage() {
               <Sparkles className="w-3 h-3" />
               ส่งผลงาน · {activeProject?.name || settings?.trainingName || "โครงการ"}
             </span>
-            <h1 className="text-xl sm:text-2xl font-extrabold">แบบฟอร์มส่งผลงาน</h1>
+            <h1 className="text-xl sm:text-2xl font-extrabold">แบบฟอร์ม{verb}</h1>
             <p className="text-xs text-blue-50 font-medium">
               เลือกสายชั้น &amp; ชื่อของคุณ แล้วอัปโหลดงานแต่ละชิ้นได้เลย ({maxUpload} ชิ้น)
             </p>
@@ -372,7 +373,7 @@ export default function SubmitPage() {
             </div>
             <div className="space-y-2">
               <h2 className="text-2xl font-extrabold text-slate-900">
-                {replacingSubmissionId ? "อัปเดตไฟล์ผลงานเดิมสำเร็จแล้ว!" : "ส่งผลงานสำเร็จเรียบร้อยแล้ว!"}
+                {replacingSubmissionId ? "อัปเดตไฟล์เดิมสำเร็จแล้ว!" : `${verb}สำเร็จเรียบร้อยแล้ว!`}
               </h2>
               <p className="text-sm text-slate-600 font-medium max-w-md mx-auto">
                 {replacingSubmissionId
@@ -386,7 +387,7 @@ export default function SubmitPage() {
                 onClick={resetForm}
                 className="px-6 py-3.5 rounded-2xl ios-gradient-blue text-white font-bold shadow-md transition-all"
               >
-                ส่งผลงานเพิ่มเติม / อัปเดตชิ้นอื่น
+                {verb}เพิ่มเติม / อัปเดตชิ้นอื่น
               </button>
               <a
                 href="/gallery"
@@ -677,7 +678,7 @@ export default function SubmitPage() {
                               className="w-full px-6 py-3 rounded-2xl ios-gradient-blue text-white font-extrabold text-sm shadow-md shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
                               <Send className="w-4 h-4" />
-                              {isUploading ? "กำลังส่ง..." : replacingSubmissionId ? "อัปเดตแทนที่ไฟล์เดิม" : `ส่งงานที่ ${idx + 1}`}
+                              {isUploading ? "กำลังส่ง..." : replacingSubmissionId ? "อัปเดตแทนที่ไฟล์เดิม" : `${verb}ชิ้นที่ ${idx + 1}`}
                             </button>
                           </div>
                         )}
