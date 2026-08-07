@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { getSubmissions } from "@/lib/submission-service";
 import { getTeachers, TeacherItem } from "@/lib/teachers-service";
-import { getProjects, getActiveProject } from "@/lib/projects-service";
+import { getProjects } from "@/lib/projects-service";
 import { gradeLabel, gradeOrder } from "@/lib/format";
 import { Submission, Project } from "@/lib/types";
 import {
@@ -45,17 +45,20 @@ export default function StatsSection() {
   const [required, setRequired] = useState<number>(1);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Hidden rounds are excluded from the dropdown and from the "ทุกรอบ" totals.
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
 
   const projectIdParam = (pid: string) => (pid === "all" ? undefined : pid);
 
-  const loadSubs = async (pid: string, projs: Project[]) => {
+  const loadSubs = async (pid: string, projsForLookup: Project[], hidden: Set<string>) => {
     const data = await getSubmissions({
       limitNum: 500,
       projectId: projectIdParam(pid),
       forceRefresh: true,
     });
-    setSubs(data);
-    const proj = projs.find((p) => p.id === pid);
+    // Under "ทุกรอบ", drop works that belong to hidden rounds.
+    setSubs(data.filter((s) => !s.projectId || !hidden.has(s.projectId)));
+    const proj = projsForLookup.find((p) => p.id === pid);
     const req = proj?.workSlotTitles?.length || proj?.maxUpload || 1;
     setRequired(req);
   };
@@ -64,16 +67,16 @@ export default function StatsSection() {
     async function init() {
       setLoading(true);
       try {
-        const [ts, projs, active] = await Promise.all([
-          getTeachers(),
-          getProjects(),
-          getActiveProject(),
-        ]);
+        const [ts, projs] = await Promise.all([getTeachers(), getProjects()]);
         setTeachers(ts);
-        setProjects(projs);
-        const initial = active?.id || "all";
+        const visible = projs.filter((p) => p.showInGallery !== false);
+        setProjects(visible);
+        const hidden = new Set(projs.filter((p) => p.showInGallery === false).map((p) => p.id));
+        setHiddenIds(hidden);
+        // Default to the admin's first-ordered round.
+        const initial = visible[0]?.id || "all";
         setSelectedProjectId(initial);
-        await loadSubs(initial, projs);
+        await loadSubs(initial, projs, hidden);
       } catch (err) {
         console.error("Stats init error:", err);
       } finally {
@@ -88,7 +91,7 @@ export default function StatsSection() {
     setSelectedProjectId(pid);
     setLoading(true);
     try {
-      await loadSubs(pid, projects);
+      await loadSubs(pid, projects, hiddenIds);
     } finally {
       setLoading(false);
     }
