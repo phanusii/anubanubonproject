@@ -255,7 +255,10 @@ export default function SubmitPage() {
             projectName: activeProject?.name || settings?.trainingName || "ผลงานอบรม",
             gradeLevel: gradeLevel,
             submitterName: fullName.trim(),
-            workLabel: `งานชิ้นที่ ${selectedSlotIndex + 1}`,
+            // File name: "งานชิ้นที่ N <admin's work title>" (strip a redundant "ชิ้นที่ N:" prefix)
+            workLabel: `งานชิ้นที่ ${selectedSlotIndex + 1} ${getSlotTitle(selectedSlotIndex)
+              .replace(/^\s*ชิ้นที่\s*\d+\s*[:：]?\s*/, "")
+              .trim()}`.trim(),
           }
         );
         fileURL = uploaded.url;
