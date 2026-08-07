@@ -68,6 +68,8 @@ export interface Project {
   status?: 'active' | 'closed';
   createdAt?: number;
   order?: number;
+  // Whether this round appears in the public "คลังผลงานครู" round dropdown (default: true).
+  showInGallery?: boolean;
 }
 
 export interface GradeLevelOption {

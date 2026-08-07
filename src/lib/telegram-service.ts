@@ -70,18 +70,26 @@ export async function notifyNewSubmissionEvent(data: {
   isReplacement?: boolean;
   chatId?: string;
 }) {
-  const icon = data.isReplacement ? "🔄 [อัปเดตแทนที่ผลงานเดิม]" : "📥 [ส่งผลงานใหม่]";
+  const heading = data.isReplacement ? "🔄 อัปเดตแทนที่ผลงานเดิม" : "📥 มีผลงานส่งเข้ามาใหม่";
   const message = `
-<b>${icon} ระบบส่งผลงานโรงเรียนอนุบาลอุบลราชธานี</b>
+<b>${heading}</b>
+<i>ระบบส่งผลงาน • โรงเรียนอนุบาลอุบลราชธานี</i>
 ━━━━━━━━━━━━━━━━━━
-<b>👤 ผู้ส่งผลงาน:</b> ${data.fullName} (${data.position})
-<b>🏫 สายชั้น:</b> ${data.gradeLevel} | <b>กลุ่มสาระ:</b> ${data.subjectGroup}
-<b>📌 หัวข้อผลงาน:</b> ${data.projectTitle}
-<b>📁 ประเภทไฟล์:</b> ${data.fileType.toUpperCase()}
-<b>🏢 โรงเรียน:</b> ${data.school}
-<b>🔗 ลิงก์เปิดดูผลงาน:</b> <a href="${data.fileURL}">เปิดดูไฟล์ผลงาน</a>
+
+👤 <b>ผู้ส่งผลงาน</b>
+${data.fullName} (${data.position})
+
+🎓 <b>สายชั้น:</b> ${data.gradeLevel}
+📚 <b>กลุ่มสาระ:</b> ${data.subjectGroup}
+
+📌 <b>หัวข้อผลงาน</b>
+${data.projectTitle}
+
+📁 <b>ประเภทไฟล์:</b> ${data.fileType.toUpperCase()}
+🔗 <a href="${data.fileURL}">▶ เปิดดูไฟล์ผลงาน</a>
+
 ━━━━━━━━━━━━━━━━━━
-<i>⏰ เวลา: ${new Date().toLocaleString("th-TH")}</i>
+🕘 <i>${new Date().toLocaleString("th-TH")}</i>
 `.trim();
 
   return await sendTelegramNotification(message, data.chatId);

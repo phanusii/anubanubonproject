@@ -8,7 +8,7 @@ import AdminSidebar from "@/components/AdminSidebar";
 import { getProjects, saveProject, deleteProject, setActiveProject, saveProjectsOrder } from "@/lib/projects-service";
 import { getTrainingSettings, getSubmissions, updateSubmission } from "@/lib/submission-service";
 import { Project, TrainingSettings } from "@/lib/types";
-import { CalendarRange, Plus, Save, Trash2, CheckCircle2, Star, ListOrdered, Link2, X, Pencil, ChevronUp, ChevronDown } from "lucide-react";
+import { CalendarRange, Plus, Save, Trash2, CheckCircle2, Star, ListOrdered, Link2, X, Pencil, ChevronUp, ChevronDown, ToggleLeft, ToggleRight, Eye, EyeOff } from "lucide-react";
 
 function blankProject(settings: TrainingSettings | null): Project {
   const titles = settings?.workSlotTitles || [
@@ -116,6 +116,12 @@ export default function AdminProjectsPage() {
     const updated = await saveProjectsOrder(next.map((p) => p.id));
     setProjects(updated);
     setMessage("บันทึกการจัดเรียงโครงการแล้ว");
+  };
+
+  // Toggle whether this round shows in the public "คลังผลงานครู" dropdown.
+  const toggleGalleryVisible = async (p: Project) => {
+    await saveProject({ ...p, showInGallery: p.showInGallery === false });
+    await reload();
   };
 
   const handleDelete = async (p: Project) => {
@@ -255,15 +261,6 @@ export default function AdminProjectsPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-800">ประเภท</label>
-                  <input
-                    type="text"
-                    value={editing.categoryType || ""}
-                    onChange={(e) => setEditing({ ...editing, categoryType: e.target.value })}
-                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-900 text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
-                  />
-                </div>
-                <div className="space-y-2">
                   <label className="block text-xs font-bold text-slate-800">ปีการศึกษา</label>
                   <input
                     type="text"
@@ -273,22 +270,28 @@ export default function AdminProjectsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-800">วันเปิดรับ</label>
-                  <input
-                    type="datetime-local"
-                    value={editing.openDate || ""}
-                    onChange={(e) => setEditing({ ...editing, openDate: e.target.value })}
-                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-900 text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-800">วันปิดรับ</label>
-                  <input
-                    type="datetime-local"
-                    value={editing.closeDate || ""}
-                    onChange={(e) => setEditing({ ...editing, closeDate: e.target.value })}
-                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-900 text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
-                  />
+                  <label className="block text-xs font-bold text-slate-800">สถานะการเปิดรับ</label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditing({ ...editing, status: editing.status === "closed" ? "active" : "closed" })
+                    }
+                    className={`w-full px-4 py-3 rounded-2xl text-sm font-extrabold flex items-center justify-between transition-colors ${
+                      editing.status === "closed"
+                        ? "bg-slate-100 text-slate-500 border border-slate-200"
+                        : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      {editing.status === "closed" ? (
+                        <ToggleLeft className="w-5 h-5" />
+                      ) : (
+                        <ToggleRight className="w-5 h-5 text-emerald-600" />
+                      )}
+                      {editing.status === "closed" ? "ปิดรับส่งผลงาน" : "กำลังเปิดรับส่งผลงาน"}
+                    </span>
+                    <span className="text-[11px] font-bold opacity-70">แตะเพื่อสลับ</span>
+                  </button>
                 </div>
               </div>
 
@@ -371,9 +374,9 @@ export default function AdminProjectsPage() {
                       )}
                     </div>
                     <p className="text-xs text-slate-500 font-medium">
-                      {p.categoryType} · ปีการศึกษา {p.academicYear} · {p.maxUpload} ชิ้น/คน
-                      {p.openDate ? ` · เปิด ${p.openDate.replace("T", " ")}` : ""}
-                      {p.closeDate ? ` · ปิด ${p.closeDate.replace("T", " ")}` : ""}
+                      ปีการศึกษา {p.academicYear} · {p.maxUpload} ชิ้น/คน ·{" "}
+                      {p.status === "closed" ? "🔴 ปิดรับส่งผลงาน" : "🟢 กำลังเปิดรับส่งผลงาน"} ·{" "}
+                      {p.showInGallery === false ? "ซ่อนจากคลังผลงาน" : "แสดงในคลังผลงาน"}
                     </p>
                   </div>
 
@@ -400,6 +403,21 @@ export default function AdminProjectsPage() {
                         <ChevronDown className="w-4 h-4" />
                       </button>
                     </div>
+
+                    {/* Show / hide this round in the public คลังผลงานครู dropdown */}
+                    <button
+                      onClick={() => toggleGalleryVisible(p)}
+                      title={p.showInGallery === false ? "ซ่อนอยู่ — แตะเพื่อแสดงในคลังผลงาน" : "แสดงอยู่ — แตะเพื่อซ่อนจากคลังผลงาน"}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors ${
+                        p.showInGallery === false
+                          ? "bg-slate-100 text-slate-400 hover:bg-slate-200"
+                          : "bg-blue-50 text-blue-600 hover:bg-blue-100"
+                      }`}
+                    >
+                      {p.showInGallery === false ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      <span>{p.showInGallery === false ? "ซ่อนอยู่" : "แสดงในคลัง"}</span>
+                    </button>
+
                     {!isActive && (
                       <button
                         onClick={() => handleSetActive(p.id)}

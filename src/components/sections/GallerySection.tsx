@@ -65,10 +65,14 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         if (gls && gls.length > 0) setGradeLevels(gls);
         if (sgs && sgs.length > 0) setSubjectGroups(sgs);
         if (st) setSettings(st);
-        setProjects(projs);
 
-        // Default to the active round (falls back to "all" when no rounds exist yet).
-        const initialPid = active?.id || "all";
+        // Only rounds the admin flagged to show appear in the public dropdown.
+        const visibleProjects = projs.filter((p) => p.showInGallery !== false);
+        setProjects(visibleProjects);
+
+        // Default to the active round when it's visible, otherwise "ทั้งหมด".
+        const initialPid =
+          active?.id && visibleProjects.some((p) => p.id === active.id) ? active.id : "all";
         setSelectedProjectId(initialPid);
         await fetchFirstPage(initialPid);
       } catch (err) {
