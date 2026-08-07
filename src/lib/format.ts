@@ -8,7 +8,7 @@ const NON_HOMEROOM = ["ผู้บริหาร", "ผู้บริหา�
 export function gradeLabel(name: string): string {
   if (!name) return "";
   if (NON_HOMEROOM.includes(name.trim())) return name;
-  return `ครูสายชั้น${name}`;
+  return `ครูสายชั้น ${name}`;
 }
 
 /** Submit verb by round kind: training → "ส่งงาน", project (default) → "ส่งผลงาน". */
