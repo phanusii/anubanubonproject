@@ -23,6 +23,8 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   // Training rounds / projects — tabs to browse works by round ("all" = every round)
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("all");
+  // Project IDs the admin hid — their works are excluded even under "ทั้งหมด".
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
 
   // Pagination state
   const [cursor, setCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
@@ -68,6 +70,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         // Only rounds the admin flagged to show appear in the public dropdown.
         const visibleProjects = projs.filter((p) => p.showInGallery !== false);
         setProjects(visibleProjects);
+        setHiddenIds(new Set(projs.filter((p) => p.showInGallery === false).map((p) => p.id)));
 
         // Default to the admin's first-ordered round; fall back to "ทั้งหมด".
         const initialPid = visibleProjects[0]?.id || "all";
@@ -133,10 +136,12 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
 
       const matchesGrade = selectedGrade === "ทั้งหมด" || sub.gradeLevel === selectedGrade;
       const matchesSubject = selectedSubject === "ทั้งหมด" || sub.subjectGroup === selectedSubject;
+      // Exclude works belonging to hidden rounds (matters under "ทั้งหมด").
+      const notHidden = !sub.projectId || !hiddenIds.has(sub.projectId);
 
-      return matchesSearch && matchesGrade && matchesSubject;
+      return matchesSearch && matchesGrade && matchesSubject && notHidden;
     });
-  }, [submissions, search, selectedGrade, selectedSubject]);
+  }, [submissions, search, selectedGrade, selectedSubject, hiddenIds]);
 
   const isSpecificFilterActive = settings?.activeProjectFilterMode === 'specific' && settings.activeProjectFilterName;
 
