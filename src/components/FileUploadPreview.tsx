@@ -4,6 +4,41 @@ import { useState, useRef } from "react";
 import { Upload, FileText, Image as ImageIcon, X, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { generatePdfThumbnail } from "@/lib/pdf-thumbnail";
 
+// Files larger than this must go via a Google Drive link instead of a direct upload
+// (base64 over Apps Script inflates ~33% and gets slow/unreliable for big files).
+const DIRECT_UPLOAD_MAX_MB = 12;
+
+/**
+ * Shrink a raster image before upload: cap the longest side and re-encode as JPEG.
+ * Returns the original file if it isn't an image or compression wouldn't help.
+ */
+async function compressImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const MAX_DIM = 2000;
+    const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
+    const width = Math.round(bitmap.width * scale);
+    const height = Math.round(bitmap.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    const blob: Blob | null = await new Promise((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.82)
+    );
+    bitmap.close?.();
+    // Keep the original if compression didn't actually shrink it.
+    if (!blob || blob.size >= file.size) return file;
+    const newName = file.name.replace(/\.(png|jpe?g|webp)$/i, "") + ".jpg";
+    return new File([blob], newName, { type: "image/jpeg", lastModified: Date.now() });
+  } catch {
+    return file;
+  }
+}
+
 interface FileUploadPreviewProps {
   onFileSelect: (file: File | null, thumbnail: string) => void;
   uploadProgress?: number;
@@ -19,45 +54,66 @@ export default function FileUploadPreview({
   const [previewUrl, setPreviewUrl] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState<boolean>(false);
+  const [compressionNote, setCompressionNote] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const ALLOWED_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/webp"];
-  const MAX_SIZE_MB = 50;
 
-  const handleFileChange = async (file: File | null) => {
+  const handleFileChange = async (rawFile: File | null) => {
     setErrorMessage("");
-    if (!file) {
+    setCompressionNote("");
+    if (!rawFile) {
       setSelectedFile(null);
       setPreviewUrl("");
       onFileSelect(null, "");
       return;
     }
 
-    // Check size
-    if (file.size > MAX_SIZE_MB * 1024 * 1024) {
-      setErrorMessage(`ขนาดไฟล์เกินกำหนด (${MAX_SIZE_MB} MB)`);
-      return;
-    }
-
-    // Check file type
-    const fileType = file.type;
-    const ext = file.name.split(".").pop()?.toLowerCase();
+    // Check file type first
+    const ext = rawFile.name.split(".").pop()?.toLowerCase();
     const isValidExt = ["pdf", "png", "jpg", "jpeg", "webp"].includes(ext || "");
-
-    if (!ALLOWED_TYPES.includes(fileType) && !isValidExt) {
+    if (!ALLOWED_TYPES.includes(rawFile.type) && !isValidExt) {
       setErrorMessage("รองรับเฉพาะไฟล์ PDF, PNG, JPG, JPEG และ WEBP เท่านั้น");
       return;
     }
 
-    setSelectedFile(file);
+    const isImage = rawFile.type.startsWith("image/") || ["png", "jpg", "jpeg", "webp"].includes(ext || "");
+
+    // Compress images before upload (PDFs can't be compressed in the browser).
     setIsGeneratingThumbnail(true);
+    let file = rawFile;
+    if (isImage) {
+      const compressed = await compressImage(rawFile);
+      if (compressed.size < rawFile.size) {
+        file = compressed;
+        setCompressionNote(
+          `บีบอัดรูปแล้ว: ${(rawFile.size / 1048576).toFixed(1)} → ${(file.size / 1048576).toFixed(1)} MB`
+        );
+      }
+    }
+
+    // Direct upload has a size ceiling; larger files must use a Google Drive link.
+    if (file.size > DIRECT_UPLOAD_MAX_MB * 1024 * 1024) {
+      setIsGeneratingThumbnail(false);
+      setSelectedFile(null);
+      setPreviewUrl("");
+      setCompressionNote("");
+      onFileSelect(null, "");
+      setErrorMessage(
+        `ไฟล์นี้มีขนาด ${(file.size / 1048576).toFixed(1)} MB เกิน ${DIRECT_UPLOAD_MAX_MB} MB ` +
+          `สำหรับการอัปโหลดตรง — กรุณาอัปโหลดไฟล์ขึ้น Google Drive ของท่านเอง ` +
+          `แล้ววางลิงก์ที่แท็บ “Google Drive” ด้านบนแทน`
+      );
+      return;
+    }
+
+    setSelectedFile(file);
 
     let thumb = "";
-    if (file.type.startsWith("image/") || ["png", "jpg", "jpeg", "webp"].includes(ext || "")) {
+    if (isImage) {
       thumb = URL.createObjectURL(file);
       setPreviewUrl(thumb);
     } else if (file.type === "application/pdf" || ext === "pdf") {
-      // Generate page 1 thumbnail
       thumb = await generatePdfThumbnail(file);
       setPreviewUrl(thumb);
     }
@@ -77,6 +133,7 @@ export default function FileUploadPreview({
     setSelectedFile(null);
     setPreviewUrl("");
     setErrorMessage("");
+    setCompressionNote("");
     if (fileInputRef.current) fileInputRef.current.value = "";
     onFileSelect(null, "");
   };
@@ -108,7 +165,10 @@ export default function FileUploadPreview({
             ลากและวางไฟล์ผลงานที่นี่ หรือ <span className="text-blue-600 underline">คลิกเพื่อเลือกไฟล์</span>
           </p>
           <p className="text-xs text-slate-500 mt-2 font-medium">
-            รองรับไฟล์ PDF, PNG, JPG, JPEG, WEBP ขนาดไม่เกิน 50 MB
+            รองรับ PDF, PNG, JPG, JPEG, WEBP · รูปภาพจะถูกบีบอัดอัตโนมัติ
+          </p>
+          <p className="text-[11px] text-amber-600 mt-1 font-semibold">
+            ไฟล์ใหญ่เกิน {DIRECT_UPLOAD_MAX_MB} MB กรุณาใช้ลิงก์ Google Drive (แท็บด้านบน)
           </p>
         </div>
       ) : (
@@ -133,6 +193,9 @@ export default function FileUploadPreview({
                 <p className="text-xs text-slate-500 font-medium">
                   {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
                 </p>
+                {compressionNote && (
+                  <p className="text-[11px] text-emerald-600 font-bold">{compressionNote}</p>
+                )}
               </div>
             </div>
 
