@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
-  FileCheck,
   Send,
   LayoutGrid,
   ShieldCheck,
@@ -54,21 +53,20 @@ export default function Navbar() {
 
   // Public views are hash-based (single page); admin is a real route.
   const navItems = [
-    { label: "หน้าแรก", href: "#home", icon: FileCheck, hash: true },
+    { label: "คลังผลงานครู", href: "#gallery", icon: LayoutGrid, hash: true },
     { label: submitVerb(projectKind), href: "#submit", icon: Send, hash: true },
-    { label: "ดูผลงานทั้งหมด", href: "#gallery", icon: LayoutGrid, hash: true },
     { label: "สถิติ", href: "#stats", icon: BarChart3, hash: true },
     { label: "ผู้ดูแลระบบ", href: "/admin/login", icon: ShieldCheck, hash: false },
   ];
 
-  const currentHead = (hash || "#home").split("/")[0];
+  const currentHead = (hash || "#gallery").split("/")[0];
 
   return (
     <nav className="sticky top-0 z-50 glass-panel border-b border-white/80 shadow-xs bg-white/85">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20">
           {/* Logo & Brand */}
-          <a href="#home" className="flex items-center gap-3 group">
+          <a href="#gallery" className="flex items-center gap-3 group">
             {settings?.schoolLogoUrl ? (
               <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-md shadow-blue-500/10 bg-white shrink-0 group-hover:scale-105 transition-transform duration-300 flex items-center justify-center p-0.5">
                 <img

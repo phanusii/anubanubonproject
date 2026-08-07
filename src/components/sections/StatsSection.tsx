@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { getSubmissions } from "@/lib/submission-service";
 import { getTeachers, TeacherItem } from "@/lib/teachers-service";
 import { getProjects, getActiveProject } from "@/lib/projects-service";
-import { gradeLabel } from "@/lib/format";
+import { gradeLabel, gradeOrder } from "@/lib/format";
 import { Submission, Project } from "@/lib/types";
 import {
   BarChart3,
@@ -131,7 +131,7 @@ export default function StatsSection() {
   };
 
   const byGrade = useMemo(
-    () => buildGroups((t) => t.gradeLevel).sort((a, b) => a.label.localeCompare(b.label, "th")),
+    () => buildGroups((t) => t.gradeLevel).sort((a, b) => gradeOrder(a.key) - gradeOrder(b.key)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [teachers, worksByTeacher, required]
   );

@@ -192,15 +192,20 @@ export default function FileUploadPreview({
                       <CheckCircle2 className="w-4 h-4" />
                       <span>อัปโหลดสำเร็จ พร้อมส่งแล้ว!</span>
                     </>
-                  ) : uploadProgress < 50 ? (
+                  ) : uploadProgress < 20 ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>กำลังบีบอัดและเตรียมไฟล์...</span>
+                      <span>กำลังเตรียมไฟล์...</span>
+                    </>
+                  ) : uploadProgress < 85 ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>กำลังอัปโหลด...</span>
                     </>
                   ) : (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>กำลังอัปโหลด...</span>
+                      <span>กำลังบันทึกลง Google Drive...</span>
                     </>
                   )}
                 </span>
@@ -216,6 +221,17 @@ export default function FileUploadPreview({
                   style={{ width: `${uploadProgress}%` }}
                 />
               </div>
+
+              {/* Large files take a while over Google Drive — reassure, don't look frozen. */}
+              {isUploading && uploadProgress >= 85 && uploadProgress < 100 && (
+                <p className="text-[11px] text-amber-600 font-semibold flex items-start gap-1 pt-0.5">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    ไฟล์ขนาดใหญ่กำลังบันทึกลง Google Drive อาจใช้เวลาถึง 1–2 นาที
+                    กรุณาอย่าปิดหรือรีเฟรชหน้านี้จนกว่าจะเสร็จ
+                  </span>
+                </p>
+              )}
             </div>
           )}
         </div>

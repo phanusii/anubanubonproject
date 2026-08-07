@@ -7,7 +7,7 @@ import SubmissionModal from "@/components/SubmissionModal";
 import { getSubmissionsPage, getTrainingSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getProjects, getActiveProject } from "@/lib/projects-service";
-import { gradeLabel } from "@/lib/format";
+import { gradeLabel, sortGrades } from "@/lib/format";
 import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings, Project } from "@/lib/types";
 import { Search, SlidersHorizontal, Sparkles, FolderKanban, Layers } from "lucide-react";
 
@@ -138,6 +138,14 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
 
   const isSpecificFilterActive = settings?.activeProjectFilterMode === 'specific' && settings.activeProjectFilterName;
 
+  // Heading shows the selected round's project name (or "ทุกรอบ") with the work count.
+  const selectedProjectName =
+    selectedProjectId === "all"
+      ? settings?.trainingName || "คลังผลงานครู"
+      : projects.find((p) => p.id === selectedProjectId)?.name ||
+        settings?.trainingName ||
+        "คลังผลงานครู";
+
   return (
     <div className="flex flex-col w-full">
 
@@ -149,8 +157,8 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
             <span>คลังรวมผลงานและสื่อการจัดการเรียนรู้ดิจิทัล</span>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-            ผลงานที่ได้รับการเผยแพร่ ({filteredSubmissions.length} รายการ)
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight leading-snug">
+            {selectedProjectName} ({filteredSubmissions.length})
           </h1>
           <p className="text-xs sm:text-sm text-slate-600 font-medium">
             ค้นหาและเปิดดูผลงานนวัตกรรม แผนการจัดการเรียนรู้ และสื่อดิจิทัลของคุณครูโรงเรียนอนุบาลอุบลราชธานี
@@ -232,7 +240,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
                 className="px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
               >
                 <option value="ทั้งหมด">ทุกสายชั้น (อ.1 - ป.6)</option>
-                {gradeLevels.map((gl) => (
+                {sortGrades(gradeLevels).map((gl) => (
                   <option key={gl.id} value={gl.name}>
                     {gradeLabel(gl.name)}
                   </option>
@@ -266,7 +274,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {filteredSubmissions.map((sub) => (
               <MasonryCard
                 key={sub.id}

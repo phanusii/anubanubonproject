@@ -445,14 +445,18 @@ export async function uploadFileToGoogleDrive(
   // listener makes the request "non-simple" and triggers a CORS preflight (OPTIONS),
   // which Apps Script cannot answer. text/plain body keeps it a simple request.
   // fetch gives no upload progress, so we animate the bar while it's in flight.
+  // Larger files transfer proportionally slower, so ramp the fake bar slower for them
+  // (fetch can't report real upload %). It creeps toward 95 and jumps to 100 on success.
+  const sizeMB = file.size / (1024 * 1024);
+  const step = sizeMB > 4 ? 2 : sizeMB > 1.5 ? 3 : 5;
   let pct = 20;
   const timer = setInterval(() => {
-    pct = Math.min(90, pct + 4);
+    pct = Math.min(95, pct + step);
     if (onProgress) onProgress(pct);
-  }, 500);
+  }, 800);
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 180000);
+  const timeout = setTimeout(() => controller.abort(), 300000);
 
   try {
     const res = await fetch(DRIVE_UPLOAD_URL, {
