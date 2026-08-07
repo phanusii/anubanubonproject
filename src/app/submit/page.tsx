@@ -485,6 +485,21 @@ export default function SubmitPage() {
                     </div>
                   )}
 
+                  {/* Editable name — lets the submitter correct a misspelled roster entry */}
+                  {!isCustomName && fullName.trim() && (
+                    <div className="mt-2 space-y-1.5">
+                      <label className="block text-[11px] font-semibold text-slate-500">
+                        ชื่อ-สกุล (แก้ไขได้ หากข้อมูลในระบบสะกดผิด)
+                      </label>
+                      <input
+                        type="text"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-bold text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
+                      />
+                    </div>
+                  )}
+
                   {isCheckingLimit && (
                     <p className="text-xs text-blue-500 font-semibold">กำลังตรวจสอบข้อมูลผลงานที่เคยส่งไว้...</p>
                   )}
