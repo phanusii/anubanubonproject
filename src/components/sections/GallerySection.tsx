@@ -9,7 +9,7 @@ import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getProjects, getActiveProject } from "@/lib/projects-service";
 import { gradeLabel, sortGrades } from "@/lib/format";
 import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings, Project } from "@/lib/types";
-import { Search, SlidersHorizontal, Sparkles, FolderKanban, Layers } from "lucide-react";
+import { Search, Sparkles, FolderKanban, Layers } from "lucide-react";
 
 const PAGE_SIZE = 60;
 
@@ -197,70 +197,60 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
           </div>
         )}
 
-        {/* Multi-Field Search & Filter Controls */}
-        <div className="glass-panel p-4 sm:p-6 rounded-3xl border border-white space-y-4 shadow-sm bg-white">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            {/* Search bar + work-count badge on the same line */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
-              <div className="relative w-full sm:w-80">
-                <Search className="w-4 h-4 absolute left-4 top-3.5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="ค้นหาชื่อครู, ชื่อผลงาน, โรงเรียน, กลุ่มสาระ..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition-all"
-                />
-              </div>
+        {/* Search + count + filters — all on one line (desktop) */}
+        <div className="glass-panel p-3 sm:p-4 rounded-3xl border border-white shadow-sm bg-white">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+            {/* Search bar (takes the remaining width) */}
+            <div className="relative flex-1 min-w-[160px]">
+              <Search className="w-4 h-4 absolute left-4 top-3.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="ค้นหาชื่อครู, ชื่อผลงาน, กลุ่มสาระ..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition-all"
+              />
+            </div>
 
-              {/* Work count — right next to the search box */}
-              <span className="inline-flex items-center justify-center gap-2 pl-2 pr-4 py-1.5 rounded-2xl bg-blue-50 border border-blue-100 shrink-0">
-                <span className="w-7 h-7 rounded-xl ios-gradient-blue text-white flex items-center justify-center shadow-sm shadow-blue-500/25">
-                  <FolderKanban className="w-3.5 h-3.5" />
-                </span>
-                <span className="text-xs font-bold text-slate-600">ผลงานทั้งหมด</span>
-                <span className="text-lg font-extrabold text-blue-600 leading-none">
-                  {filteredSubmissions.length}
-                </span>
-                <span className="text-xs font-bold text-slate-600">ชิ้น</span>
+            {/* Work count */}
+            <span className="inline-flex items-center justify-center gap-2 pl-2 pr-4 py-2 rounded-2xl bg-blue-50 border border-blue-100 shrink-0">
+              <span className="w-7 h-7 rounded-xl ios-gradient-blue text-white flex items-center justify-center shadow-sm shadow-blue-500/25">
+                <FolderKanban className="w-3.5 h-3.5" />
               </span>
-            </div>
+              <span className="text-xs font-bold text-slate-600">ผลงานทั้งหมด</span>
+              <span className="text-lg font-extrabold text-blue-600 leading-none">
+                {filteredSubmissions.length}
+              </span>
+              <span className="text-xs font-bold text-slate-600">ชิ้น</span>
+            </span>
 
-            {/* Instant Filter Select Dropdowns */}
-            <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-                <SlidersHorizontal className="w-4 h-4 text-blue-600" />
-                <span>กรองผลงาน:</span>
-              </div>
+            {/* Grade Level Filter */}
+            <select
+              value={selectedGrade}
+              onChange={(e) => setSelectedGrade(e.target.value)}
+              className="shrink-0 w-auto max-w-[190px] px-3.5 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
+            >
+              <option value="ทั้งหมด">ทุกสายชั้น (อ.1 - ป.6)</option>
+              {sortGrades(gradeLevels).map((gl) => (
+                <option key={gl.id} value={gl.name}>
+                  {gradeLabel(gl.name)}
+                </option>
+              ))}
+            </select>
 
-              {/* Grade Level Filter */}
-              <select
-                value={selectedGrade}
-                onChange={(e) => setSelectedGrade(e.target.value)}
-                className="px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
-              >
-                <option value="ทั้งหมด">ทุกสายชั้น (อ.1 - ป.6)</option>
-                {sortGrades(gradeLevels).map((gl) => (
-                  <option key={gl.id} value={gl.name}>
-                    {gradeLabel(gl.name)}
-                  </option>
-                ))}
-              </select>
-
-              {/* Subject Group Filter */}
-              <select
-                value={selectedSubject}
-                onChange={(e) => setSelectedSubject(e.target.value)}
-                className="px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs max-w-xs"
-              >
-                <option value="ทั้งหมด">ทุกกลุ่มสาระการเรียนรู้</option>
-                {subjectGroups.map((sg) => (
-                  <option key={sg.id} value={sg.name}>
-                    {sg.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Subject Group Filter */}
+            <select
+              value={selectedSubject}
+              onChange={(e) => setSelectedSubject(e.target.value)}
+              className="shrink-0 w-auto max-w-[210px] px-3.5 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
+            >
+              <option value="ทั้งหมด">ทุกกลุ่มสาระการเรียนรู้</option>
+              {subjectGroups.map((sg) => (
+                <option key={sg.id} value={sg.name}>
+                  {sg.name}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
