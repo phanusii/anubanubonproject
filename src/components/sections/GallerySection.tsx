@@ -6,7 +6,7 @@ import MasonryCard from "@/components/MasonryCard";
 import SubmissionModal from "@/components/SubmissionModal";
 import { getSubmissionsPage, getTrainingSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
-import { getProjects, getActiveProject } from "@/lib/projects-service";
+import { getProjects } from "@/lib/projects-service";
 import { gradeLabel, sortGrades } from "@/lib/format";
 import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings, Project } from "@/lib/types";
 import { Search, Sparkles, FolderKanban, Layers } from "lucide-react";
@@ -54,9 +54,8 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   useEffect(() => {
     async function loadInitial() {
       try {
-        const [projs, active, gls, sgs, st] = await Promise.all([
+        const [projs, gls, sgs, st] = await Promise.all([
           getProjects(),
-          getActiveProject(),
           getGradeLevels(),
           getSubjectGroups(),
           getTrainingSettings(),
@@ -70,9 +69,8 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         const visibleProjects = projs.filter((p) => p.showInGallery !== false);
         setProjects(visibleProjects);
 
-        // Default to the active round when it's visible, otherwise "ทั้งหมด".
-        const initialPid =
-          active?.id && visibleProjects.some((p) => p.id === active.id) ? active.id : "all";
+        // Default to the admin's first-ordered round; fall back to "ทั้งหมด".
+        const initialPid = visibleProjects[0]?.id || "all";
         setSelectedProjectId(initialPid);
         await fetchFirstPage(initialPid);
       } catch (err) {
