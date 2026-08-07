@@ -401,6 +401,71 @@ export async function uploadFileToStorage(
   });
 }
 
+// Google Apps Script web app that saves uploads into the school's own Google Drive.
+// The /exec URL is a public endpoint (not a secret); the shared secret is a light
+// abuse guard. Both can be overridden by env for a different deployment.
+const DRIVE_UPLOAD_URL =
+  process.env.NEXT_PUBLIC_DRIVE_UPLOAD_URL ||
+  "https://script.google.com/macros/s/AKfycbxHvMbNl3CxMyAC850aLp0lWt42JJqUYv3rhKQt_1DeZcT_0p03TrbxL6zzhm6X6iPl/exec";
+const DRIVE_UPLOAD_SECRET = process.env.NEXT_PUBLIC_DRIVE_UPLOAD_SECRET || "anuban-upload-2569";
+
+export interface DriveUploadResult {
+  url: string;
+  id: string;
+  name: string;
+}
+
+/**
+ * Upload a file into the school's Google Drive via the Apps Script web app.
+ * Returns the shareable Drive view link + file id. Reports real progress via XHR.
+ */
+export async function uploadFileToGoogleDrive(
+  file: File,
+  onProgress?: (percent: number) => void
+): Promise<DriveUploadResult> {
+  if (onProgress) onProgress(5);
+  const dataUrl = await fileToDataURL(file);
+  const base64 = dataUrl.includes(",") ? dataUrl.slice(dataUrl.indexOf(",") + 1) : dataUrl;
+  if (onProgress) onProgress(15);
+
+  const payload = JSON.stringify({
+    filename: file.name,
+    mimeType: file.type || "application/octet-stream",
+    data: base64,
+    secret: DRIVE_UPLOAD_SECRET,
+  });
+
+  return new Promise<DriveUploadResult>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", DRIVE_UPLOAD_URL, true);
+    // text/plain keeps this a "simple" cross-origin request (no CORS preflight,
+    // which Apps Script cannot answer).
+    xhr.setRequestHeader("Content-Type", "text/plain;charset=utf-8");
+    xhr.timeout = 180000;
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable && onProgress) {
+        onProgress(Math.min(90, 15 + Math.round((ev.loaded / ev.total) * 75)));
+      }
+    };
+    xhr.onload = () => {
+      try {
+        const res = JSON.parse(xhr.responseText);
+        if (res && res.ok && res.url) {
+          if (onProgress) onProgress(100);
+          resolve({ url: res.url, id: res.id, name: res.name });
+        } else {
+          reject(new Error("อัปโหลดขึ้น Google Drive ไม่สำเร็จ" + (res?.error ? `: ${res.error}` : "")));
+        }
+      } catch {
+        reject(new Error("อ่านผลลัพธ์จาก Google Drive ไม่ได้ กรุณาลองใหม่อีกครั้ง"));
+      }
+    };
+    xhr.onerror = () => reject(new Error("เชื่อมต่อ Google Drive ไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ต"));
+    xhr.ontimeout = () => reject(new Error("อัปโหลดใช้เวลานานเกินไป — ลองไฟล์ที่เล็กลง หรือใช้วิธีวางลิงก์ Google Drive"));
+    xhr.send(payload);
+  });
+}
+
 /**
  * Submit new work to Firestore & Local Storage
  */

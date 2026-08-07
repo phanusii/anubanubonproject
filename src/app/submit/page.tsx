@@ -4,10 +4,10 @@ import { useState, useEffect } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import FileUploadPreview from "@/components/FileUploadPreview";
-import { 
-  getTrainingSettings, 
+import {
+  getTrainingSettings,
   getUserSubmissionsByName,
-  uploadFileToStorage, 
+  uploadFileToGoogleDrive,
   createSubmission,
   replaceSubmission
 } from "@/lib/submission-service";
@@ -241,13 +241,22 @@ export default function SubmitPage() {
       let fileURL = "";
       let ext = "drive";
       let thumb = thumbnailDataUrl;
+      let effectiveMethod: 'file' | 'drive' = submissionMethod;
+      let savedDriveFileId: string | undefined = driveFileId || undefined;
+      let savedDriveLink = driveUrl.trim();
 
       if (submissionMethod === 'file' && selectedFile) {
-        fileURL = await uploadFileToStorage(selectedFile, (progress) => {
+        // Upload the file into the school's Google Drive; then treat it like a Drive item.
+        const uploaded = await uploadFileToGoogleDrive(selectedFile, (progress) => {
           setUploadProgress(progress);
         });
+        fileURL = uploaded.url;
         ext = selectedFile.name.split(".").pop()?.toLowerCase() || "bin";
-        if (!thumb && ext !== "pdf") thumb = fileURL;
+        effectiveMethod = 'drive';
+        savedDriveFileId = uploaded.id;
+        savedDriveLink = uploaded.url;
+        // Use the generated preview (e.g. PDF first page) if we have one, else Drive's thumbnail.
+        if (!thumb) thumb = getGoogleDriveThumbnail(uploaded.id);
       } else if (submissionMethod === 'drive' && driveFileId) {
         fileURL = driveUrl.trim();
         ext = "drive";
@@ -268,12 +277,12 @@ export default function SubmitPage() {
         description: description.trim(),
         fileType: ext,
         fileURL,
-        fileName: selectedFile ? selectedFile.name : `Google Drive (${driveFileId})`,
+        fileName: selectedFile ? selectedFile.name : `Google Drive (${savedDriveFileId})`,
         fileSize: selectedFile ? selectedFile.size : 0,
         thumbnail: thumb,
-        submissionMethod,
-        driveLink: driveUrl.trim(),
-        driveFileId: driveFileId || undefined,
+        submissionMethod: effectiveMethod,
+        driveLink: savedDriveLink,
+        driveFileId: savedDriveFileId,
         // Stamp the training round/project this submission belongs to (omit if none active)
         ...(activeProject ? { projectId: activeProject.id, projectName: activeProject.name } : {}),
       };
