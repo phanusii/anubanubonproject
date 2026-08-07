@@ -1,0 +1,405 @@
+"use client";
+
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { getSubmissions } from "@/lib/submission-service";
+import { getTeachers, TeacherItem } from "@/lib/teachers-service";
+import { getProjects, getActiveProject } from "@/lib/projects-service";
+import { gradeLabel } from "@/lib/format";
+import { Submission, Project } from "@/lib/types";
+import {
+  BarChart3,
+  Users,
+  CheckCircle2,
+  Clock,
+  FileStack,
+  Layers,
+  BookOpen,
+  ChevronDown,
+} from "lucide-react";
+
+/** Normalize a name for matching roster ↔ submissions (ignore spaces / a leading "ครู"). */
+function normName(s: string): string {
+  return (s || "").replace(/\s+/g, "").replace(/^ครู/, "").trim();
+}
+
+interface GroupStat {
+  key: string;
+  label: string;
+  totalTeachers: number;
+  submitted: number; // teachers with ≥1 work
+  complete: number; // teachers with ≥ required works
+  works: number; // total works submitted
+  notDone: string[]; // teacher names not yet complete
+}
+
+function pct(n: number, d: number): number {
+  if (!d) return 0;
+  return Math.round((n / d) * 100);
+}
+
+export default function StatsSection() {
+  const [teachers, setTeachers] = useState<TeacherItem[]>([]);
+  const [subs, setSubs] = useState<Submission[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("all");
+  const [required, setRequired] = useState<number>(1);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const projectIdParam = (pid: string) => (pid === "all" ? undefined : pid);
+
+  const loadSubs = async (pid: string, projs: Project[]) => {
+    const data = await getSubmissions({
+      limitNum: 500,
+      projectId: projectIdParam(pid),
+      forceRefresh: true,
+    });
+    setSubs(data);
+    const proj = projs.find((p) => p.id === pid);
+    const req = proj?.workSlotTitles?.length || proj?.maxUpload || 1;
+    setRequired(req);
+  };
+
+  useEffect(() => {
+    async function init() {
+      setLoading(true);
+      try {
+        const [ts, projs, active] = await Promise.all([
+          getTeachers(),
+          getProjects(),
+          getActiveProject(),
+        ]);
+        setTeachers(ts);
+        setProjects(projs);
+        const initial = active?.id || "all";
+        setSelectedProjectId(initial);
+        await loadSubs(initial, projs);
+      } catch (err) {
+        console.error("Stats init error:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    init();
+  }, []);
+
+  const selectProject = async (pid: string) => {
+    if (pid === selectedProjectId) return;
+    setSelectedProjectId(pid);
+    setLoading(true);
+    try {
+      await loadSubs(pid, projects);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Count works per teacher (by normalized name).
+  const worksByTeacher = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of subs) {
+      const k = normName(s.fullName);
+      map.set(k, (map.get(k) || 0) + 1);
+    }
+    return map;
+  }, [subs]);
+
+  const buildGroups = (pick: (t: TeacherItem) => string): GroupStat[] => {
+    const groups = new Map<string, GroupStat>();
+    for (const t of teachers) {
+      const key = pick(t) || "ไม่ระบุ";
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          label: key,
+          totalTeachers: 0,
+          submitted: 0,
+          complete: 0,
+          works: 0,
+          notDone: [],
+        });
+      }
+      const g = groups.get(key)!;
+      g.totalTeachers += 1;
+      const count = worksByTeacher.get(normName(t.fullName)) || 0;
+      g.works += count;
+      if (count >= 1) g.submitted += 1;
+      if (count >= required) g.complete += 1;
+      else g.notDone.push(t.fullName);
+    }
+    return Array.from(groups.values());
+  };
+
+  const byGrade = useMemo(
+    () => buildGroups((t) => t.gradeLevel).sort((a, b) => a.label.localeCompare(b.label, "th")),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [teachers, worksByTeacher, required]
+  );
+  const bySubject = useMemo(
+    () => buildGroups((t) => t.subjectGroup).sort((a, b) => b.totalTeachers - a.totalTeachers),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [teachers, worksByTeacher, required]
+  );
+
+  // School overall
+  const overall = useMemo(() => {
+    const totalTeachers = teachers.length;
+    let submitted = 0;
+    let complete = 0;
+    let works = 0;
+    for (const t of teachers) {
+      const c = worksByTeacher.get(normName(t.fullName)) || 0;
+      works += c;
+      if (c >= 1) submitted += 1;
+      if (c >= required) complete += 1;
+    }
+    return { totalTeachers, submitted, complete, works };
+  }, [teachers, worksByTeacher, required]);
+
+  return (
+    <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-8 space-y-8">
+      {/* Header */}
+      <div className="text-center space-y-3 max-w-3xl mx-auto">
+        <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-extrabold bg-blue-100/70 text-blue-700 border border-blue-200">
+          <BarChart3 className="w-3.5 h-3.5" />
+          <span>สถิติการส่งงาน / ส่งผลงาน</span>
+        </div>
+        <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+          สรุปการส่งงานของครู
+        </h1>
+        <p className="text-xs sm:text-sm text-slate-600 font-medium">
+          สรุประดับโรงเรียน สายชั้น และกลุ่มสาระ — ใครส่งแล้ว ส่งครบไหม กี่ชิ้น คิดเป็นกี่%
+          {required > 1 && ` (เกณฑ์ครบ = ${required} ชิ้น)`}
+        </p>
+      </div>
+
+      {/* Round tabs */}
+      {projects.length > 0 && (
+        <div className="glass-panel p-3 sm:p-4 rounded-3xl border border-white bg-white shadow-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="flex items-center gap-1.5 text-xs font-bold text-slate-700 pr-1">
+              <Layers className="w-4 h-4 text-blue-600" />
+              <span>เลือกรอบ:</span>
+            </span>
+            {projects.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => selectProject(p.id)}
+                className={`px-4 py-2 rounded-2xl text-xs font-extrabold transition-all ${
+                  selectedProjectId === p.id
+                    ? "ios-gradient-blue text-white shadow-md shadow-blue-500/25"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {p.name}
+              </button>
+            ))}
+            <button
+              onClick={() => selectProject("all")}
+              className={`px-4 py-2 rounded-2xl text-xs font-extrabold transition-all ${
+                selectedProjectId === "all"
+                  ? "ios-gradient-blue text-white shadow-md shadow-blue-500/25"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              }`}
+            >
+              ทุกรอบ
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="glass-panel p-12 text-center rounded-3xl border border-slate-100 bg-slate-50/50">
+          <p className="text-sm font-bold text-slate-500">กำลังคำนวณสถิติ...</p>
+        </div>
+      ) : (
+        <>
+          {/* Overall cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard icon={<Users className="w-5 h-5" />} tone="blue" label="ครูทั้งหมด" value={overall.totalTeachers} />
+            <StatCard
+              icon={<CheckCircle2 className="w-5 h-5" />}
+              tone="emerald"
+              label="ส่งแล้ว (อย่างน้อย 1 ชิ้น)"
+              value={overall.submitted}
+              sub={`${pct(overall.submitted, overall.totalTeachers)}%`}
+            />
+            <StatCard
+              icon={<CheckCircle2 className="w-5 h-5" />}
+              tone="violet"
+              label={`ส่งครบ (≥ ${required})`}
+              value={overall.complete}
+              sub={`${pct(overall.complete, overall.totalTeachers)}%`}
+            />
+            <StatCard icon={<FileStack className="w-5 h-5" />} tone="amber" label="ชิ้นงานทั้งหมด" value={overall.works} />
+          </div>
+
+          {/* By grade level */}
+          <StatTable
+            title="สรุปตามสายชั้น"
+            icon={<Layers className="w-5 h-5 text-blue-600" />}
+            groups={byGrade}
+            required={required}
+            labelFn={(k) => gradeLabel(k)}
+            expanded={expanded}
+            setExpanded={setExpanded}
+          />
+
+          {/* By subject group */}
+          <StatTable
+            title="สรุปตามกลุ่มสาระการเรียนรู้"
+            icon={<BookOpen className="w-5 h-5 text-purple-600" />}
+            groups={bySubject}
+            required={required}
+            labelFn={(k) => k}
+            expanded={expanded}
+            setExpanded={setExpanded}
+          />
+        </>
+      )}
+    </main>
+  );
+}
+
+function StatCard({
+  icon,
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  sub?: string;
+  tone: "blue" | "emerald" | "violet" | "amber";
+}) {
+  const tones: Record<string, string> = {
+    blue: "bg-blue-50 text-blue-600",
+    emerald: "bg-emerald-50 text-emerald-600",
+    violet: "bg-violet-50 text-violet-600",
+    amber: "bg-amber-50 text-amber-600",
+  };
+  return (
+    <div className="glass-panel p-4 rounded-3xl border border-white bg-white shadow-xs space-y-2">
+      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${tones[tone]}`}>{icon}</div>
+      <div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-2xl font-extrabold text-slate-900">{value}</span>
+          {sub && <span className="text-xs font-bold text-slate-500">{sub}</span>}
+        </div>
+        <p className="text-[11px] font-semibold text-slate-500 leading-tight">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+function StatTable({
+  title,
+  icon,
+  groups,
+  required,
+  labelFn,
+  expanded,
+  setExpanded,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  groups: GroupStat[];
+  required: number;
+  labelFn: (key: string) => string;
+  expanded: string | null;
+  setExpanded: (k: string | null) => void;
+}) {
+  return (
+    <div className="glass-panel rounded-3xl border border-white bg-white shadow-xs overflow-hidden">
+      <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
+        {icon}
+        <h2 className="text-base font-extrabold text-slate-900">{title}</h2>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-slate-500 font-bold bg-slate-50/70">
+              <th className="text-left px-4 py-3">รายการ</th>
+              <th className="text-center px-3 py-3">ครู</th>
+              <th className="text-center px-3 py-3">ส่งแล้ว</th>
+              <th className="text-center px-3 py-3">ส่งครบ</th>
+              <th className="text-center px-3 py-3">ชิ้นงาน</th>
+              <th className="text-left px-4 py-3 w-40">ความคืบหน้า</th>
+              <th className="px-2 py-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((g) => {
+              const p = pct(g.complete, g.totalTeachers);
+              const isOpen = expanded === title + "|" + g.key;
+              return (
+                <Fragment key={g.key}>
+                  <tr className="border-t border-slate-100 hover:bg-slate-50/50">
+                    <td className="px-4 py-3 font-bold text-slate-800 max-w-[220px] truncate" title={labelFn(g.key)}>
+                      {labelFn(g.key)}
+                    </td>
+                    <td className="text-center px-3 py-3 font-semibold text-slate-700">{g.totalTeachers}</td>
+                    <td className="text-center px-3 py-3 font-semibold text-emerald-600">
+                      {g.submitted}
+                      <span className="text-[10px] text-slate-400"> ({pct(g.submitted, g.totalTeachers)}%)</span>
+                    </td>
+                    <td className="text-center px-3 py-3 font-semibold text-violet-600">{g.complete}</td>
+                    <td className="text-center px-3 py-3 font-semibold text-amber-600">{g.works}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${p >= 100 ? "bg-emerald-500" : p >= 50 ? "bg-blue-500" : "bg-amber-400"}`}
+                            style={{ width: `${p}%` }}
+                          />
+                        </div>
+                        <span className="text-[11px] font-bold text-slate-600 w-9 text-right">{p}%</span>
+                      </div>
+                    </td>
+                    <td className="px-2 py-3 text-right">
+                      {g.notDone.length > 0 && (
+                        <button
+                          onClick={() => setExpanded(isOpen ? null : title + "|" + g.key)}
+                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"
+                          title="ดูรายชื่อที่ยังไม่ครบ"
+                        >
+                          <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr className="bg-amber-50/40">
+                      <td colSpan={7} className="px-4 py-3">
+                        <div className="flex items-start gap-2">
+                          <Clock className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                          <div>
+                            <p className="text-[11px] font-bold text-amber-700 mb-1">
+                              ยังส่งไม่ครบ ({g.notDone.length} คน):
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {g.notDone.map((n) => (
+                                <span
+                                  key={n}
+                                  className="px-2 py-0.5 rounded-md bg-white border border-amber-200 text-slate-600 text-[11px] font-semibold"
+                                >
+                                  {n}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
