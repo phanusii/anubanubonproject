@@ -75,6 +75,40 @@ export async function saveProject(project: Project): Promise<Project[]> {
   return sorted;
 }
 
+/**
+ * Persist a new display order for the rounds. `orderedIds` is the desired order;
+ * each project's `order` becomes its index so getProjects() returns them this way.
+ */
+export async function saveProjectsOrder(orderedIds: string[]): Promise<Project[]> {
+  const current = await getProjects();
+  const byId = new Map(current.map((p) => [p.id, p]));
+  const reordered: Project[] = [];
+  orderedIds.forEach((id, i) => {
+    const p = byId.get(id);
+    if (p) {
+      reordered.push({ ...p, order: i });
+      byId.delete(id);
+    }
+  });
+  // Append anything not in the list (shouldn't happen) at the end.
+  let i = reordered.length;
+  for (const p of byId.values()) reordered.push({ ...p, order: i++ });
+
+  const sorted = sortProjects(reordered);
+  cachedProjects = sorted;
+  if (typeof window !== "undefined") {
+    localStorage.setItem("app_projects", JSON.stringify(sorted));
+  }
+  await Promise.all(
+    reordered.map((p) =>
+      setDoc(doc(db, "projects", p.id), { order: p.order }, { merge: true }).catch((err) =>
+        console.warn("saveProjectsOrder Firestore error:", err)
+      )
+    )
+  );
+  return sorted;
+}
+
 export async function deleteProject(id: string): Promise<Project[]> {
   const current = await getProjects();
   const filtered = current.filter((p) => p.id !== id);

@@ -172,44 +172,49 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
           )}
         </div>
 
-        {/* Round / project tabs — pick a training round, or view every round */}
+        {/* Round / project selector — a dropdown ordered by the admin's setting */}
         {projects.length > 0 && (
           <div className="glass-panel p-3 sm:p-4 rounded-3xl border border-white bg-white shadow-xs">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="flex items-center gap-1.5 text-xs font-bold text-slate-700 pr-1">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="flex items-center gap-1.5 text-xs font-bold text-slate-700 shrink-0">
                 <Layers className="w-4 h-4 text-blue-600" />
                 <span>เลือกรอบ:</span>
               </span>
-              {projects.map((p) => {
-                const isSel = selectedProjectId === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => selectProject(p.id)}
-                    className={`px-4 py-2 rounded-2xl text-xs font-extrabold transition-all ${
-                      isSel
-                        ? "ios-gradient-blue text-white shadow-md shadow-blue-500/25"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    }`}
-                  >
+              <select
+                value={selectedProjectId}
+                onChange={(e) => selectProject(e.target.value)}
+                className="flex-1 min-w-[220px] px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none shadow-2xs"
+              >
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
                     {p.name}
                     {p.id === settings?.activeProjectId ? " · เปิดรับอยู่" : ""}
-                  </button>
-                );
-              })}
-              <button
-                onClick={() => selectProject("all")}
-                className={`px-4 py-2 rounded-2xl text-xs font-extrabold transition-all ${
-                  selectedProjectId === "all"
-                    ? "ios-gradient-blue text-white shadow-md shadow-blue-500/25"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                ทั้งหมด
-              </button>
+                  </option>
+                ))}
+                <option value="all">ทั้งหมด (ทุกรอบ)</option>
+              </select>
+            </div>
+          </div>
+        )}
 
-              {/* Work count — inside the round panel, right after ทั้งหมด */}
-              <span className="ml-auto inline-flex items-center gap-2 pl-2 pr-4 py-1.5 rounded-2xl bg-blue-50 border border-blue-100">
+        {/* Multi-Field Search & Filter Controls */}
+        <div className="glass-panel p-4 sm:p-6 rounded-3xl border border-white space-y-4 shadow-sm bg-white">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+            {/* Search bar + work-count badge on the same line */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
+              <div className="relative w-full sm:w-80">
+                <Search className="w-4 h-4 absolute left-4 top-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="ค้นหาชื่อครู, ชื่อผลงาน, โรงเรียน, กลุ่มสาระ..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition-all"
+                />
+              </div>
+
+              {/* Work count — right next to the search box */}
+              <span className="inline-flex items-center justify-center gap-2 pl-2 pr-4 py-1.5 rounded-2xl bg-blue-50 border border-blue-100 shrink-0">
                 <span className="w-7 h-7 rounded-xl ios-gradient-blue text-white flex items-center justify-center shadow-sm shadow-blue-500/25">
                   <FolderKanban className="w-3.5 h-3.5" />
                 </span>
@@ -219,23 +224,6 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
                 </span>
                 <span className="text-xs font-bold text-slate-600">ชิ้น</span>
               </span>
-            </div>
-          </div>
-        )}
-
-        {/* Multi-Field Search & Filter Controls */}
-        <div className="glass-panel p-4 sm:p-6 rounded-3xl border border-white space-y-4 shadow-sm bg-white">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            {/* Multi-Field Search Bar */}
-            <div className="relative w-full md:w-96">
-              <Search className="w-4 h-4 absolute left-4 top-3.5 text-slate-400" />
-              <input
-                type="text"
-                placeholder="ค้นหาชื่อครู, ชื่อผลงาน, โรงเรียน, กลุ่มสาระ..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition-all"
-              />
             </div>
 
             {/* Instant Filter Select Dropdowns */}

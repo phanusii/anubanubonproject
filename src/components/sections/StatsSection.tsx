@@ -173,37 +173,26 @@ export default function StatsSection() {
         </p>
       </div>
 
-      {/* Round tabs */}
+      {/* Round selector — dropdown ordered by the admin's setting */}
       {projects.length > 0 && (
         <div className="glass-panel p-3 sm:p-4 rounded-3xl border border-white bg-white shadow-xs">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="flex items-center gap-1.5 text-xs font-bold text-slate-700 pr-1">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="flex items-center gap-1.5 text-xs font-bold text-slate-700 shrink-0">
               <Layers className="w-4 h-4 text-blue-600" />
               <span>เลือกรอบ:</span>
             </span>
-            {projects.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => selectProject(p.id)}
-                className={`px-4 py-2 rounded-2xl text-xs font-extrabold transition-all ${
-                  selectedProjectId === p.id
-                    ? "ios-gradient-blue text-white shadow-md shadow-blue-500/25"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-              >
-                {p.name}
-              </button>
-            ))}
-            <button
-              onClick={() => selectProject("all")}
-              className={`px-4 py-2 rounded-2xl text-xs font-extrabold transition-all ${
-                selectedProjectId === "all"
-                  ? "ios-gradient-blue text-white shadow-md shadow-blue-500/25"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
+            <select
+              value={selectedProjectId}
+              onChange={(e) => selectProject(e.target.value)}
+              className="flex-1 min-w-[220px] px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none shadow-2xs"
             >
-              ทุกรอบ
-            </button>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+              <option value="all">ทั้งหมด (ทุกรอบ)</option>
+            </select>
           </div>
         </div>
       )}

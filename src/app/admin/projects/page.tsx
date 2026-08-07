@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
-import { getProjects, saveProject, deleteProject, setActiveProject } from "@/lib/projects-service";
+import { getProjects, saveProject, deleteProject, setActiveProject, saveProjectsOrder } from "@/lib/projects-service";
 import { getTrainingSettings, getSubmissions, updateSubmission } from "@/lib/submission-service";
 import { Project, TrainingSettings } from "@/lib/types";
-import { CalendarRange, Plus, Save, Trash2, CheckCircle2, Star, ListOrdered, Link2, X, Pencil } from "lucide-react";
+import { CalendarRange, Plus, Save, Trash2, CheckCircle2, Star, ListOrdered, Link2, X, Pencil, ChevronUp, ChevronDown } from "lucide-react";
 
 function blankProject(settings: TrainingSettings | null): Project {
   const titles = settings?.workSlotTitles || [
@@ -104,6 +104,18 @@ export default function AdminProjectsPage() {
     await setActiveProject(id);
     await reload();
     setMessage("ตั้งเป็นรอบที่เปิดรับส่งผลงานแล้ว");
+  };
+
+  // Reorder rounds: which project shows first in the public dropdowns.
+  const moveProject = async (index: number, dir: -1 | 1) => {
+    const j = index + dir;
+    if (j < 0 || j >= projects.length) return;
+    const next = [...projects];
+    [next[index], next[j]] = [next[j], next[index]];
+    setProjects(next);
+    const updated = await saveProjectsOrder(next.map((p) => p.id));
+    setProjects(updated);
+    setMessage("บันทึกการจัดเรียงโครงการแล้ว");
   };
 
   const handleDelete = async (p: Project) => {
@@ -336,7 +348,7 @@ export default function AdminProjectsPage() {
               </div>
             )}
 
-            {projects.map((p) => {
+            {projects.map((p, index) => {
               const isActive = p.id === activeId;
               return (
                 <div
@@ -366,6 +378,28 @@ export default function AdminProjectsPage() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {/* Reorder: which round shows first in the public dropdown */}
+                    <div className="flex items-center rounded-xl border border-slate-200 bg-white overflow-hidden">
+                      <button
+                        onClick={() => moveProject(index, -1)}
+                        disabled={index === 0}
+                        title="เลื่อนขึ้น (แสดงก่อน)"
+                        className="p-2 text-slate-500 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                      <span className="px-1.5 text-[11px] font-extrabold text-slate-400 border-x border-slate-100">
+                        {index + 1}
+                      </span>
+                      <button
+                        onClick={() => moveProject(index, 1)}
+                        disabled={index === projects.length - 1}
+                        title="เลื่อนลง (แสดงทีหลัง)"
+                        className="p-2 text-slate-500 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    </div>
                     {!isActive && (
                       <button
                         onClick={() => handleSetActive(p.id)}
