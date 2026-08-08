@@ -406,7 +406,7 @@ export async function uploadFileToStorage(
 // abuse guard. Both can be overridden by env for a different deployment.
 const DRIVE_UPLOAD_URL =
   process.env.NEXT_PUBLIC_DRIVE_UPLOAD_URL ||
-  "https://script.google.com/macros/s/AKfycbwDlzoiq0ljMyKnk_tNljq6-NY3mqSsV7r5s1-XSgu-fiFmTsEQt3Y-oW1ff5Ki3Zmr/exec";
+  "https://script.google.com/macros/s/AKfycbzJWeS1zQpviWtQ-e839gokPv1eYlFzeTrQHZ5J_-Pml1H9Z1z4wxeK5s6sIB0IavlX/exec";
 const DRIVE_UPLOAD_SECRET = process.env.NEXT_PUBLIC_DRIVE_UPLOAD_SECRET || "anuban-upload-2569";
 
 export interface DriveUploadResult {
@@ -419,10 +419,8 @@ export interface DriveUploadResult {
  * Upload a file into the school's Google Drive via the Apps Script web app.
  * Returns the shareable Drive view link + file id. Reports real progress via XHR.
  */
-// Files up to this size upload in one request; bigger files stream in chunks.
-// NOTE: kept at 12 MB (matching the client cap) so the chunked path stays dormant
-// until the owner deploys the chunk-aware Apps Script. Lower to 8 MB to enable it.
-const SINGLE_SHOT_MAX = 12 * 1024 * 1024; // 12 MB
+// Files up to this size upload in one request; bigger files stream in chunks (resumable).
+const SINGLE_SHOT_MAX = 8 * 1024 * 1024; // 8 MB
 // 4 MB per chunk — must be a multiple of 256 KB for Google Drive's resumable upload.
 const CHUNK_SIZE = 4 * 1024 * 1024;
 

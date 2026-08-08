@@ -4,9 +4,9 @@ import { useState, useRef } from "react";
 import { Upload, FileText, Image as ImageIcon, X, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { generatePdfThumbnail } from "@/lib/pdf-thumbnail";
 
-// Kept at 12 MB until the chunk-aware Apps Script is live; raise to ~300 to allow
-// big chunked uploads. Larger files use the Google Drive link fallback for now.
-const DIRECT_UPLOAD_MAX_MB = 12;
+// Large files upload in chunks (resumable) so the ceiling is high; only truly huge
+// files need the Google Drive link fallback.
+const DIRECT_UPLOAD_MAX_MB = 300;
 
 /**
  * Shrink a raster image before upload: cap the longest side and re-encode as JPEG.
@@ -165,10 +165,10 @@ export default function FileUploadPreview({
             ลากและวางไฟล์ผลงานที่นี่ หรือ <span className="text-blue-600 underline">คลิกเพื่อเลือกไฟล์</span>
           </p>
           <p className="text-xs text-slate-500 mt-2 font-medium">
-            รองรับ PDF, PNG, JPG, JPEG, WEBP · รูปภาพจะถูกบีบอัดอัตโนมัติ
+            รองรับ PDF, PNG, JPG, JPEG, WEBP · ไฟล์ใหญ่อัปโหลดแบบแบ่งส่วนได้ · รูปภาพบีบอัดอัตโนมัติ
           </p>
           <p className="text-[11px] text-amber-600 mt-1 font-semibold">
-            ไฟล์ใหญ่เกิน {DIRECT_UPLOAD_MAX_MB} MB กรุณาใช้ลิงก์ Google Drive (แท็บด้านบน)
+            ไฟล์ใหญ่มาก (เกิน {DIRECT_UPLOAD_MAX_MB} MB) แนะนำใช้ลิงก์ Google Drive (แท็บด้านบน)
           </p>
         </div>
       ) : (
