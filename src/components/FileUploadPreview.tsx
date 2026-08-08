@@ -4,8 +4,8 @@ import { useState, useRef } from "react";
 import { Upload, FileText, Image as ImageIcon, X, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { generatePdfThumbnail } from "@/lib/pdf-thumbnail";
 
-// Files larger than this must go via a Google Drive link instead of a direct upload
-// (base64 over Apps Script inflates ~33% and gets slow/unreliable for big files).
+// Kept at 12 MB until the chunk-aware Apps Script is live; raise to ~300 to allow
+// big chunked uploads. Larger files use the Google Drive link fallback for now.
 const DIRECT_UPLOAD_MAX_MB = 12;
 
 /**

@@ -54,7 +54,6 @@ export default function StatsSection() {
     const data = await getSubmissions({
       limitNum: 500,
       projectId: projectIdParam(pid),
-      forceRefresh: true,
     });
     // Under "ทุกรอบ", drop works that belong to hidden rounds.
     setSubs(data.filter((s) => !s.projectId || !hidden.has(s.projectId)));

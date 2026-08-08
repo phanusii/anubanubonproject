@@ -43,7 +43,7 @@ export default function AdminProjectsPage() {
   const [message, setMessage] = useState("");
 
   const reload = async () => {
-    const [ps, s] = await Promise.all([getProjects(true), getTrainingSettings(true)]);
+    const [ps, s] = await Promise.all([getProjects(true), getTrainingSettings()]);
     setProjects(ps);
     setSettings(s);
     setActiveId(s.activeProjectId);

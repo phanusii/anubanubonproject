@@ -81,7 +81,7 @@ export const DEFAULT_SETTINGS: TrainingSettings = {
 // High Performance Runtime Memory Caches
 let memorySettingsCache: { data: TrainingSettings; timestamp: number } | null = null;
 let memorySubmissionsCache: { data: Submission[]; timestamp: number } | null = null;
-const CACHE_TTL_MS = 15000;
+const CACHE_TTL_MS = 120000;
 
 // Upper bound on how many newest submissions we fetch in one read. Bounds Firestore
 // read cost/latency instead of downloading the entire collection. Client-side search
@@ -419,7 +419,58 @@ export interface DriveUploadResult {
  * Upload a file into the school's Google Drive via the Apps Script web app.
  * Returns the shareable Drive view link + file id. Reports real progress via XHR.
  */
+// Files up to this size upload in one request; bigger files stream in chunks.
+// NOTE: kept at 12 MB (matching the client cap) so the chunked path stays dormant
+// until the owner deploys the chunk-aware Apps Script. Lower to 8 MB to enable it.
+const SINGLE_SHOT_MAX = 12 * 1024 * 1024; // 12 MB
+// 4 MB per chunk — must be a multiple of 256 KB for Google Drive's resumable upload.
+const CHUNK_SIZE = 4 * 1024 * 1024;
+
+/** Base64-encode a Blob/File slice (without the "data:...," prefix). */
+async function blobToBase64(blob: Blob): Promise<string> {
+  const dataUrl: string = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+  return dataUrl.includes(",") ? dataUrl.slice(dataUrl.indexOf(",") + 1) : dataUrl;
+}
+
+/** POST JSON to the Apps Script endpoint as text/plain (keeps it a simple, preflight-free request). */
+async function postDriveJson(payload: object, timeoutMs: number): Promise<Record<string, unknown> | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(DRIVE_UPLOAD_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    return await res.json().catch(() => null);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Upload a file into the school's Google Drive via the Apps Script web app.
+ * Small files use one request; large files stream in chunks (resumable) so the
+ * size ceiling is much higher and progress is real. Returns the Drive view link + id.
+ */
 export async function uploadFileToGoogleDrive(
+  file: File,
+  onProgress?: (percent: number) => void,
+  meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string }
+): Promise<DriveUploadResult> {
+  if (file.size > SINGLE_SHOT_MAX) {
+    return uploadChunkedToGoogleDrive(file, onProgress, meta);
+  }
+  return uploadSingleShotToGoogleDrive(file, onProgress, meta);
+}
+
+async function uploadSingleShotToGoogleDrive(
   file: File,
   onProgress?: (percent: number) => void,
   meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string }
@@ -441,17 +492,10 @@ export async function uploadFileToGoogleDrive(
     workLabel: meta?.workLabel || "",
   });
 
-  // IMPORTANT: use fetch WITHOUT any upload progress listener. Adding an XHR upload
-  // listener makes the request "non-simple" and triggers a CORS preflight (OPTIONS),
-  // which Apps Script cannot answer. text/plain body keeps it a simple request.
-  // fetch gives no upload progress, so we animate the bar while it's in flight.
-  // Larger files transfer proportionally slower, so ramp the fake bar slower for them
-  // (fetch can't report real upload %). It creeps toward 95 and jumps to 100 on success.
-  const sizeMB = file.size / (1024 * 1024);
-  const step = sizeMB > 4 ? 2 : sizeMB > 1.5 ? 3 : 5;
+  // fetch gives no upload progress, so we animate the bar while the single request is in flight.
   let pct = 20;
   const timer = setInterval(() => {
-    pct = Math.min(95, pct + step);
+    pct = Math.min(95, pct + 5);
     if (onProgress) onProgress(pct);
   }, 800);
 
@@ -478,9 +522,60 @@ export async function uploadFileToGoogleDrive(
     clearTimeout(timeout);
     const msg = err instanceof Error ? err.message : "";
     if (msg.includes("Google Drive")) throw err;
-    if (msg.includes("abort")) throw new Error("อัปโหลดใช้เวลานานเกินไป — ลองไฟล์เล็กลง หรือใช้วิธีวางลิงก์ Google Drive");
+    if (msg.includes("abort")) throw new Error("อัปโหลดใช้เวลานานเกินไป — ลองใหม่ หรือใช้วิธีวางลิงก์ Google Drive");
     throw new Error("เชื่อมต่อ Google Drive ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
   }
+}
+
+/** Large-file path: init a resumable session, then PUT the file to Drive one chunk at a time. */
+async function uploadChunkedToGoogleDrive(
+  file: File,
+  onProgress?: (percent: number) => void,
+  meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string }
+): Promise<DriveUploadResult> {
+  if (onProgress) onProgress(2);
+
+  const init = await postDriveJson(
+    {
+      action: "init",
+      secret: DRIVE_UPLOAD_SECRET,
+      filename: file.name,
+      mimeType: file.type || "application/octet-stream",
+      totalBytes: file.size,
+      projectName: meta?.projectName || "",
+      gradeLevel: meta?.gradeLevel || "",
+      submitterName: meta?.submitterName || "",
+      workLabel: meta?.workLabel || "",
+    },
+    60000
+  );
+  if (!init || !init.ok || !init.sessionId) {
+    throw new Error("เริ่มอัปโหลดไฟล์ขนาดใหญ่ไม่สำเร็จ" + (init?.error ? `: ${init.error}` : ""));
+  }
+
+  let start = 0;
+  let done: Record<string, unknown> | null = null;
+  while (start < file.size) {
+    const end = Math.min(start + CHUNK_SIZE, file.size);
+    const data = await blobToBase64(file.slice(start, end));
+    const res = await postDriveJson(
+      { action: "chunk", secret: DRIVE_UPLOAD_SECRET, sessionId: init.sessionId, start, data },
+      180000
+    );
+    if (!res || !res.ok) {
+      throw new Error("อัปโหลดบางส่วนไม่สำเร็จ" + (res?.error ? `: ${res.error}` : ""));
+    }
+    start = end;
+    if (onProgress) onProgress(Math.min(99, Math.round((start / file.size) * 100)));
+    if (res.done) {
+      done = res;
+      break;
+    }
+  }
+
+  if (!done || !done.url) throw new Error("อัปโหลดไม่สำเร็จ (ไม่ได้รับลิงก์ไฟล์)");
+  if (onProgress) onProgress(100);
+  return { url: done.url as string, id: done.id as string, name: done.name as string };
 }
 
 /**

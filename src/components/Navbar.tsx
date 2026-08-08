@@ -24,7 +24,7 @@ export default function Navbar() {
 
   useEffect(() => {
     async function loadSettings() {
-      const s = await getTrainingSettings(true);
+      const s = await getTrainingSettings();
       if (s) setSettings(s);
       const active = await getActiveProject();
       setProjectKind(active?.kind);
