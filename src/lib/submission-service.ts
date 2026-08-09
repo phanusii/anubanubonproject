@@ -460,7 +460,7 @@ async function postDriveJson(payload: object, timeoutMs: number): Promise<Record
 export async function uploadFileToGoogleDrive(
   file: File,
   onProgress?: (percent: number) => void,
-  meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string }
+  meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string; existingFileId?: string }
 ): Promise<DriveUploadResult> {
   if (file.size > SINGLE_SHOT_MAX) {
     return uploadChunkedToGoogleDrive(file, onProgress, meta);
@@ -471,7 +471,7 @@ export async function uploadFileToGoogleDrive(
 async function uploadSingleShotToGoogleDrive(
   file: File,
   onProgress?: (percent: number) => void,
-  meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string }
+  meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string; existingFileId?: string }
 ): Promise<DriveUploadResult> {
   if (onProgress) onProgress(5);
   const dataUrl = await fileToDataURL(file);
@@ -483,6 +483,8 @@ async function uploadSingleShotToGoogleDrive(
     mimeType: file.type || "application/octet-stream",
     data: base64,
     secret: DRIVE_UPLOAD_SECRET,
+    // When set, update this existing Drive file's content (new version) instead of creating a new file.
+    fileId: meta?.existingFileId || "",
     // Folder path in Drive: <projectName>/<gradeLevel>/<submitterName>/  file named by workLabel
     projectName: meta?.projectName || "",
     gradeLevel: meta?.gradeLevel || "",
@@ -529,7 +531,7 @@ async function uploadSingleShotToGoogleDrive(
 async function uploadChunkedToGoogleDrive(
   file: File,
   onProgress?: (percent: number) => void,
-  meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string }
+  meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string; existingFileId?: string }
 ): Promise<DriveUploadResult> {
   if (onProgress) onProgress(2);
 
@@ -537,6 +539,7 @@ async function uploadChunkedToGoogleDrive(
     {
       action: "init",
       secret: DRIVE_UPLOAD_SECRET,
+      fileId: meta?.existingFileId || "",
       filename: file.name,
       mimeType: file.type || "application/octet-stream",
       totalBytes: file.size,

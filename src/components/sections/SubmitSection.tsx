@@ -257,6 +257,9 @@ export default function SubmitSection() {
             workLabel: `งานชิ้นที่ ${selectedSlotIndex + 1} ${getSlotTitle(selectedSlotIndex)
               .replace(/^\s*ชิ้นที่\s*\d+\s*[:：]?\s*/, "")
               .trim()}`.trim(),
+            // Replacing a slot that already has a Drive file → update that file (new version),
+            // keeping the same file id/link instead of creating a duplicate.
+            existingFileId: replacingSubmissionId ? driveFileId || undefined : undefined,
           }
         );
         fileURL = uploaded.url;
