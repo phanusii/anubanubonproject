@@ -14,7 +14,7 @@ import {
   deleteSubjectGroup,
   replaceAllGradeLevels
 } from "@/lib/masters-service";
-import { DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
+import { DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS, getSubmissions } from "@/lib/submission-service";
 import { getTeachers, saveTeacher, deleteTeacher, bulkReplaceTeachers, TeacherItem } from "@/lib/teachers-service";
 import { SEED_GRADE_LEVELS, SEED_TEACHERS } from "@/lib/school-seed";
 import { GradeLevelOption, SubjectGroupOption } from "@/lib/types";
@@ -71,6 +71,40 @@ export default function AdminMastersPage() {
       setImportMsg("เกิดข้อผิดพลาดในการนำเข้า กรุณาลองใหม่");
     } finally {
       setImporting(false);
+    }
+  };
+
+  // Fill each teacher's subject group from the subject they picked when submitting.
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState("");
+
+  const normName = (s: string) => (s || "").replace(/\s+/g, "").replace(/^ครู/, "").trim();
+
+  const handleBackfillSubjects = async () => {
+    if (!confirm("เติมกลุ่มสาระให้ครูจากผลงานที่ส่งเข้ามา?\n(อัปเดตเฉพาะครูที่ส่งผลงานแล้ว โดยจับคู่จากชื่อ)")) return;
+    setBackfilling(true);
+    setBackfillMsg("กำลังจับคู่ผลงานกับรายชื่อครู...");
+    try {
+      const subs = await getSubmissions({ limitNum: 500, ignoreProjectFilter: true, forceRefresh: true });
+      const subjMap = new Map<string, string>();
+      for (const s of subs) {
+        if (s.subjectGroup) subjMap.set(normName(s.fullName), s.subjectGroup);
+      }
+      let updated = 0;
+      for (const t of teachers) {
+        const subj = subjMap.get(normName(t.fullName));
+        if (subj && t.subjectGroup !== subj) {
+          await saveTeacher({ ...t, subjectGroup: subj });
+          updated++;
+        }
+      }
+      await loadAllMasters();
+      setBackfillMsg(`เติมกลุ่มสาระเรียบร้อย: อัปเดต ${updated} คน (จากครูที่ส่งผลงานแล้ว ${subjMap.size} คน)`);
+    } catch (err) {
+      console.error("Backfill subjects error:", err);
+      setBackfillMsg("เกิดข้อผิดพลาด กรุณาลองใหม่");
+    } finally {
+      setBackfilling(false);
     }
   };
 
@@ -239,6 +273,28 @@ export default function AdminMastersPage() {
             >
               <Download className="w-4 h-4" />
               <span>{importing ? "กำลังนำเข้า..." : "นำเข้าข้อมูลครูทั้งหมด"}</span>
+            </button>
+          </div>
+
+          {/* Fill teacher subject groups from submitted works */}
+          <div className="glass-panel p-5 rounded-3xl border border-violet-200 bg-violet-50/50 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-violet-600" />
+                เติมกลุ่มสาระให้ครูจากผลงานที่ส่ง
+              </h2>
+              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                จับคู่ชื่อครูกับผลงานที่ส่งเข้ามา แล้วเติมกลุ่มสาระให้อัตโนมัติ (เฉพาะครูที่ส่งแล้ว)
+              </p>
+              {backfillMsg && <p className="text-[11px] font-bold text-violet-700 mt-1">{backfillMsg}</p>}
+            </div>
+            <button
+              onClick={handleBackfillSubjects}
+              disabled={backfilling}
+              className="px-5 py-3 rounded-2xl bg-violet-500 hover:bg-violet-600 text-white font-extrabold text-sm shadow-md shadow-violet-500/25 flex items-center gap-2 disabled:opacity-60 shrink-0 transition-colors"
+            >
+              <BookOpen className="w-4 h-4" />
+              <span>{backfilling ? "กำลังเติม..." : "เติมกลุ่มสาระจากผลงาน"}</span>
             </button>
           </div>
 
