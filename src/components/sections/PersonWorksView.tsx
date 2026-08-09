@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getSubmissions } from "@/lib/submission-service";
+import { getTeachers } from "@/lib/teachers-service";
 import { Submission } from "@/lib/types";
 import { gradeLabel } from "@/lib/format";
 import {
@@ -30,19 +31,23 @@ interface PersonWorksViewProps {
 export default function PersonWorksView({ name }: PersonWorksViewProps) {
   const [works, setWorks] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [avatarUrl, setAvatarUrl] = useState<string>("");
 
   useEffect(() => {
     let alive = true;
+    const norm = (s: string) => (s || "").replace(/\s+/g, "").replace(/^ครู/, "").trim();
     async function load() {
       setLoading(true);
       try {
         // Every round, capped — then filter to this person by name.
-        const all = await getSubmissions({ limitNum: 500 });
+        const [all, teachers] = await Promise.all([getSubmissions({ limitNum: 500 }), getTeachers()]);
         if (!alive) return;
         const mine = all
           .filter((s) => (s.fullName || "").trim() === name.trim())
           .sort((a, b) => (a.uploadDate || "").localeCompare(b.uploadDate || ""));
         setWorks(mine);
+        const t = teachers.find((tt) => norm(tt.fullName) === norm(name));
+        setAvatarUrl(t?.photoUrl || "");
       } catch (err) {
         console.error("PersonWorksView load error:", err);
       } finally {
@@ -71,8 +76,15 @@ export default function PersonWorksView({ name }: PersonWorksViewProps) {
       {/* Person header */}
       <div className="glass-panel p-6 rounded-3xl border border-white bg-white shadow-xs space-y-4">
         <div className="flex items-start gap-4">
-          <div className="w-14 h-14 rounded-2xl ios-gradient-blue text-white flex items-center justify-center shrink-0 shadow-md shadow-blue-500/20">
-            <User className="w-7 h-7" />
+          <div className="w-14 h-14 rounded-2xl overflow-hidden bg-white flex items-center justify-center shrink-0 shadow-md shadow-blue-500/20 border border-white">
+            {avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={avatarUrl} alt={name} className="w-full h-full object-cover" />
+            ) : (
+              <span className="w-full h-full ios-gradient-blue text-white flex items-center justify-center">
+                <User className="w-7 h-7" />
+              </span>
+            )}
           </div>
           <div className="min-w-0">
             <h1 className="text-2xl font-extrabold text-slate-900 truncate">

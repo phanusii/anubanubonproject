@@ -10,6 +10,9 @@ export interface TeacherItem {
   email?: string;
   phone?: string;
   createdAt?: number;
+  // Profile picture (stored on Google Drive; photoUrl is a displayable thumbnail).
+  photoUrl?: string;
+  photoFileId?: string;
 }
 
 const DEFAULT_TEACHERS: TeacherItem[] = [
@@ -56,6 +59,29 @@ export async function updateTeacherSubject(id: string, subjectGroup: string): Pr
       try {
         const list: TeacherItem[] = JSON.parse(stored);
         const next = list.map((t) => (t.id === id ? { ...t, subjectGroup } : t));
+        localStorage.setItem("app_teachers", JSON.stringify(next));
+      } catch {}
+    }
+  }
+}
+
+/**
+ * Update a teacher's profile picture (photoUrl + photoFileId only). Permitted from
+ * the public submit flow by the Firestore rules, like the subject-group auto-fill.
+ */
+export async function updateTeacherPhoto(id: string, photoUrl: string, photoFileId: string): Promise<void> {
+  if (!id || !photoUrl) return;
+  try {
+    await updateDoc(doc(db, "teachers", id), { photoUrl, photoFileId });
+  } catch (err) {
+    console.warn("updateTeacherPhoto failed (non-blocking):", err);
+  }
+  if (typeof window !== "undefined") {
+    const stored = localStorage.getItem("app_teachers");
+    if (stored) {
+      try {
+        const list: TeacherItem[] = JSON.parse(stored);
+        const next = list.map((t) => (t.id === id ? { ...t, photoUrl, photoFileId } : t));
         localStorage.setItem("app_teachers", JSON.stringify(next));
       } catch {}
     }

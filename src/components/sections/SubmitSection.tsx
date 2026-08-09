@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import FileUploadPreview from "@/components/FileUploadPreview";
 import {
   getTrainingSettings,
@@ -11,13 +11,36 @@ import {
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
-import { getTeachers, updateTeacherSubject, TeacherItem } from "@/lib/teachers-service";
+import { getTeachers, updateTeacherSubject, updateTeacherPhoto, TeacherItem } from "@/lib/teachers-service";
 import { notifyNewSubmissionEvent } from "@/lib/telegram-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
 import { gradeLabel, submitVerb } from "@/lib/format";
 import { TrainingSettings, GradeLevelOption, SubjectGroupOption, Submission, Project } from "@/lib/types";
-import { Send, CheckCircle2, AlertCircle, Sparkles, User, FileText, RefreshCw, HelpCircle, HardDrive, Link as LinkIcon, Upload, Check, Users, PlusCircle, Lock } from "lucide-react";
+import { Send, CheckCircle2, AlertCircle, Sparkles, User, FileText, RefreshCw, HelpCircle, HardDrive, Link as LinkIcon, Upload, Check, Users, PlusCircle, Lock, Camera } from "lucide-react";
 import confetti from "canvas-confetti";
+
+/** Downscale an image to a small square-ish avatar (max 512px) JPEG before upload. */
+async function resizeImageForAvatar(file: File): Promise<File> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const MAX = 512;
+    const scale = Math.min(1, MAX / Math.max(bitmap.width, bitmap.height));
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+    const blob: Blob | null = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.85));
+    if (!blob) return file;
+    return new File([blob], "avatar.jpg", { type: "image/jpeg", lastModified: Date.now() });
+  } catch {
+    return file;
+  }
+}
 
 export default function SubmitSection() {
   const [settings, setSettings] = useState<TrainingSettings | null>(null);
@@ -32,6 +55,13 @@ export default function SubmitSection() {
   // Teacher Selection Mode ('select' | 'custom')
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>("");
   const [isCustomName, setIsCustomName] = useState(false);
+
+  // Profile picture (avatar) for the selected roster teacher
+  const [teacherPhotoUrl, setTeacherPhotoUrl] = useState<string>("");
+  const [teacherPhotoFileId, setTeacherPhotoFileId] = useState<string>("");
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState("");
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // Form states
   const [fullName, setFullName] = useState("");
@@ -116,6 +146,8 @@ export default function SubmitSection() {
     setSelectedTeacherId("");
     setIsCustomName(false);
     setFullName("");
+    setTeacherPhotoUrl("");
+    setTeacherPhotoFileId("");
 
     const matchedTeachers = teacherList.filter((t) => t.gradeLevel === newGrade);
     if (matchedTeachers.length === 0) {
@@ -139,7 +171,37 @@ export default function SubmitSection() {
       setFullName(selected.fullName);
       setPosition(selected.position);
       if (selected.subjectGroup) setSubjectGroup(selected.subjectGroup);
+      setTeacherPhotoUrl(selected.photoUrl || "");
+      setTeacherPhotoFileId(selected.photoFileId || "");
       handleCheckUserSubmissions(selected.fullName);
+    }
+  };
+
+  // ---- Profile picture (avatar) upload for the selected roster teacher ----
+  const handleAvatarChange = async (file: File | null) => {
+    if (!file || !selectedTeacherId || selectedTeacherId === "CUSTOM") return;
+    if (!file.type.startsWith("image/")) return;
+    setPhotoError("");
+    setUploadingPhoto(true);
+    try {
+      const small = await resizeImageForAvatar(file);
+      const uploaded = await uploadFileToGoogleDrive(small, undefined, {
+        projectName: "รูปประจำตัวครู",
+        gradeLevel,
+        submitterName: fullName.trim() || "ครู",
+        workLabel: "รูปประจำตัว",
+        existingFileId: teacherPhotoFileId || undefined,
+      });
+      const thumb = getGoogleDriveThumbnail(uploaded.id);
+      setTeacherPhotoUrl(thumb);
+      setTeacherPhotoFileId(uploaded.id);
+      await updateTeacherPhoto(selectedTeacherId, thumb, uploaded.id);
+    } catch (err) {
+      console.error("Avatar upload error:", err);
+      setPhotoError("อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่");
+    } finally {
+      setUploadingPhoto(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
     }
   };
 
@@ -512,6 +574,52 @@ export default function SubmitSection() {
                         onChange={(e) => setFullName(e.target.value)}
                         className="w-full px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-bold text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
                       />
+                    </div>
+                  )}
+
+                  {/* Profile picture — for a teacher selected from the roster */}
+                  {!isCustomName && selectedTeacherId && selectedTeacherId !== "CUSTOM" && (
+                    <div className="mt-3 flex items-center gap-3">
+                      <div className="relative shrink-0">
+                        <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-white shadow-md bg-slate-100 flex items-center justify-center">
+                          {teacherPhotoUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={teacherPhotoUrl} alt="รูปประจำตัว" className="w-full h-full object-cover" />
+                          ) : (
+                            <User className="w-7 h-7 text-slate-400" />
+                          )}
+                          {uploadingPhoto && (
+                            <div className="absolute inset-0 bg-slate-900/40 flex items-center justify-center">
+                              <RefreshCw className="w-5 h-5 text-white animate-spin" />
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => avatarInputRef.current?.click()}
+                          disabled={uploadingPhoto}
+                          className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full ios-gradient-blue text-white flex items-center justify-center shadow-md border-2 border-white disabled:opacity-60"
+                          title="เปลี่ยนรูปประจำตัว"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                        </button>
+                        <input
+                          ref={avatarInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => handleAvatarChange(e.target.files?.[0] || null)}
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-slate-700">รูปประจำตัวผู้ส่งผลงาน</p>
+                        <p className="text-[11px] text-slate-400 font-medium">
+                          {uploadingPhoto
+                            ? "กำลังอัปโหลดรูป..."
+                            : `แตะไอคอนกล้องเพื่อ${teacherPhotoUrl ? "เปลี่ยนรูป" : "เพิ่มรูป"}`}
+                        </p>
+                        {photoError && <p className="text-[11px] text-red-500 font-semibold">{photoError}</p>}
+                      </div>
                     </div>
                   )}
 
