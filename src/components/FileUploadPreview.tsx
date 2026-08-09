@@ -255,12 +255,12 @@ export default function FileUploadPreview({
                       <CheckCircle2 className="w-4 h-4" />
                       <span>อัปโหลดสำเร็จ พร้อมส่งแล้ว!</span>
                     </>
-                  ) : uploadProgress < 20 ? (
+                  ) : uploadProgress < 5 ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       <span>กำลังเตรียมไฟล์...</span>
                     </>
-                  ) : uploadProgress < 85 ? (
+                  ) : uploadProgress < 95 ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       <span>กำลังอัปโหลด...</span>
@@ -285,16 +285,19 @@ export default function FileUploadPreview({
                 />
               </div>
 
-              {/* Large files take a while over Google Drive — reassure, don't look frozen. */}
-              {isUploading && uploadProgress >= 85 && uploadProgress < 100 && (
-                <p className="text-[11px] text-amber-600 font-semibold flex items-start gap-1 pt-0.5">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  <span>
-                    ไฟล์ขนาดใหญ่กำลังบันทึกลง Google Drive อาจใช้เวลาถึง 1–2 นาที
-                    กรุณาอย่าปิดหรือรีเฟรชหน้านี้จนกว่าจะเสร็จ
-                  </span>
-                </p>
-              )}
+              {/* Large files upload in chunks and take a while — reassure throughout. */}
+              {isUploading &&
+                uploadProgress < 100 &&
+                selectedFile &&
+                selectedFile.size > 8 * 1024 * 1024 && (
+                  <p className="text-[11px] text-amber-600 font-semibold flex items-start gap-1 pt-0.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <span>
+                      ไฟล์ขนาดใหญ่ ({(selectedFile.size / 1048576).toFixed(0)} MB) อัปโหลดแบบแบ่งส่วน
+                      อาจใช้เวลาหลายนาที — แถบ % เดินตามจริง กรุณาอย่าปิดหรือรีเฟรชหน้านี้จนกว่าจะเสร็จ
+                    </span>
+                  </p>
+                )}
             </div>
           )}
         </div>

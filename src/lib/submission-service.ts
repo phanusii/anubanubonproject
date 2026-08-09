@@ -559,12 +559,25 @@ async function uploadChunkedToGoogleDrive(
   while (start < file.size) {
     const end = Math.min(start + CHUNK_SIZE, file.size);
     const data = await blobToBase64(file.slice(start, end));
-    const res = await postDriveJson(
-      { action: "chunk", secret: DRIVE_UPLOAD_SECRET, sessionId: init.sessionId, start, data },
-      180000
-    );
+    // Retry each chunk a few times — a single network blip shouldn't fail a big upload.
+    let res: Record<string, unknown> | null = null;
+    let lastErr = "";
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        res = await postDriveJson(
+          { action: "chunk", secret: DRIVE_UPLOAD_SECRET, sessionId: init.sessionId, start, data },
+          180000
+        );
+        if (res && res.ok) break;
+        lastErr = (res as { error?: string })?.error || "";
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+        res = null;
+      }
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
     if (!res || !res.ok) {
-      throw new Error("อัปโหลดบางส่วนไม่สำเร็จ" + (res?.error ? `: ${res.error}` : ""));
+      throw new Error("อัปโหลดบางส่วนไม่สำเร็จ" + (lastErr ? `: ${lastErr}` : ""));
     }
     start = end;
     if (onProgress) onProgress(Math.min(99, Math.round((start / file.size) * 100)));
