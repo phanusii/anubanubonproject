@@ -106,6 +106,16 @@ export default function StatsSection() {
     return map;
   }, [subs]);
 
+  // The imported roster has no subject group, so derive each teacher's group from
+  // the subject group they picked on their submission (so submitters show correctly).
+  const subjectByTeacher = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of subs) {
+      if (s.subjectGroup) map.set(normName(s.fullName), s.subjectGroup);
+    }
+    return map;
+  }, [subs]);
+
   const buildGroups = (pick: (t: TeacherItem) => string): GroupStat[] => {
     const groups = new Map<string, GroupStat>();
     for (const t of teachers) {
@@ -138,9 +148,12 @@ export default function StatsSection() {
     [teachers, worksByTeacher, required]
   );
   const bySubject = useMemo(
-    () => buildGroups((t) => t.subjectGroup).sort((a, b) => b.totalTeachers - a.totalTeachers),
+    () =>
+      buildGroups((t) => subjectByTeacher.get(normName(t.fullName)) || t.subjectGroup).sort(
+        (a, b) => b.totalTeachers - a.totalTeachers
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [teachers, worksByTeacher, required]
+    [teachers, worksByTeacher, required, subjectByTeacher]
   );
 
   // School overall
