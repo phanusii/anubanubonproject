@@ -1,5 +1,5 @@
 import { db } from "./firebase";
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, updateDoc } from "firebase/firestore";
 
 export interface TeacherItem {
   id: string;
@@ -34,6 +34,31 @@ function getLocalTeachers(): TeacherItem[] {
 function saveLocalTeachers(items: TeacherItem[]) {
   if (typeof window !== "undefined") {
     localStorage.setItem("app_teachers", JSON.stringify(items));
+  }
+}
+
+/**
+ * Narrowly update only a teacher's subject group. Firestore rules permit this
+ * single-field update from the public submit flow, so it can run automatically
+ * when a teacher submits work (best-effort — never blocks the submission).
+ */
+export async function updateTeacherSubject(id: string, subjectGroup: string): Promise<void> {
+  if (!id || !subjectGroup) return;
+  try {
+    await updateDoc(doc(db, "teachers", id), { subjectGroup });
+  } catch (err) {
+    console.warn("updateTeacherSubject failed (non-blocking):", err);
+  }
+  // Keep the local cache in sync when present.
+  if (typeof window !== "undefined") {
+    const stored = localStorage.getItem("app_teachers");
+    if (stored) {
+      try {
+        const list: TeacherItem[] = JSON.parse(stored);
+        const next = list.map((t) => (t.id === id ? { ...t, subjectGroup } : t));
+        localStorage.setItem("app_teachers", JSON.stringify(next));
+      } catch {}
+    }
   }
 }
 

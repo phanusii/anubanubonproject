@@ -58,7 +58,13 @@ service cloud.firestore {
     // Teachers collection
     match /teachers/{document} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create, delete: if isAdmin();
+      // Admins can edit freely; the public submit flow may set ONLY the subjectGroup
+      // field on an existing teacher (auto-fill from their submitted work).
+      allow update: if isAdmin() || (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['subjectGroup'])
+        && request.resource.data.subjectGroup is string
+      );
     }
 
     // Submissions collection

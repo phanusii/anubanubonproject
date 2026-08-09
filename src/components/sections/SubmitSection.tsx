@@ -11,7 +11,7 @@ import {
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
-import { getTeachers, TeacherItem } from "@/lib/teachers-service";
+import { getTeachers, updateTeacherSubject, TeacherItem } from "@/lib/teachers-service";
 import { notifyNewSubmissionEvent } from "@/lib/telegram-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
 import { gradeLabel, submitVerb } from "@/lib/format";
@@ -303,6 +303,11 @@ export default function SubmitSection() {
         await replaceSubmission(replacingSubmissionId, subData);
       } else {
         await createSubmission(subData);
+      }
+
+      // Auto-fill the roster teacher's subject group from this submission (best-effort).
+      if (selectedTeacherId && selectedTeacherId !== "CUSTOM" && subjectGroup) {
+        updateTeacherSubject(selectedTeacherId, subjectGroup).catch(() => {});
       }
 
       // Send Instant Telegram Notification
