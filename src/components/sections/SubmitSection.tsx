@@ -185,8 +185,11 @@ export default function SubmitSection() {
     setUploadingPhoto(true);
     try {
       const small = await resizeImageForAvatar(file);
+      // Group avatars under a folder named after the round/project (like submissions),
+      // then split by grade line and teacher name.
+      const roundName = activeProject?.name || settings?.trainingName || "ผลงานอบรม";
       const uploaded = await uploadFileToGoogleDrive(small, undefined, {
-        projectName: "รูปประจำตัวครู",
+        projectName: `${roundName} - รูปประจำตัวครู`,
         gradeLevel,
         submitterName: fullName.trim() || "ครู",
         workLabel: "รูปประจำตัว",
