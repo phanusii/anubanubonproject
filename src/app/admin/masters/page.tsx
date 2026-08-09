@@ -11,14 +11,12 @@ import {
   deleteGradeLevel,
   getSubjectGroups,
   saveSubjectGroup,
-  deleteSubjectGroup,
-  replaceAllGradeLevels
+  deleteSubjectGroup
 } from "@/lib/masters-service";
 import { DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS, getSubmissions } from "@/lib/submission-service";
-import { getTeachers, saveTeacher, deleteTeacher, bulkReplaceTeachers, TeacherItem } from "@/lib/teachers-service";
-import { SEED_GRADE_LEVELS, SEED_TEACHERS } from "@/lib/school-seed";
+import { getTeachers, saveTeacher, deleteTeacher, TeacherItem } from "@/lib/teachers-service";
 import { GradeLevelOption, SubjectGroupOption } from "@/lib/types";
-import { Layers, BookOpen, Plus, Trash2, Edit2, Save, X, UserCheck, Search, Users, Download } from "lucide-react";
+import { Layers, BookOpen, Plus, Trash2, Edit2, Save, X, UserCheck, Search, Users } from "lucide-react";
 
 export default function AdminMastersPage() {
   const router = useRouter();
@@ -52,27 +50,6 @@ export default function AdminMastersPage() {
   // Subject Form State
   const [newSubjectName, setNewSubjectName] = useState("");
   const [editingSubject, setEditingSubject] = useState<SubjectGroupOption | null>(null);
-
-  // School roster import
-  const [importing, setImporting] = useState(false);
-  const [importMsg, setImportMsg] = useState("");
-
-  const handleImportRoster = async () => {
-    if (!confirm(`นำเข้าสายชั้น ${SEED_GRADE_LEVELS.length} รายการ และครู ${SEED_TEACHERS.length} คน?\n(จะแทนที่รายชื่อสายชั้นและครูเดิมทั้งหมด)`)) return;
-    setImporting(true);
-    setImportMsg("กำลังนำเข้าข้อมูล... (อาจใช้เวลาสักครู่)");
-    try {
-      await replaceAllGradeLevels(SEED_GRADE_LEVELS);
-      const count = await bulkReplaceTeachers(SEED_TEACHERS);
-      await loadAllMasters();
-      setImportMsg(`นำเข้าเรียบร้อย: สายชั้น ${SEED_GRADE_LEVELS.length} รายการ, ครู ${count} คน`);
-    } catch (err) {
-      console.error("Import roster error:", err);
-      setImportMsg("เกิดข้อผิดพลาดในการนำเข้า กรุณาลองใหม่");
-    } finally {
-      setImporting(false);
-    }
-  };
 
   // Fill each teacher's subject group from the subject they picked when submitting.
   const [backfilling, setBackfilling] = useState(false);
@@ -252,28 +229,6 @@ export default function AdminMastersPage() {
             <p className="text-xs font-semibold text-slate-500">
               เพิ่ม/แก้ไขรายชื่อครูตามสายชั้น (อ.1 - ป.6) จัดการสายชั้นเรียน และกลุ่มสาระการเรียนรู้ (ตอบสนองรวดเร็ว 0ms)
             </p>
-          </div>
-
-          {/* One-click school roster import */}
-          <div className="glass-panel p-5 rounded-3xl border border-blue-200 bg-blue-50/50 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h2 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
-                <Download className="w-4 h-4 text-blue-600" />
-                นำเข้าสายชั้น &amp; รายชื่อครูทั้งหมดของโรงเรียน
-              </h2>
-              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                เติมสายชั้น {SEED_GRADE_LEVELS.length} รายการ และครู {SEED_TEACHERS.length} คน ในคลิกเดียว (แทนที่รายชื่อเดิม)
-              </p>
-              {importMsg && <p className="text-[11px] font-bold text-blue-700 mt-1">{importMsg}</p>}
-            </div>
-            <button
-              onClick={handleImportRoster}
-              disabled={importing}
-              className="px-5 py-3 rounded-2xl ios-gradient-blue text-white font-extrabold text-sm shadow-md shadow-blue-500/25 flex items-center gap-2 disabled:opacity-60 shrink-0"
-            >
-              <Download className="w-4 h-4" />
-              <span>{importing ? "กำลังนำเข้า..." : "นำเข้าข้อมูลครูทั้งหมด"}</span>
-            </button>
           </div>
 
           {/* Fill teacher subject groups from submitted works */}
