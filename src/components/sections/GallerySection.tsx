@@ -7,11 +7,15 @@ import SubmissionModal from "@/components/SubmissionModal";
 import { getSubmissionsPage, getTrainingSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getProjects } from "@/lib/projects-service";
+import { getTeachers } from "@/lib/teachers-service";
 import { gradeLabel, sortGrades } from "@/lib/format";
 import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings, Project } from "@/lib/types";
 import { Search, Sparkles, FolderKanban, Layers } from "lucide-react";
 
 const PAGE_SIZE = 60;
+
+/** Normalize a teacher name for matching (ignore spaces / leading "ครู"). */
+const normName = (s: string) => (s || "").replace(/\s+/g, "").replace(/^ครู/, "").trim();
 
 export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name: string) => void }) {
   // Instant synchronous initialization for 0ms frame-0 render (Never displays 0 items!)
@@ -25,6 +29,8 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   const [selectedProjectId, setSelectedProjectId] = useState<string>("all");
   // Project IDs the admin hid — their works are excluded even under "ทั้งหมด".
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  // Teacher profile pictures keyed by normalized name (for the card avatar).
+  const [avatarByName, setAvatarByName] = useState<Map<string, string>>(new Map());
 
   // Pagination state
   const [cursor, setCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
@@ -56,12 +62,20 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   useEffect(() => {
     async function loadInitial() {
       try {
-        const [projs, gls, sgs, st] = await Promise.all([
+        const [projs, gls, sgs, st, teachers] = await Promise.all([
           getProjects(),
           getGradeLevels(),
           getSubjectGroups(),
           getTrainingSettings(),
+          getTeachers(),
         ]);
+
+        // Map teacher name → profile picture for the card avatars.
+        const avaMap = new Map<string, string>();
+        for (const t of teachers) {
+          if (t.photoUrl) avaMap.set(normName(t.fullName), t.photoUrl);
+        }
+        setAvatarByName(avaMap);
 
         if (gls && gls.length > 0) setGradeLevels(gls);
         if (sgs && sgs.length > 0) setSubjectGroups(sgs);
@@ -276,6 +290,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
               <MasonryCard
                 key={sub.id}
                 submission={sub}
+                avatarUrl={avatarByName.get(normName(sub.fullName))}
                 onClick={() => (onOpenPerson ? onOpenPerson(sub.fullName) : setActiveSubmission(sub))}
               />
             ))}

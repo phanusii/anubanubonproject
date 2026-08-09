@@ -2,19 +2,21 @@
 
 import { useState } from "react";
 import { Submission } from "@/lib/types";
-import { FileText, Image as ImageIcon, User, School, ExternalLink, HardDrive } from "lucide-react";
+import { FileText, Image as ImageIcon, School, ExternalLink, HardDrive, Smile } from "lucide-react";
 import { isGoogleDriveLink } from "@/lib/google-drive-utils";
 import { gradeLabel } from "@/lib/format";
 
 interface MasonryCardProps {
   submission: Submission;
   onClick: () => void;
+  avatarUrl?: string;
 }
 
-export default function MasonryCard({ submission, onClick }: MasonryCardProps) {
+export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryCardProps) {
   const isPdf = submission.fileType === "pdf";
   const isDrive = submission.fileType === "drive" || isGoogleDriveLink(submission.fileURL);
   const [imgError, setImgError] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
 
   return (
     <div
@@ -95,7 +97,19 @@ export default function MasonryCard({ submission, onClick }: MasonryCardProps) {
       {/* Author & School Metadata */}
       <div className="pt-3 border-t border-slate-100 space-y-1 text-xs text-slate-600 font-semibold">
         <div className="flex items-center gap-1.5 text-slate-900 font-bold truncate">
-          <User className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+          <span className="w-5 h-5 rounded-full overflow-hidden shrink-0 flex items-center justify-center bg-gradient-to-br from-pink-200 via-purple-200 to-blue-200 border border-white shadow-2xs">
+            {avatarUrl && !avatarError ? (
+              <img
+                src={avatarUrl}
+                alt=""
+                loading="lazy"
+                className="w-full h-full object-cover"
+                onError={() => setAvatarError(true)}
+              />
+            ) : (
+              <Smile className="w-3 h-3 text-purple-500" />
+            )}
+          </span>
           <span className="truncate">{submission.fullName}</span>
           <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md shrink-0">
             {submission.position}
