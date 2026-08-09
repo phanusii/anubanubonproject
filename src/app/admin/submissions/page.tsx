@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import SubmissionModal from "@/components/SubmissionModal";
+import RevisionModal from "@/components/RevisionModal";
 import { 
   getSubmissions, 
   deleteSubmission, 
@@ -30,9 +31,10 @@ import {
   Edit,
   X,
   Save,
-  HardDrive
+  HardDrive,
+  History
 } from "lucide-react";
-import { isGoogleDriveLink } from "@/lib/google-drive-utils";
+import { isGoogleDriveLink, extractGoogleDriveFileId } from "@/lib/google-drive-utils";
 
 export default function AdminSubmissionsPage() {
   const router = useRouter();
@@ -48,6 +50,9 @@ export default function AdminSubmissionsPage() {
 
   // Selected Submission Modal for viewing
   const [activeSubmission, setActiveSubmission] = useState<Submission | null>(null);
+
+  // Version-history modal (Drive files only)
+  const [versionsFor, setVersionsFor] = useState<Submission | null>(null);
 
   // Editing Modal
   const [editingSubmission, setEditingSubmission] = useState<Submission | null>(null);
@@ -270,6 +275,15 @@ export default function AdminSubmissionsPage() {
                               >
                                 <Eye className="w-4 h-4" />
                               </button>
+                              {(sub.driveFileId || isDrive) && (
+                                <button
+                                  onClick={() => setVersionsFor(sub)}
+                                  className="p-2 rounded-xl text-violet-600 hover:bg-violet-50 transition-colors"
+                                  title="ประวัติเวอร์ชัน / กู้คืน"
+                                >
+                                  <History className="w-4 h-4" />
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleStartEdit(sub)}
                                 className="p-2 rounded-xl text-amber-600 hover:bg-amber-50 transition-colors"
@@ -313,6 +327,16 @@ export default function AdminSubmissionsPage() {
         <SubmissionModal
           submission={activeSubmission}
           onClose={() => setActiveSubmission(null)}
+        />
+      )}
+
+      {/* Version History Modal */}
+      {versionsFor && (
+        <RevisionModal
+          fileId={versionsFor.driveFileId || extractGoogleDriveFileId(versionsFor.fileURL) || ""}
+          title={versionsFor.projectTitle}
+          fileURL={versionsFor.fileURL}
+          onClose={() => setVersionsFor(null)}
         />
       )}
 

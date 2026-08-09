@@ -579,6 +579,38 @@ async function uploadChunkedToGoogleDrive(
   return { url: done.url as string, id: done.id as string, name: done.name as string };
 }
 
+export interface DriveRevision {
+  id: string;
+  modifiedTime?: string;
+  size?: number;
+}
+
+/** List the version history (revisions) of a Drive file, newest first. */
+export async function getDriveRevisions(fileId: string): Promise<DriveRevision[]> {
+  const res = await postDriveJson(
+    { action: "listRevisions", secret: DRIVE_UPLOAD_SECRET, fileId },
+    60000
+  );
+  if (res && res.ok && Array.isArray((res as { revisions?: unknown }).revisions)) {
+    return ((res as { revisions: DriveRevision[] }).revisions).slice().reverse();
+  }
+  throw new Error(
+    "โหลดรายการเวอร์ชันไม่สำเร็จ" + ((res as { error?: string })?.error ? `: ${(res as { error?: string }).error}` : "")
+  );
+}
+
+/** Restore an old revision as the file's current content (Drive keeps history). */
+export async function restoreDriveRevision(fileId: string, revisionId: string): Promise<boolean> {
+  const res = await postDriveJson(
+    { action: "restoreRevision", secret: DRIVE_UPLOAD_SECRET, fileId, revisionId },
+    180000
+  );
+  if (res && res.ok) return true;
+  throw new Error(
+    "กู้คืนเวอร์ชันไม่สำเร็จ" + ((res as { error?: string })?.error ? `: ${(res as { error?: string }).error}` : "")
+  );
+}
+
 /**
  * Submit new work to Firestore & Local Storage
  */
