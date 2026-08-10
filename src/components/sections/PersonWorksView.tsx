@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getPersonSubmissions } from "@/lib/submission-service";
 import { getTeachers } from "@/lib/teachers-service";
 import { getProjects } from "@/lib/projects-service";
@@ -96,7 +96,17 @@ export default function PersonWorksView({ name }: PersonWorksViewProps) {
     };
   }, [name]);
 
-  const person = works[0];
+  // Work cards are ordered by the Admin's slot order, so works[0] is not
+  // necessarily the newest submission. Always use the newest submission as
+  // the source of truth for sender metadata that may have changed over time.
+  const person = useMemo(() => {
+    return works.reduce<Submission | undefined>((latest, work) => {
+      if (!latest) return work;
+      const workTime = work.createdAt || Date.parse(work.uploadDate || "") || 0;
+      const latestTime = latest.createdAt || Date.parse(latest.uploadDate || "") || 0;
+      return workTime > latestTime ? work : latest;
+    }, undefined);
+  }, [works]);
 
   return (
     <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-8 space-y-6">
@@ -168,7 +178,7 @@ export default function PersonWorksView({ name }: PersonWorksViewProps) {
       ) : (
         <div className="space-y-6">
           {works.map((w, idx) => (
-            <WorkPreviewCard key={w.id} work={w} index={idx} />
+            <WorkPreviewCard key={w.id} work={w} index={idx} latestSender={person} />
           ))}
         </div>
       )}
@@ -176,7 +186,7 @@ export default function PersonWorksView({ name }: PersonWorksViewProps) {
   );
 }
 
-function WorkPreviewCard({ work, index }: { work: Submission; index: number }) {
+function WorkPreviewCard({ work, index, latestSender }: { work: Submission; index: number; latestSender?: Submission }) {
   const isDrive =
     work.fileType === "drive" ||
     work.submissionMethod === "drive" ||
@@ -251,7 +261,7 @@ function WorkPreviewCard({ work, index }: { work: Submission; index: number }) {
       <div className="px-5 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 font-semibold border-t border-slate-100">
         <span className="flex items-center gap-1">
           <BookOpen className="w-3.5 h-3.5 text-purple-500" />
-          {work.subjectGroup}
+          {latestSender?.subjectGroup || work.subjectGroup}
         </span>
         {work.uploadDate && (
           <span className="flex items-center gap-1">
