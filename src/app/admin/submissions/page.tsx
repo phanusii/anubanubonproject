@@ -33,7 +33,7 @@ import {
   History
 } from "lucide-react";
 import { isGoogleDriveLink, extractGoogleDriveFileId } from "@/lib/google-drive-utils";
-import { shortSubject } from "@/lib/format";
+import { displayWorkTitle, shortSubject } from "@/lib/format";
 
 export default function AdminSubmissionsPage() {
   // Instant synchronous state initialization (0ms latency!)
@@ -216,7 +216,7 @@ export default function AdminSubmissionsPage() {
                           </td>
 
                           <td className="py-4 px-4 space-y-1 max-w-xs">
-                            <div className="font-extrabold text-slate-900 line-clamp-2">{sub.projectTitle}</div>
+                            <div className="font-extrabold text-slate-900 line-clamp-2">{displayWorkTitle(sub.projectTitle)}</div>
                             <div className="flex items-center gap-1.5">
                               {isDrive ? (
                                 <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-100 text-emerald-700 flex items-center gap-1">

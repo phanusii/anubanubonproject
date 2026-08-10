@@ -31,7 +31,9 @@ export function shortSubject(name: string): string {
 
 /** Hide the file-format hint from work titles without changing stored slot names. */
 export function displayWorkTitle(name: string): string {
-  return (name || "").replace(/\s*\(\s*ไฟล์\s*PDF\s*\)\s*$/i, "").trim();
+  return (name || "")
+    .replace(/\s*\([^)]*(?:PDF|Google\s*Drive|ไฟล์|รูปภาพ|Link|ลิงก์)[^)]*\)\s*$/i, "")
+    .trim();
 }
 
 /** Compact Thai date for dense cards, e.g. 2026-08-10 → 10 ส.ค. 69. */
