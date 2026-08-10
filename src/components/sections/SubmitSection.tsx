@@ -376,7 +376,7 @@ export default function SubmitSection() {
               </h2>
               <p className="text-sm text-slate-600 font-medium max-w-md mx-auto">
                 {replacingSubmissionId
-                  ? "ไฟล์ผลงานเดิมได้รับการลบและทดแทนด้วยไฟล์ผลงานใหม่ พร้อมส่งแจ้งเตือน Telegram แล้ว"
+                  ? "ไฟล์ผลงานเดิมได้รับการแทนที่ด้วยไฟล์ใหม่เรียบร้อยแล้ว"
                   : `${activeProject?.kind === "training" ? "งาน" : "ผลงาน"}ของคุณถูกบันทึกเรียบร้อยแล้ว`}
               </p>
             </div>

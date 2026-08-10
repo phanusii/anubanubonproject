@@ -15,7 +15,6 @@ import {
   DEFAULT_SUBJECT_GROUPS 
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
-import { notifyAdminSubmissionAction } from "@/lib/telegram-service";
 import { Submission, GradeLevelOption, SubjectGroupOption } from "@/lib/types";
 import { 
   Search, 
@@ -76,11 +75,6 @@ export default function AdminSubmissionsPage() {
   const handleDelete = async (sub: Submission) => {
     if (confirm(`คุณต้องการลบผลงาน "${sub.projectTitle}" ของ ${sub.fullName} ใช่หรือไม่?\n\n(ไฟล์และข้อมูลผลงานทั้งหมดจะถูกลบออกจากระบบและคลาวด์ไดร์ฟอย่างสมบูรณ์)`)) {
       await deleteSubmission(sub.id);
-      notifyAdminSubmissionAction("delete", {
-        id: sub.id,
-        fullName: sub.fullName,
-        projectTitle: sub.projectTitle,
-      }).catch((e) => console.warn("Telegram notification error:", e));
       loadData();
     }
   };
@@ -95,11 +89,6 @@ export default function AdminSubmissionsPage() {
     if (!editingSubmission) return;
 
     await updateSubmission(editingSubmission.id, editForm);
-    notifyAdminSubmissionAction("edit", {
-      id: editingSubmission.id,
-      fullName: editForm.fullName || editingSubmission.fullName,
-      projectTitle: editForm.projectTitle || editingSubmission.projectTitle,
-    }).catch((e) => console.warn("Telegram notification error:", e));
 
     setEditingSubmission(null);
     loadData();

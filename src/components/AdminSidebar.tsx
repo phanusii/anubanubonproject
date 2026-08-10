@@ -10,7 +10,6 @@ import {
   LogOut,
   Home,
   Sparkles,
-  Bell,
   Building,
   CalendarRange,
   BarChart3
@@ -37,7 +36,6 @@ export default function AdminSidebar() {
     { label: "จัดการผลงาน", href: "/admin/submissions", icon: FileCheck2 },
     { label: "สถิติละเอียด", href: "/admin/stats", icon: BarChart3 },
     { label: "ข้อมูลโรงเรียน & โลโก้", href: "/admin/school", icon: Building },
-    { label: "ตั้งค่า Telegram Bot", href: "/admin/telegram", icon: Bell },
     { label: "จัดการสายชั้น & กลุ่มสาระ", href: "/admin/masters", icon: Layers },
   ];
 

@@ -1,4 +1,4 @@
-import { db, storage } from "./firebase";
+import { db } from "./firebase";
 import { 
   collection, 
   addDoc, 
@@ -15,7 +15,6 @@ import {
   QueryDocumentSnapshot,
   DocumentData
 } from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { Submission, TrainingSettings, GradeLevelOption, SubjectGroupOption, DashboardStats } from "./types";
 
 // Default Master Data (สายชั้น อ.1 - อ.3 ถึง ป.1 - ป.6)
@@ -118,14 +117,9 @@ function saveLocalSubmissions(subs: Submission[]) {
  * Delete a file from Firebase Storage by its download URL
  */
 export async function deleteStorageFileByUrl(url?: string): Promise<void> {
-  if (!url || !url.includes("firebasestorage.googleapis.com")) return;
-  try {
-    const fileRef = ref(storage, url);
-    await deleteObject(fileRef);
-    console.log("Successfully deleted old storage file:", url);
-  } catch (err) {
-    console.warn("Storage delete file by URL warning:", err);
-  }
+  // Legacy Firebase Storage URLs cannot be deleted on the free Spark setup.
+  // New uploads use the school's Google Drive Apps Script instead.
+  if (url?.includes("firebasestorage.googleapis.com")) console.warn("Legacy Storage file retained:", url);
 }
 
 /**
@@ -315,91 +309,6 @@ export async function getUserSubmissionsByName(fullName: string): Promise<Submis
 export async function getUserSubmissionCount(fullName: string): Promise<number> {
   const list = await getUserSubmissionsByName(fullName);
   return list.length;
-}
-
-/**
- * Fast Robust Upload to Firebase Storage with Instant DataURL Timeout Fallback (Never hangs at 0%!)
- */
-export async function uploadFileToStorage(
-  rawFile: File, 
-  onProgress?: (percent: number) => void
-): Promise<string> {
-  if (onProgress) onProgress(10);
-
-  // 1. Compress images client-side (PDFs and other files upload as-is).
-  let fileToUpload = rawFile;
-  if (rawFile.type.startsWith("image/")) {
-    try {
-      fileToUpload = await compressAndResizeImage(rawFile, 800, 800, 0.8);
-    } catch (compressErr) {
-      console.warn("Image compression fallback:", compressErr);
-    }
-  }
-  if (onProgress) onProgress(15);
-
-  // An inline base64 fallback is only safe for SMALL files — Firestore documents are
-  // capped at ~1MB, so a multi-MB PDF as base64 would break the write. Large files must
-  // reach Storage; if that fails we surface an error instead of saving a broken document.
-  const SMALL_FILE_LIMIT = 500 * 1024;
-  const canInlineFallback = fileToUpload.size <= SMALL_FILE_LIMIT;
-
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const randomId = Math.random().toString(36).substring(2, 10);
-  const ext = fileToUpload.name.split(".").pop() || "bin";
-  const path = `uploads/${year}/${month}/${Date.now()}_${randomId}.${ext}`;
-
-  return new Promise<string>((resolve, reject) => {
-    let settled = false;
-    const done = (fn: () => void) => { if (!settled) { settled = true; fn(); } };
-    const failOrFallback = async (message: string) => {
-      if (settled) return;
-      if (canInlineFallback) {
-        const dataUrl = await fileToDataURL(fileToUpload);
-        done(() => resolve(dataUrl));
-      } else {
-        done(() => reject(new Error(message)));
-      }
-    };
-
-    let uploadTask: ReturnType<typeof uploadBytesResumable>;
-    try {
-      uploadTask = uploadBytesResumable(ref(storage, path), fileToUpload);
-    } catch {
-      failOrFallback("เริ่มอัปโหลดไม่สำเร็จ ลองใหม่ หรือแนบเป็นลิงก์ Google Drive สำหรับไฟล์ใหญ่");
-      return;
-    }
-
-    // Hard cap so a truly stuck upload doesn't hang forever (real uploads report progress).
-    const hardTimeout = setTimeout(() => {
-      try { uploadTask.cancel(); } catch {}
-      failOrFallback("อัปโหลดใช้เวลานานเกินไป (ไฟล์ใหญ่หรืออินเทอร์เน็ตช้า) — ลองใหม่ หรือแนบเป็นลิงก์ Google Drive แทน");
-    }, 180000);
-
-    uploadTask.on(
-      "state_changed",
-      (snapshot) => {
-        const pct = snapshot.totalBytes > 0 ? (snapshot.bytesTransferred / snapshot.totalBytes) * 100 : 0;
-        if (onProgress) onProgress(Math.min(95, Math.max(15, Math.round(pct))));
-      },
-      (error) => {
-        clearTimeout(hardTimeout);
-        console.warn("Storage upload error:", error);
-        failOrFallback("อัปโหลดไฟล์ไม่สำเร็จ ลองใหม่อีกครั้ง หรือแนบเป็นลิงก์ Google Drive แทน");
-      },
-      async () => {
-        clearTimeout(hardTimeout);
-        try {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          if (onProgress) onProgress(100);
-          done(() => resolve(downloadURL));
-        } catch {
-          failOrFallback("อัปโหลดสำเร็จแต่ดึงลิงก์ไฟล์ไม่ได้ ลองใหม่อีกครั้ง");
-        }
-      }
-    );
-  });
 }
 
 // Google Apps Script web app that saves uploads into the school's own Google Drive.

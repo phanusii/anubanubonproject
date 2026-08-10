@@ -44,9 +44,6 @@ export interface TrainingSettings {
   activeProjectFilterName?: string; // Specific training/project name to filter public display
   // The training round/project currently open for submission and shown by default
   activeProjectId?: string;
-  // Telegram Bot Notification Settings
-  telegramChatId?: string;
-  telegramNotificationsEnabled?: boolean;
 }
 
 /**

@@ -5,7 +5,6 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getTrainingSettings, updateTrainingSettings, compressAndResizeImage, fileToDataURL, deleteStorageFileByUrl } from "@/lib/submission-service";
-import { notifyAdminSubmissionAction } from "@/lib/telegram-service";
 import { TrainingSettings } from "@/lib/types";
 import { Building, Upload, Image as ImageIcon, CheckCircle2, Save, Sparkles, MapPin, GraduationCap } from "lucide-react";
 
@@ -74,12 +73,6 @@ export default function AdminSchoolPage() {
 
     try {
       const cloudSaved = await updateTrainingSettings(settings);
-
-      notifyAdminSubmissionAction("edit", {
-        id: "school-info",
-        fullName: "แอดมินผู้ดูแลระบบ",
-        projectTitle: `อัปเดตข้อมูลโรงเรียน: ${settings.schoolName}`,
-      }).catch((err) => console.warn("Telegram error:", err));
 
       if (cloudSaved) {
         setSuccessMessage("บันทึกข้อมูลโรงเรียนและโลโก้ขึ้นระบบเรียบร้อยแล้ว (แสดงผลทุกอุปกรณ์)");
