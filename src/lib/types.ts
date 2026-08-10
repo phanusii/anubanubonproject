@@ -46,6 +46,7 @@ export interface TrainingSettings {
   activeProjectId?: string;
   telegramNotificationsEnabled?: boolean;
   telegramChatId?: string;
+  telegramTestRequestedAt?: number;
 }
 
 /**

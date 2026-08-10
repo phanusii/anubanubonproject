@@ -11,6 +11,7 @@ const FIREBASE_PROJECT_ID = "anubanubonproject";
 const FIREBASE_API_KEY = "AIzaSyDJxugqBnlmVeyHBM4Bx4yzmkjGv9PVeyQ";
 const SETTINGS_DOCUMENT = "settings/training";
 const CURSOR_PROPERTY = "TELEGRAM_LAST_SUBMISSION_TIME";
+const TEST_CURSOR_PROPERTY = "TELEGRAM_LAST_TEST_REQUEST";
 
 function installTelegramNotifier() {
   const token = PropertiesService.getScriptProperties().getProperty("TELEGRAM_BOT_TOKEN");
@@ -33,6 +34,7 @@ function notifyNewSubmissions() {
   if (!chatId) return;
 
   const properties = PropertiesService.getScriptProperties();
+  notifyTelegramTest_(settings, chatId, properties);
   const lastTime = properties.getProperty(CURSOR_PROPERTY) || "";
   const documents = listSubmissions_();
   if (!documents.length) return;
@@ -46,6 +48,16 @@ function notifyNewSubmissions() {
     sendTelegram_(formatSubmissionMessage_(data), chatId);
     properties.setProperty(CURSOR_PROPERTY, document.createTime);
   });
+}
+
+function notifyTelegramTest_(settings, chatId, properties) {
+  const requestedAt = String(settings.telegramTestRequestedAt || "");
+  if (!requestedAt || properties.getProperty(TEST_CURSOR_PROPERTY) === requestedAt) return;
+  sendTelegram_(
+    "✅ ทดสอบการแจ้งเตือนสำเร็จ\n\nระบบพร้อมแจ้งเตือนเมื่อมีครูส่งงานหรือผลงานใหม่",
+    chatId
+  );
+  properties.setProperty(TEST_CURSOR_PROPERTY, requestedAt);
 }
 
 function initializeTelegramCursor_() {

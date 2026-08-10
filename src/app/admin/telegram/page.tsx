@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Send, ShieldCheck, Timer, CheckCircle2 } from "lucide-react";
+import { Send, ShieldCheck, Timer, CheckCircle2, BellRing } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
@@ -12,6 +12,7 @@ export default function TelegramSettingsPage() {
   const [chatId, setChatId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -32,6 +33,24 @@ export default function TelegramSettingsPage() {
     });
     setMessage(ok ? "บันทึกการตั้งค่า Telegram แล้ว" : "บันทึกไม่สำเร็จ กรุณาเข้าสู่ระบบใหม่แล้วลองอีกครั้ง");
     setSaving(false);
+  };
+
+  const sendTest = async () => {
+    if (!enabled || !chatId.trim()) {
+      setMessage("กรุณาเปิดการแจ้งเตือนและกรอก Chat ID ก่อนทดสอบ");
+      return;
+    }
+    setTesting(true);
+    setMessage("");
+    const ok = await updateTrainingSettings({
+      telegramNotificationsEnabled: true,
+      telegramChatId: chatId.trim(),
+      telegramTestRequestedAt: Date.now(),
+    });
+    setMessage(ok
+      ? "ส่งคำขอทดสอบแล้ว กรุณาตรวจ Telegram ภายในประมาณ 1 นาที"
+      : "ส่งคำขอทดสอบไม่สำเร็จ กรุณาเข้าสู่ระบบใหม่แล้วลองอีกครั้ง");
+    setTesting(false);
   };
 
   return (
@@ -97,13 +116,24 @@ export default function TelegramSettingsPage() {
                   </p>
                 )}
 
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-6 py-3 rounded-2xl bg-sky-500 hover:bg-sky-600 disabled:opacity-60 text-white text-sm font-extrabold shadow-lg shadow-sky-500/20 transition-colors"
-                >
-                  {saving ? "กำลังบันทึก..." : "บันทึกการตั้งค่า"}
-                </button>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="submit"
+                    disabled={saving || testing}
+                    className="px-6 py-3 rounded-2xl bg-sky-500 hover:bg-sky-600 disabled:opacity-60 text-white text-sm font-extrabold shadow-lg shadow-sky-500/20 transition-colors"
+                  >
+                    {saving ? "กำลังบันทึก..." : "บันทึกการตั้งค่า"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={sendTest}
+                    disabled={saving || testing || !enabled || !chatId.trim()}
+                    className="px-6 py-3 rounded-2xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-emerald-700 text-sm font-extrabold flex items-center gap-2 transition-colors"
+                  >
+                    <BellRing className="w-4 h-4" />
+                    {testing ? "กำลังส่งคำขอ..." : "ทดสอบส่ง Telegram"}
+                  </button>
+                </div>
               </form>
             )}
           </div>
