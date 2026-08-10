@@ -91,8 +91,10 @@ export default function AdminProjectsPage() {
     try {
       const isFirst = projects.length === 0;
       await saveProject({ ...editing, name: editing.name.trim() });
-      // Make it the active round if it's the first project or has no active set yet.
-      if (isFirst || !activeId) {
+      // "กำลังเปิดรับ" is the source of truth for the submission form. Saving a
+      // round in this state must also update settings.activeProjectId; otherwise
+      // the public form can keep showing a previously active project.
+      if (editing.status === "active" || isFirst || !activeId) {
         await setActiveProject(editing.id);
       }
       await reload();
