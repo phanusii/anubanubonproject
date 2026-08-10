@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getProjects, saveProject, deleteProject, setActiveProject, saveProjectsOrder } from "@/lib/projects-service";
 import { getTrainingSettings, getSubmissions, updateSubmission } from "@/lib/submission-service";
 import { Project, TrainingSettings } from "@/lib/types";
+import { budgetYearOf } from "@/lib/format";
 import { CalendarRange, Plus, Save, Trash2, CheckCircle2, Star, ListOrdered, Link2, X, Pencil, ChevronUp, ChevronDown, ToggleLeft, ToggleRight, Eye, EyeOff } from "lucide-react";
 
 function blankProject(settings: TrainingSettings | null): Project {
@@ -21,7 +21,7 @@ function blankProject(settings: TrainingSettings | null): Project {
     name: "",
     kind: "project",
     categoryType: settings?.categoryType || "การส่งผลงานนวัตกรรมการเรียนรู้",
-    academicYear: settings?.academicYear || "2569",
+    budgetYear: settings?.budgetYear || settings?.academicYear || "2569",
     description: "",
     openDate: "",
     closeDate: "",
@@ -34,29 +34,35 @@ function blankProject(settings: TrainingSettings | null): Project {
 }
 
 export default function AdminProjectsPage() {
-  const router = useRouter();
   const [settings, setSettings] = useState<TrainingSettings | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeId, setActiveId] = useState<string | undefined>(undefined);
   const [editing, setEditing] = useState<Project | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [submissionCounts, setSubmissionCounts] = useState<Record<string, number>>({});
 
   const reload = async () => {
-    const [ps, s] = await Promise.all([getProjects(true), getTrainingSettings()]);
+    const [ps, s, allSubmissions] = await Promise.all([
+      getProjects(true),
+      getTrainingSettings(),
+      getSubmissions({ ignoreProjectFilter: true }),
+    ]);
     setProjects(ps);
     setSettings(s);
     setActiveId(s.activeProjectId);
+    const counts: Record<string, number> = {};
+    for (const submission of allSubmissions) {
+      if (submission.projectId) counts[submission.projectId] = (counts[submission.projectId] || 0) + 1;
+    }
+    setSubmissionCounts(counts);
   };
 
   useEffect(() => {
-    if (typeof window !== "undefined" && !localStorage.getItem("admin_session")) {
-      router.push("/admin/login");
-      return;
-    }
+    // Data loading is intentionally started after the client-side auth redirect check.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
+  }, []);
 
   const handleMaxUploadChange = (n: number) => {
     if (!editing) return;
@@ -137,7 +143,7 @@ export default function AdminProjectsPage() {
       id: `proj-${Date.now()}`,
       name: s.trainingName || "โครงการปัจจุบัน",
       categoryType: s.categoryType,
-      academicYear: s.academicYear,
+      budgetYear: s.budgetYear || s.academicYear,
       description: s.trainingDescription,
       bannerUrl: s.bannerUrl,
       openDate: s.openDate,
@@ -261,11 +267,11 @@ export default function AdminProjectsPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="block text-xs font-bold text-slate-800">ปีการศึกษา</label>
+                  <label className="block text-xs font-bold text-slate-800">ปีงบประมาณ</label>
                   <input
                     type="text"
-                    value={editing.academicYear || ""}
-                    onChange={(e) => setEditing({ ...editing, academicYear: e.target.value })}
+                    value={editing.budgetYear || editing.academicYear || ""}
+                    onChange={(e) => setEditing({ ...editing, budgetYear: e.target.value })}
                     className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-900 text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
                   />
                 </div>
@@ -374,7 +380,7 @@ export default function AdminProjectsPage() {
                       )}
                     </div>
                     <p className="text-xs text-slate-500 font-medium">
-                      ปีการศึกษา {p.academicYear} · {p.maxUpload} ชิ้น/คน ·{" "}
+                      ปีงบประมาณ {budgetYearOf(p)} · {p.maxUpload} ชิ้น/คน · ส่งแล้ว {submissionCounts[p.id] || 0} ชิ้น ·{" "}
                       {p.status === "closed" ? "🔴 ปิดรับส่งผลงาน" : "🟢 กำลังเปิดรับส่งผลงาน"} ·{" "}
                       {p.showInGallery === false ? "ซ่อนจากคลังผลงาน" : "แสดงในคลังผลงาน"}
                     </p>

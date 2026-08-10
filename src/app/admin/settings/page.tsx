@@ -17,10 +17,6 @@ export default function AdminSettingsRedirectPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (typeof window !== "undefined" && !localStorage.getItem("admin_session")) {
-      router.push("/admin/login");
-      return;
-    }
     const t = setTimeout(() => router.push("/admin/projects"), 1200);
     return () => clearTimeout(t);
   }, [router]);

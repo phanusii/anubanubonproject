@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { auth } from "@/lib/firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { ShieldCheck, Lock, Mail, AlertCircle, ArrowRight } from "lucide-react";
 
 export default function AdminLoginPage() {
@@ -22,12 +22,13 @@ export default function AdminLoginPage() {
 
     try {
       // Authenticate strictly against Firebase Auth. No client-side password fallback.
-      await signInWithEmailAndPassword(auth, email.trim(), password);
-
-      if (typeof window !== "undefined") {
-        localStorage.setItem("admin_session", "active");
+      const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || "18403p@gmail.com").toLowerCase();
+      if (credential.user.email?.toLowerCase() !== adminEmail) {
+        await signOut(auth);
+        throw new Error("User is not an administrator");
       }
-      router.push("/admin/dashboard");
+      router.replace("/admin/dashboard");
     } catch (err) {
       console.warn("Admin login failed:", err);
       setErrorMessage("อีเมลหรือรหัสผ่านไม่ถูกต้อง หรือบัญชีนี้ยังไม่มีสิทธิ์ผู้ดูแลระบบ");

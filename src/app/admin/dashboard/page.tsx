@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
@@ -11,20 +10,10 @@ import { FileCheck, Users, FileText, Image as ImageIcon, TrendingUp, Sparkles } 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 export default function AdminDashboardPage() {
-  const router = useRouter();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check admin authentication session
-    if (typeof window !== "undefined") {
-      const session = localStorage.getItem("admin_session");
-      if (!session) {
-        router.push("/admin/login");
-        return;
-      }
-    }
-
     async function loadStats() {
       setLoading(true);
       const data = await getDashboardStats();
@@ -32,7 +21,7 @@ export default function AdminDashboardPage() {
       setLoading(false);
     }
     loadStats();
-  }, [router]);
+  }, []);
 
   return (
     <div className="min-h-screen flex flex-col">

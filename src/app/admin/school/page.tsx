@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
@@ -11,8 +10,6 @@ import { TrainingSettings } from "@/lib/types";
 import { Building, Upload, Image as ImageIcon, CheckCircle2, Save, Sparkles, MapPin, GraduationCap } from "lucide-react";
 
 export default function AdminSchoolPage() {
-  const router = useRouter();
-
   const [settings, setSettings] = useState<TrainingSettings>({
     maxUpload: 10,
     trainingName: "",
@@ -34,20 +31,12 @@ export default function AdminSchoolPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const session = localStorage.getItem("admin_session");
-      if (!session) {
-        router.push("/admin/login");
-        return;
-      }
-    }
-
     async function load() {
       const data = await getTrainingSettings();
       setSettings(data);
     }
     load();
-  }, [router]);
+  }, []);
 
   // Instant Instantaneous Logo File Handler (< 50ms DataURL preview & Automatic Old Logo File Deletion!)
   const handleLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {

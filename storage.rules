@@ -13,8 +13,10 @@ service firebase.storage {
       // Allow public read for portfolio showcase
       allow read: if true;
 
-      // Allow create if file size <= 50MB and type is pdf, png, jpg, jpeg, webp
-      allow create: if request.resource.size <= 50 * 1024 * 1024
+      // Public submissions are capped to 10 MB. Enable Firebase App Check in
+      // enforcement mode to prevent uploads from untrusted clients.
+      allow create: if request.resource.size > 0
+                    && request.resource.size <= 10 * 1024 * 1024
                     && (request.resource.contentType.matches('application/pdf')
                         || request.resource.contentType.matches('image/png')
                         || request.resource.contentType.matches('image/jpeg')

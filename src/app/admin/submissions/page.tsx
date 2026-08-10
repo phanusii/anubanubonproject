@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
@@ -35,9 +34,9 @@ import {
   History
 } from "lucide-react";
 import { isGoogleDriveLink, extractGoogleDriveFileId } from "@/lib/google-drive-utils";
+import { shortSubject } from "@/lib/format";
 
 export default function AdminSubmissionsPage() {
-  const router = useRouter();
   // Instant synchronous state initialization (0ms latency!)
   const [submissions, setSubmissions] = useState<Submission[]>(() => getInstantSubmissions());
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
@@ -59,16 +58,8 @@ export default function AdminSubmissionsPage() {
   const [editForm, setEditForm] = useState<Partial<Submission>>({});
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const session = localStorage.getItem("admin_session");
-      if (!session) {
-        router.push("/admin/login");
-        return;
-      }
-    }
-
     loadData();
-  }, [router]);
+  }, []);
 
   async function loadData() {
     const [subs, gls, sgs] = await Promise.all([
@@ -258,7 +249,7 @@ export default function AdminSubmissionsPage() {
                               ครูสายชั้น{sub.gradeLevel}
                             </div>
                             <div className="text-[11px] text-slate-500 font-medium line-clamp-1">
-                              กลุ่มสาระ{sub.subjectGroup}
+                              {shortSubject(sub.subjectGroup)}
                             </div>
                           </td>
 

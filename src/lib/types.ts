@@ -37,6 +37,7 @@ export interface TrainingSettings {
   educationalArea?: string;
   categoryType?: string; // "การส่งผลงานการอบรม" | "การส่งผลงานโครงการ" | "การประกวดผลงานนวัตกรรม"
   academicYear?: string; // "2569"
+  budgetYear?: string; // ปีงบประมาณ; academicYear remains as a legacy fallback
   workSlotTitles?: string[]; // Custom slot titles defined by Admin
   // Active Project Display Filter Settings (legacy text-match; superseded by activeProjectId)
   activeProjectFilterMode?: 'all' | 'specific'; // 'all' | 'specific'
@@ -59,6 +60,7 @@ export interface Project {
   kind?: 'training' | 'project';
   categoryType?: string;
   academicYear?: string;
+  budgetYear?: string;
   description?: string;
   bannerUrl?: string;
   openDate?: string;

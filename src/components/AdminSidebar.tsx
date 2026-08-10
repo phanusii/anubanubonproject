@@ -12,7 +12,8 @@ import {
   Sparkles,
   Bell,
   Building,
-  CalendarRange
+  CalendarRange,
+  BarChart3
 } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
@@ -27,9 +28,6 @@ export default function AdminSidebar() {
     } catch (err) {
       console.warn("Signout error:", err);
     }
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("admin_session");
-    }
     router.push("/admin/login");
   };
 
@@ -37,6 +35,7 @@ export default function AdminSidebar() {
     { label: "Dashboard สรุปผล", href: "/admin/dashboard", icon: LayoutDashboard },
     { label: "จัดการรอบ/โครงการ", href: "/admin/projects", icon: CalendarRange },
     { label: "จัดการผลงาน", href: "/admin/submissions", icon: FileCheck2 },
+    { label: "สถิติละเอียด", href: "/admin/stats", icon: BarChart3 },
     { label: "ข้อมูลโรงเรียน & โลโก้", href: "/admin/school", icon: Building },
     { label: "ตั้งค่า Telegram Bot", href: "/admin/telegram", icon: Bell },
     { label: "จัดการสายชั้น & กลุ่มสาระ", href: "/admin/masters", icon: Layers },

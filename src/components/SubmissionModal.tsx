@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Submission } from "@/lib/types";
-import { X, Download, User, Building, MapPin, Tag, BookOpen, Calendar, ExternalLink, ZoomIn, HardDrive } from "lucide-react";
+import { X, Download, User, Tag, Calendar, ExternalLink, ZoomIn, HardDrive } from "lucide-react";
 import { extractGoogleDriveFileId, getGoogleDrivePreviewUrl, getGoogleDriveDownloadUrl } from "@/lib/google-drive-utils";
 import { gradeLabel } from "@/lib/format";
 
@@ -144,41 +144,7 @@ export default function SubmissionModal({ submission, onClose }: SubmissionModal
                   </div>
                 </div>
 
-                <div className="flex items-start gap-3">
-                  <BookOpen className="w-4 h-4 text-purple-500 mt-1 shrink-0" />
-                  <div>
-                    <span className="text-xs text-slate-400 block font-semibold">กลุ่มสาระการเรียนรู้</span>
-                    <span className="font-bold text-slate-900">{submission.subjectGroup}</span>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <Building className="w-4 h-4 text-sky-500 mt-1 shrink-0" />
-                  <div>
-                    <span className="text-xs text-slate-400 block font-semibold">โรงเรียน / หน่วยงาน</span>
-                    <span className="font-bold text-slate-900">{submission.school}</span>
-                  </div>
-                </div>
-
-                {submission.province && (
-                  <div className="flex items-start gap-3">
-                    <MapPin className="w-4 h-4 text-emerald-500 mt-1 shrink-0" />
-                    <div>
-                      <span className="text-xs text-slate-400 block font-semibold">จังหวัด</span>
-                      <span className="font-medium text-slate-800">{submission.province}</span>
-                    </div>
-                  </div>
-                )}
               </div>
-
-              {submission.description && (
-                <div className="pt-3 border-t border-slate-100">
-                  <span className="text-xs text-slate-400 block mb-1 font-semibold">รายละเอียดผลงาน</span>
-                  <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
-                    {submission.description}
-                  </p>
-                </div>
-              )}
             </div>
 
             <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400 font-semibold">

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
@@ -19,8 +18,6 @@ import { GradeLevelOption, SubjectGroupOption } from "@/lib/types";
 import { Layers, BookOpen, Plus, Trash2, Edit2, Save, X, UserCheck, Search, Users } from "lucide-react";
 
 export default function AdminMastersPage() {
-  const router = useRouter();
-
   // Active Tab: 'teachers' | 'grades' | 'subjects'
   const [activeTab, setActiveTab] = useState<'teachers' | 'grades' | 'subjects'>('teachers');
 
@@ -86,16 +83,8 @@ export default function AdminMastersPage() {
   };
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const session = localStorage.getItem("admin_session");
-      if (!session) {
-        router.push("/admin/login");
-        return;
-      }
-    }
-
     loadAllMasters();
-  }, [router]);
+  }, []);
 
   async function loadAllMasters() {
     const [gls, sgs, ts] = await Promise.all([

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Submission } from "@/lib/types";
-import { FileText, Image as ImageIcon, School, ExternalLink, HardDrive, Smile } from "lucide-react";
+import { FileText, Image as ImageIcon, ExternalLink, HardDrive, Smile } from "lucide-react";
 import { isGoogleDriveLink } from "@/lib/google-drive-utils";
 import { gradeLabel } from "@/lib/format";
 
@@ -69,9 +69,6 @@ export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryC
             <span className="px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-white/90 backdrop-blur-md text-slate-800 shadow-xs border border-white">
               {gradeLabel(submission.gradeLevel)}
             </span>
-            <span className="px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-blue-600/90 backdrop-blur-md text-white shadow-xs">
-              {submission.subjectGroup}
-            </span>
           </div>
 
           <div className="absolute bottom-2.5 right-2.5 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
@@ -86,11 +83,6 @@ export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryC
           <h3 className="font-extrabold text-sm text-slate-900 leading-snug line-clamp-2 group-hover:text-blue-600 transition-colors">
             {submission.projectTitle}
           </h3>
-          {submission.description && (
-            <p className="text-xs text-slate-500 line-clamp-2 font-medium">
-              {submission.description}
-            </p>
-          )}
         </div>
       </div>
 
@@ -111,18 +103,10 @@ export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryC
             )}
           </span>
           <span className="truncate">{submission.fullName}</span>
-          <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md shrink-0">
-            {submission.position}
-          </span>
         </div>
 
-        <div className="flex items-center justify-between text-[11px] text-slate-500">
-          <span className="truncate flex items-center gap-1">
-            <School className="w-3 h-3 text-slate-400 shrink-0" />
-            <span className="truncate">{submission.school}</span>
-          </span>
-          <span className="shrink-0 text-slate-400">{submission.uploadDate ? submission.uploadDate.split(" ")[0] : ""}</span>
-        </div>
+        <div className="text-[11px] font-semibold text-slate-500 truncate">{submission.position || "-"}</div>
+        <div className="text-[11px] text-slate-400">วันที่ส่ง {submission.uploadDate ? submission.uploadDate.split(" ")[0] : "-"}</div>
       </div>
     </div>
   );

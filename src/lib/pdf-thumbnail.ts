@@ -37,7 +37,7 @@ export async function generatePdfThumbnail(file: File): Promise<string> {
           canvas.height = viewport.height;
           canvas.width = viewport.width;
 
-          const renderContext: any = {
+          const renderContext = {
             canvasContext: context,
             viewport: viewport,
             canvas: canvas,

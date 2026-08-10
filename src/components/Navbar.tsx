@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useState, useEffect } from "react";
 import {
   Send,
   LayoutGrid,
@@ -66,7 +66,7 @@ export default function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20">
           {/* Logo & Brand */}
-          <a href="/#gallery" className="flex items-center gap-3 group">
+          <Link href="/#gallery" className="flex items-center gap-3 group">
             {settings?.schoolLogoUrl ? (
               <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-md shadow-blue-500/10 bg-white shrink-0 group-hover:scale-105 transition-transform duration-300 flex items-center justify-center p-0.5">
                 <img
@@ -90,7 +90,7 @@ export default function Navbar() {
                 {settings?.educationalArea || "สำนักงานเขตพื้นที่การศึกษาประถมศึกษาอุบลราชธานี เขต 1"}
               </span>
             </div>
-          </a>
+          </Link>
 
           {/* Desktop Nav Items */}
           <div className="hidden md:flex items-center gap-1.5 bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200/50">

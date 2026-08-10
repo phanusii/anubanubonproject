@@ -62,6 +62,7 @@ export const DEFAULT_SETTINGS: TrainingSettings = {
   educationalArea: "สำนักงานเขตพื้นที่การศึกษาประถมศึกษาอุบลราชธานี เขต 1",
   categoryType: "การส่งผลงานนวัตกรรมการเรียนรู้",
   academicYear: "2569",
+  budgetYear: "2569",
   workSlotTitles: [
     "ชิ้นที่ 1: แผนการจัดการเรียนรู้ Active Learning (ไฟล์ PDF)",
     "ชิ้นที่ 2: สื่อและนวัตกรรมการสอนดิจิทัล (รูปภาพ / PDF / Google Drive)",

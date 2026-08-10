@@ -1,18 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getTrainingSettings, updateTrainingSettings } from "@/lib/submission-service";
-import { sendTelegramNotification, DEFAULT_TELEGRAM_BOT_TOKEN } from "@/lib/telegram-service";
+import { sendTelegramNotification } from "@/lib/telegram-service";
 import { TrainingSettings } from "@/lib/types";
 import { Bell, Send, CheckCircle2, AlertCircle, ShieldCheck, RefreshCw, Save, Sparkles } from "lucide-react";
 
 export default function AdminTelegramPage() {
-  const router = useRouter();
-
   const [settings, setSettings] = useState<TrainingSettings>({
     maxUpload: 10,
     trainingName: "",
@@ -36,14 +33,6 @@ export default function AdminTelegramPage() {
   const [successMessage, setSuccessMessage] = useState("");
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const session = localStorage.getItem("admin_session");
-      if (!session) {
-        router.push("/admin/login");
-        return;
-      }
-    }
-
     async function load() {
       const data = await getTrainingSettings();
       setSettings(data);
@@ -52,7 +41,7 @@ export default function AdminTelegramPage() {
       }
     }
     load();
-  }, [router]);
+  }, []);
 
   const handleTestTelegram = async () => {
     if (!settings.telegramChatId) {
@@ -77,7 +66,7 @@ export default function AdminTelegramPage() {
 <i>⏰ เวลาทดสอบ: ${new Date().toLocaleString("th-TH")}</i>
 `.trim();
 
-    const ok = await sendTelegramNotification(testMsg, settings.telegramChatId.trim());
+    const ok = await sendTelegramNotification(testMsg);
     setTestingTelegram(false);
 
     if (ok) {
@@ -153,9 +142,7 @@ export default function AdminTelegramPage() {
                   HTTP API Token (บอทมาตรฐานระบบ)
                 </label>
                 <div className="p-3.5 rounded-2xl bg-white border border-blue-200 font-mono text-xs text-blue-700 font-bold truncate shadow-2xs">
-                  {DEFAULT_TELEGRAM_BOT_TOKEN
-                    ? `${DEFAULT_TELEGRAM_BOT_TOKEN.slice(0, 6)}••••••••••••  (ตั้งค่าแล้ว)`
-                    : "ยังไม่ได้ตั้งค่า Token (กำหนดผ่าน NEXT_PUBLIC_TELEGRAM_BOT_TOKEN)"}
+                  Bot token จัดเก็บใน Firebase Secret Manager และไม่ถูกส่งมายังเบราว์เซอร์
                 </div>
               </div>
 

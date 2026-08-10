@@ -8,7 +8,7 @@ import { getSubmissionsPage, getTrainingSettings, getInstantSubmissions, DEFAULT
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getProjects } from "@/lib/projects-service";
 import { getTeachers } from "@/lib/teachers-service";
-import { gradeLabel, sortGrades } from "@/lib/format";
+import { budgetYearOf, gradeLabel, sortGrades } from "@/lib/format";
 import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings, Project } from "@/lib/types";
 import { Search, Sparkles, FolderKanban, Layers } from "lucide-react";
 
@@ -166,6 +166,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
       : projects.find((p) => p.id === selectedProjectId)?.name ||
         settings?.trainingName ||
         "คลังผลงานครู";
+  const selectedProject = projects.find((p) => p.id === selectedProjectId);
 
   return (
     <div className="flex flex-col w-full">
@@ -181,6 +182,9 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight leading-snug">
             {selectedProjectName}
           </h1>
+          {selectedProject && (
+            <p className="text-sm font-extrabold text-blue-600">ปีงบประมาณ {budgetYearOf(selectedProject)}</p>
+          )}
           <p className="text-xs sm:text-sm text-slate-600 font-medium">
             ค้นหาและเปิดดูผลงานนวัตกรรม แผนการจัดการเรียนรู้ และสื่อดิจิทัลของคุณครูโรงเรียนอนุบาลอุบลราชธานี
           </p>
@@ -209,6 +213,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
+                    {` · ปีงบประมาณ ${budgetYearOf(p)}`}
                     {p.id === settings?.activeProjectId ? " · เปิดรับอยู่" : ""}
                   </option>
                 ))}

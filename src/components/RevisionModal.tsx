@@ -49,6 +49,8 @@ export default function RevisionModal({ fileId, title, fileURL, onClose }: Revis
   };
 
   useEffect(() => {
+    // Loading is asynchronous; state changes occur after the Drive request resolves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId]);

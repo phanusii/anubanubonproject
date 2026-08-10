@@ -12,7 +12,14 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "public/pdf.worker.min.mjs",
+    "functions/**",
   ]),
+  {
+    rules: {
+      "react/no-unescaped-entities": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

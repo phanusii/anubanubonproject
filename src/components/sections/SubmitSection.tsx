@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import FileUploadPreview from "@/components/FileUploadPreview";
 import {
   getTrainingSettings,
@@ -11,36 +11,12 @@ import {
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
-import { getTeachers, updateTeacherSubject, updateTeacherPhoto, TeacherItem } from "@/lib/teachers-service";
-import { notifyNewSubmissionEvent } from "@/lib/telegram-service";
+import { getTeachers, TeacherItem } from "@/lib/teachers-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
 import { gradeLabel, submitVerb } from "@/lib/format";
 import { TrainingSettings, GradeLevelOption, SubjectGroupOption, Submission, Project } from "@/lib/types";
-import { Send, CheckCircle2, AlertCircle, Sparkles, User, FileText, RefreshCw, HelpCircle, HardDrive, Link as LinkIcon, Upload, Check, Users, PlusCircle, Lock, Camera } from "lucide-react";
+import { Send, CheckCircle2, AlertCircle, Sparkles, User, FileText, RefreshCw, HelpCircle, HardDrive, Link as LinkIcon, Upload, Check, Users, PlusCircle, Lock } from "lucide-react";
 import confetti from "canvas-confetti";
-
-/** Downscale an image to a small square-ish avatar (max 512px) JPEG before upload. */
-async function resizeImageForAvatar(file: File): Promise<File> {
-  try {
-    const bitmap = await createImageBitmap(file);
-    const MAX = 512;
-    const scale = Math.min(1, MAX / Math.max(bitmap.width, bitmap.height));
-    const w = Math.round(bitmap.width * scale);
-    const h = Math.round(bitmap.height * scale);
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return file;
-    ctx.drawImage(bitmap, 0, 0, w, h);
-    bitmap.close?.();
-    const blob: Blob | null = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.85));
-    if (!blob) return file;
-    return new File([blob], "avatar.jpg", { type: "image/jpeg", lastModified: Date.now() });
-  } catch {
-    return file;
-  }
-}
 
 export default function SubmitSection() {
   const [settings, setSettings] = useState<TrainingSettings | null>(null);
@@ -58,10 +34,6 @@ export default function SubmitSection() {
 
   // Profile picture (avatar) for the selected roster teacher
   const [teacherPhotoUrl, setTeacherPhotoUrl] = useState<string>("");
-  const [teacherPhotoFileId, setTeacherPhotoFileId] = useState<string>("");
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [photoError, setPhotoError] = useState("");
-  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // Form states
   const [fullName, setFullName] = useState("");
@@ -133,6 +105,7 @@ export default function SubmitSection() {
   const slotTitles = activeProject?.workSlotTitles || settings?.workSlotTitles;
   const maxUpload = activeProject?.maxUpload || settings?.maxUpload || 10;
   const verb = submitVerb(activeProject?.kind); // "ส่งงาน" (อบรม) หรือ "ส่งผลงาน" (โครงการ)
+  const roundLabel = activeProject?.kind === "training" ? "การอบรม" : "โครงการ";
 
   const getSlotTitle = (slotIdx: number): string => {
     if (slotTitles && slotTitles[slotIdx]) {
@@ -147,7 +120,6 @@ export default function SubmitSection() {
     setIsCustomName(false);
     setFullName("");
     setTeacherPhotoUrl("");
-    setTeacherPhotoFileId("");
 
     const matchedTeachers = teacherList.filter((t) => t.gradeLevel === newGrade);
     if (matchedTeachers.length === 0) {
@@ -172,39 +144,7 @@ export default function SubmitSection() {
       setPosition(selected.position);
       if (selected.subjectGroup) setSubjectGroup(selected.subjectGroup);
       setTeacherPhotoUrl(selected.photoUrl || "");
-      setTeacherPhotoFileId(selected.photoFileId || "");
       handleCheckUserSubmissions(selected.fullName);
-    }
-  };
-
-  // ---- Profile picture (avatar) upload for the selected roster teacher ----
-  const handleAvatarChange = async (file: File | null) => {
-    if (!file || !selectedTeacherId || selectedTeacherId === "CUSTOM") return;
-    if (!file.type.startsWith("image/")) return;
-    setPhotoError("");
-    setUploadingPhoto(true);
-    try {
-      const small = await resizeImageForAvatar(file);
-      // Group avatars under a folder named after the round/project (like submissions),
-      // then split by grade line and teacher name.
-      const roundName = activeProject?.name || settings?.trainingName || "ผลงานอบรม";
-      const uploaded = await uploadFileToGoogleDrive(small, undefined, {
-        projectName: `${roundName} - รูปประจำตัวครู`,
-        gradeLevel,
-        submitterName: fullName.trim() || "ครู",
-        workLabel: "รูปประจำตัว",
-        existingFileId: teacherPhotoFileId || undefined,
-      });
-      const thumb = getGoogleDriveThumbnail(uploaded.id);
-      setTeacherPhotoUrl(thumb);
-      setTeacherPhotoFileId(uploaded.id);
-      await updateTeacherPhoto(selectedTeacherId, thumb, uploaded.id);
-    } catch (err) {
-      console.error("Avatar upload error:", err);
-      setPhotoError("อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่");
-    } finally {
-      setUploadingPhoto(false);
-      if (avatarInputRef.current) avatarInputRef.current.value = "";
     }
   };
 
@@ -370,27 +310,6 @@ export default function SubmitSection() {
         await createSubmission(subData);
       }
 
-      // Auto-fill the roster teacher's subject group from this submission (best-effort).
-      if (selectedTeacherId && selectedTeacherId !== "CUSTOM" && subjectGroup) {
-        updateTeacherSubject(selectedTeacherId, subjectGroup).catch(() => {});
-      }
-
-      // Send Instant Telegram Notification
-      notifyNewSubmissionEvent({
-        fullName: fullName.trim(),
-        position: position.trim(),
-        gradeLevel,
-        subjectGroup,
-        projectTitle: finalTitle,
-        school: school.trim(),
-        fileType: ext,
-        fileURL,
-        isReplacement: Boolean(replacingSubmissionId),
-        // Chat id from Firestore settings so notifications work from any teacher's device
-        // (not just the admin's browser where it may be cached in localStorage).
-        chatId: settings?.telegramChatId,
-      }).catch((e) => console.warn("Telegram notification error:", e));
-
       setIsUploading(false);
       setIsSuccess(true);
 
@@ -403,9 +322,9 @@ export default function SubmitSection() {
       } catch (err) {
         console.log("Confetti skipped:", err);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setIsUploading(false);
-      setErrorMessage(err.message || "เกิดข้อผิดพลาดในการส่งผลงาน กรุณาลองใหม่อีกครั้ง");
+      setErrorMessage(err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการส่งผลงาน กรุณาลองใหม่อีกครั้ง");
     }
   };
 
@@ -436,7 +355,7 @@ export default function SubmitSection() {
           <div className="relative z-10 space-y-1">
             <span className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[11px] font-bold bg-white/25 backdrop-blur-md">
               <Sparkles className="w-3 h-3" />
-              ส่งผลงาน · {activeProject?.name || settings?.trainingName || "โครงการ"}
+              {roundLabel} · {activeProject?.name || settings?.trainingName || roundLabel}
             </span>
             <h1 className="text-xl sm:text-2xl font-extrabold">แบบฟอร์ม{verb}</h1>
             <p className="text-xs text-blue-50 font-medium">
@@ -458,7 +377,7 @@ export default function SubmitSection() {
               <p className="text-sm text-slate-600 font-medium max-w-md mx-auto">
                 {replacingSubmissionId
                   ? "ไฟล์ผลงานเดิมได้รับการลบและทดแทนด้วยไฟล์ผลงานใหม่ พร้อมส่งแจ้งเตือน Telegram แล้ว"
-                  : "ขอบคุณสำหรับการส่งผลงาน ผลงานของคุณถูกบันทึกและส่งแจ้งเตือน Telegram แล้ว"}
+                  : `${activeProject?.kind === "training" ? "งาน" : "ผลงาน"}ของคุณถูกบันทึกเรียบร้อยแล้ว`}
               </p>
             </div>
 
@@ -591,37 +510,11 @@ export default function SubmitSection() {
                           ) : (
                             <User className="w-7 h-7 text-slate-400" />
                           )}
-                          {uploadingPhoto && (
-                            <div className="absolute inset-0 bg-slate-900/40 flex items-center justify-center">
-                              <RefreshCw className="w-5 h-5 text-white animate-spin" />
-                            </div>
-                          )}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => avatarInputRef.current?.click()}
-                          disabled={uploadingPhoto}
-                          className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full ios-gradient-blue text-white flex items-center justify-center shadow-md border-2 border-white disabled:opacity-60"
-                          title="เปลี่ยนรูปประจำตัว"
-                        >
-                          <Camera className="w-3.5 h-3.5" />
-                        </button>
-                        <input
-                          ref={avatarInputRef}
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => handleAvatarChange(e.target.files?.[0] || null)}
-                        />
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold text-slate-700">รูปประจำตัวผู้ส่งผลงาน</p>
-                        <p className="text-[11px] text-slate-400 font-medium">
-                          {uploadingPhoto
-                            ? "กำลังอัปโหลดรูป..."
-                            : `แตะไอคอนกล้องเพื่อ${teacherPhotoUrl ? "เปลี่ยนรูป" : "เพิ่มรูป"}`}
-                        </p>
-                        {photoError && <p className="text-[11px] text-red-500 font-semibold">{photoError}</p>}
+                        <p className="text-[11px] text-slate-400 font-medium">แก้ไขรูปได้จากหน้าผู้ดูแลระบบเท่านั้น</p>
                       </div>
                     </div>
                   )}

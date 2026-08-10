@@ -21,6 +21,19 @@ export function workNoun(kind?: string): string {
   return kind === "training" ? "งาน" : "ผลงาน";
 }
 
+/** Compact subject label for dense admin tables without changing stored values. */
+export function shortSubject(name: string): string {
+  return (name || "")
+    .replace(/^กลุ่มสาระการเรียนรู้/, "")
+    .replace(/^กลุ่มสาระ/, "")
+    .trim();
+}
+
+/** Budget year with transparent support for legacy academicYear documents. */
+export function budgetYearOf(value?: { budgetYear?: string; academicYear?: string }): string {
+  return value?.budgetYear || value?.academicYear || "-";
+}
+
 /**
  * Canonical sort rank for a grade line, used everywhere so ordering is consistent:
  * ผู้บริหาร → อนุบาล (อ.1–3) → ประถม (ป.1–6) → มัธยม → AP → EP → อื่นๆ.
