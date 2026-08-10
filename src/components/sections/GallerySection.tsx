@@ -6,7 +6,7 @@ import MasonryCard from "@/components/MasonryCard";
 import SubmissionModal from "@/components/SubmissionModal";
 import { getSubmissionsPage, getTrainingSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
-import { getProjects } from "@/lib/projects-service";
+import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { getTeachers } from "@/lib/teachers-service";
 import { budgetYearOf, gradeLabel, sortGrades } from "@/lib/format";
 import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings, Project } from "@/lib/types";
@@ -18,6 +18,7 @@ const PAGE_SIZE = 60;
 const normName = (s: string) => (s || "").replace(/\s+/g, "").replace(/^ครู/, "").trim();
 
 export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name: string) => void }) {
+  const instantVisibleProjects = getInstantProjects().filter((project) => project.showInGallery !== false);
   // Instant synchronous initialization for 0ms frame-0 render (Never displays 0 items!)
   const [submissions, setSubmissions] = useState<Submission[]>(() => getInstantSubmissions());
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
@@ -25,8 +26,8 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   const [settings, setSettings] = useState<TrainingSettings | null>(null);
 
   // Training rounds / projects — tabs to browse works by round ("all" = every round)
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("all");
+  const [projects, setProjects] = useState<Project[]>(instantVisibleProjects);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(instantVisibleProjects[0]?.id || "");
   // Project IDs the admin hid — their works are excluded even under "ทั้งหมด".
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   // Teacher profile pictures keyed by normalized name (for the card avatar).
@@ -86,11 +87,9 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         setProjects(visibleProjects);
         setHiddenIds(new Set(projs.filter((p) => p.showInGallery === false).map((p) => p.id)));
 
-        // Keep the landing gallery on "all rounds". Previously the first frame
-        // showed cached works from every round, then silently switched to the
-        // first project after Firestore loaded (for example,  all works → 3),
-        // which looked like submissions had disappeared.
-        const initialPid = "all";
+        // The landing gallery follows the first round in the display order set
+        // by Admin. "All rounds" remains available as the final dropdown option.
+        const initialPid = visibleProjects[0]?.id || "all";
         setSelectedProjectId(initialPid);
         await fetchFirstPage(initialPid);
       } catch (err) {
@@ -155,10 +154,13 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
       const matchesSubject = selectedSubject === "ทั้งหมด" || sub.subjectGroup === selectedSubject;
       // Exclude works belonging to hidden rounds (matters under "ทั้งหมด").
       const notHidden = !sub.projectId || !hiddenIds.has(sub.projectId);
+      const matchesProject = selectedProjectId === "all"
+        ? true
+        : selectedProjectId !== "" && sub.projectId === selectedProjectId;
 
-      return matchesSearch && matchesGrade && matchesSubject && notHidden;
+      return matchesSearch && matchesGrade && matchesSubject && notHidden && matchesProject;
     });
-  }, [submissions, search, selectedGrade, selectedSubject, hiddenIds]);
+  }, [submissions, search, selectedGrade, selectedSubject, hiddenIds, selectedProjectId]);
 
   const isSpecificFilterActive = settings?.activeProjectFilterMode === 'specific' && settings.activeProjectFilterName;
 
