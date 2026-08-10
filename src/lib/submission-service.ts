@@ -13,6 +13,7 @@ import {
   limit,
   startAfter,
   where,
+  writeBatch,
   QueryDocumentSnapshot,
   DocumentData
 } from "firebase/firestore";
@@ -791,6 +792,24 @@ export async function deleteSubmission(id: string): Promise<void> {
 
   const filtered = localSubs.filter((s) => s.id !== id);
   saveLocalSubmissions(filtered);
+}
+
+/** Delete every Firestore submission belonging to one round/project. */
+export async function deleteSubmissionsByProject(projectId: string): Promise<number> {
+  const snapshot = await getDocs(query(collection(db, "submissions"), where("projectId", "==", projectId)));
+  const documents = snapshot.docs;
+
+  // Firestore batches allow at most 500 writes. Stay below the limit so this
+  // also works for large historical rounds.
+  for (let index = 0; index < documents.length; index += 450) {
+    const batch = writeBatch(db);
+    documents.slice(index, index + 450).forEach((item) => batch.delete(item.ref));
+    await batch.commit();
+  }
+
+  const remaining = getLocalSubmissions().filter((item) => item.projectId !== projectId);
+  saveLocalSubmissions(remaining);
+  return documents.length;
 }
 
 /**

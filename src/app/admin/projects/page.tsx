@@ -5,7 +5,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getProjects, saveProject, deleteProject, setActiveProject, saveProjectsOrder } from "@/lib/projects-service";
-import { getTrainingSettings, getSubmissions, updateSubmission } from "@/lib/submission-service";
+import { deleteSubmissionsByProject, getTrainingSettings, getSubmissions, updateSubmission, updateTrainingSettings } from "@/lib/submission-service";
 import { Project, TrainingSettings } from "@/lib/types";
 import { budgetYearOf } from "@/lib/format";
 import { CalendarRange, Plus, Save, Trash2, CheckCircle2, Star, ListOrdered, Link2, X, Pencil, ChevronUp, ChevronDown, ToggleLeft, ToggleRight, Eye, EyeOff } from "lucide-react";
@@ -133,10 +133,29 @@ export default function AdminProjectsPage() {
   };
 
   const handleDelete = async (p: Project) => {
-    if (!confirm(`ลบรอบ "${p.name}" ? (ผลงานที่เคยส่งจะยังอยู่ แต่จะไม่ถูกจัดกลุ่มในรอบนี้)`)) return;
-    await deleteProject(p.id);
-    await reload();
-    setMessage("ลบรอบเรียบร้อยแล้ว");
+    const count = submissionCounts[p.id] || 0;
+    if (!confirm(`ยืนยันลบรอบ "${p.name}" พร้อมผลงานที่ส่งในรอบนี้ทั้งหมด ${count} รายการ?\n\nการดำเนินการนี้ไม่สามารถย้อนกลับได้`)) return;
+    setSaving(true);
+    setMessage("กำลังลบโครงการและผลงานที่เกี่ยวข้อง...");
+    try {
+      const deletedCount = await deleteSubmissionsByProject(p.id);
+      await deleteProject(p.id);
+
+      // Never leave the submission form pointing at a deleted active round.
+      if (activeId === p.id) {
+        const nextProject = projects.find((item) => item.id !== p.id);
+        if (nextProject) await setActiveProject(nextProject.id);
+        else await updateTrainingSettings({ activeProjectId: "", allowSubmissions: false });
+      }
+
+      await reload();
+      setMessage(`ลบรอบและผลงานที่เกี่ยวข้องแล้ว ${deletedCount} รายการ`);
+    } catch (error) {
+      console.error("Delete project with submissions error:", error);
+      setMessage("ลบไม่สำเร็จ กรุณาลองอีกครั้ง");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSeedFromSettings = async () => {
@@ -452,7 +471,9 @@ export default function AdminProjectsPage() {
                     </button>
                     <button
                       onClick={() => handleDelete(p)}
-                      className="px-3 py-2 rounded-xl text-red-500 hover:bg-red-50 transition-colors"
+                      disabled={saving}
+                      className="px-3 py-2 rounded-xl text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      title={`ลบโครงการพร้อมผลงาน ${submissionCounts[p.id] || 0} รายการ`}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
