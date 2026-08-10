@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Submission } from "@/lib/types";
 import { FileText, Image as ImageIcon, ExternalLink, HardDrive, Smile } from "lucide-react";
 import { isGoogleDriveLink } from "@/lib/google-drive-utils";
-import { displayWorkTitle, gradeLabel } from "@/lib/format";
+import { displayWorkTitle, gradeLabel, shortThaiDate } from "@/lib/format";
 
 interface MasonryCardProps {
   submission: Submission;
@@ -105,8 +105,12 @@ export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryC
           <span className="truncate">{submission.fullName}</span>
         </div>
 
-        <div className="text-[11px] font-semibold text-slate-500 truncate">{submission.position || "-"}</div>
-        <div className="text-[11px] text-slate-400">วันที่ส่ง {submission.uploadDate ? submission.uploadDate.split(" ")[0] : "-"}</div>
+        <div className="flex items-center gap-2 min-w-0 whitespace-nowrap">
+          <span className="text-[11px] font-semibold text-slate-500 truncate flex-1 min-w-0" title={submission.position || "-"}>
+            {submission.position || "-"}
+          </span>
+          <span className="text-[10px] text-slate-400 shrink-0">ส่ง {shortThaiDate(submission.uploadDate)}</span>
+        </div>
       </div>
     </div>
   );

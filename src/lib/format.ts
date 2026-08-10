@@ -34,6 +34,17 @@ export function displayWorkTitle(name: string): string {
   return (name || "").replace(/\s*\(\s*ไฟล์\s*PDF\s*\)\s*$/i, "").trim();
 }
 
+/** Compact Thai date for dense cards, e.g. 2026-08-10 → 10 ส.ค. 69. */
+export function shortThaiDate(value?: string): string {
+  if (!value) return "-";
+  const match = value.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!match) return value.split(" ")[0];
+  const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+  const year = Number(match[1]);
+  const buddhistYear = year < 2400 ? year + 543 : year;
+  return `${Number(match[3])} ${months[Number(match[2]) - 1]} ${String(buddhistYear).slice(-2)}`;
+}
+
 /** Budget year with transparent support for legacy academicYear documents. */
 export function budgetYearOf(value?: { budgetYear?: string; academicYear?: string }): string {
   return value?.budgetYear || value?.academicYear || "-";
