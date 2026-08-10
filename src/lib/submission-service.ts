@@ -12,6 +12,7 @@ import {
   orderBy,
   limit,
   startAfter,
+  where,
   QueryDocumentSnapshot,
   DocumentData
 } from "firebase/firestore";
@@ -301,6 +302,23 @@ export async function getUserSubmissionsByName(fullName: string): Promise<Submis
 
   const allSubs = await getSubmissions({ ignoreProjectFilter: true });
   return allSubs.filter((s) => s.fullName.trim().toLowerCase() === trimmedName);
+}
+
+/** Load every submission for an exact displayed sender name without the global 500-item cap. */
+export async function getPersonSubmissions(fullName: string): Promise<Submission[]> {
+  try {
+    const snapshot = await getDocs(query(collection(db, "submissions"), where("fullName", "==", fullName)));
+    return snapshot.docs.map((item) => ({
+      id: item.id,
+      ...(item.data() as Omit<Submission, "id">),
+    }));
+  } catch (err) {
+    console.warn("getPersonSubmissions error, falling back to cached submissions:", err);
+    const key = fullName.replace(/\s+/g, "").replace(/^ครู/, "").trim();
+    return (await getSubmissions({ ignoreProjectFilter: true })).filter(
+      (item) => item.fullName.replace(/\s+/g, "").replace(/^ครู/, "").trim() === key
+    );
+  }
 }
 
 /**

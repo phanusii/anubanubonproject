@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getSubmissions } from "@/lib/submission-service";
+import { getPersonSubmissions } from "@/lib/submission-service";
 import { getTeachers } from "@/lib/teachers-service";
+import { getProjects } from "@/lib/projects-service";
 import { Submission } from "@/lib/types";
 import { gradeLabel } from "@/lib/format";
 import {
@@ -39,12 +40,47 @@ export default function PersonWorksView({ name }: PersonWorksViewProps) {
     async function load() {
       setLoading(true);
       try {
-        // Every round, capped — then filter to this person by name.
-        const [all, teachers] = await Promise.all([getSubmissions({ limitNum: 500 }), getTeachers()]);
+        // Load every visible round once, then order this person's work by the
+        // round and work-slot order configured by Admin.
+        const [all, teachers, projects] = await Promise.all([
+          getPersonSubmissions(name),
+          getTeachers(),
+          getProjects(),
+        ]);
         if (!alive) return;
+        const visibleProjects = projects.filter((project) => project.showInGallery !== false);
+        const visibleIds = new Set(visibleProjects.map((project) => project.id));
+        const projectOrder = new Map(visibleProjects.map((project, index) => [project.id, index]));
+        const projectByName = new Map(visibleProjects.map((project) => [project.name.trim(), project]));
+        const slotOrder = new Map<string, number>();
+        for (const project of visibleProjects) {
+          project.workSlotTitles.forEach((title, index) => {
+            slotOrder.set(`${project.id}::${title.trim()}`, index);
+          });
+        }
         const mine = all
-          .filter((s) => (s.fullName || "").trim() === name.trim())
-          .sort((a, b) => (a.uploadDate || "").localeCompare(b.uploadDate || ""));
+          .filter((submission) => {
+            if (norm(submission.fullName) !== norm(name)) return false;
+            // Legacy submissions without a projectId remain visible. Works from
+            // rounds hidden by Admin do not appear on the public person page.
+            return !submission.projectId || visibleIds.has(submission.projectId);
+          })
+          .sort((a, b) => {
+            const aProject = a.projectId
+              ? visibleProjects.find((project) => project.id === a.projectId)
+              : projectByName.get((a.projectName || "").trim());
+            const bProject = b.projectId
+              ? visibleProjects.find((project) => project.id === b.projectId)
+              : projectByName.get((b.projectName || "").trim());
+            const aProjectIndex = aProject ? projectOrder.get(aProject.id) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+            const bProjectIndex = bProject ? projectOrder.get(bProject.id) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+            if (aProjectIndex !== bProjectIndex) return aProjectIndex - bProjectIndex;
+
+            const aSlot = aProject ? slotOrder.get(`${aProject.id}::${a.projectTitle.trim()}`) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+            const bSlot = bProject ? slotOrder.get(`${bProject.id}::${b.projectTitle.trim()}`) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+            if (aSlot !== bSlot) return aSlot - bSlot;
+            return (a.createdAt || 0) - (b.createdAt || 0);
+          });
         setWorks(mine);
         const t = teachers.find((tt) => norm(tt.fullName) === norm(name));
         setAvatarUrl(t?.photoUrl || "");
