@@ -154,13 +154,17 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
       const matchesSubject = selectedSubject === "ทั้งหมด" || sub.subjectGroup === selectedSubject;
       // Exclude works belonging to hidden rounds (matters under "ทั้งหมด").
       const notHidden = !sub.projectId || !hiddenIds.has(sub.projectId);
+      // A submission whose projectId no longer exists is an orphan left by a
+      // project deleted before cascade deletion was introduced. Never expose
+      // those records under "all rounds".
+      const belongsToExistingProject = !sub.projectId || projects.some((project) => project.id === sub.projectId);
       const matchesProject = selectedProjectId === "all"
         ? true
         : selectedProjectId !== "" && sub.projectId === selectedProjectId;
 
-      return matchesSearch && matchesGrade && matchesSubject && notHidden && matchesProject;
+      return matchesSearch && matchesGrade && matchesSubject && notHidden && belongsToExistingProject && matchesProject;
     });
-  }, [submissions, search, selectedGrade, selectedSubject, hiddenIds, selectedProjectId]);
+  }, [submissions, search, selectedGrade, selectedSubject, hiddenIds, selectedProjectId, projects]);
 
   const isSpecificFilterActive = settings?.activeProjectFilterMode === 'specific' && settings.activeProjectFilterName;
 
