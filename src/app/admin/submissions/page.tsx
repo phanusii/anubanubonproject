@@ -15,7 +15,8 @@ import {
   DEFAULT_SUBJECT_GROUPS 
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
-import { Submission, GradeLevelOption, SubjectGroupOption } from "@/lib/types";
+import { getProjects } from "@/lib/projects-service";
+import { Submission, GradeLevelOption, SubjectGroupOption, Project } from "@/lib/types";
 import { 
   Search, 
   Trash2, 
@@ -40,11 +41,14 @@ export default function AdminSubmissionsPage() {
   const [submissions, setSubmissions] = useState<Submission[]>(() => getInstantSubmissions());
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
   const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>(DEFAULT_SUBJECT_GROUPS);
+  const [projects, setProjects] = useState<Project[]>([]);
 
   // Search & Filter
   const [search, setSearch] = useState("");
   const [selectedGrade, setSelectedGrade] = useState("ทั้งหมด");
   const [selectedSubject, setSelectedSubject] = useState("ทั้งหมด");
+  const [selectedKind, setSelectedKind] = useState<"all" | "training" | "project">("all");
+  const [selectedProjectId, setSelectedProjectId] = useState("all");
 
   // Selected Submission Modal for viewing
   const [activeSubmission, setActiveSubmission] = useState<Submission | null>(null);
@@ -61,15 +65,17 @@ export default function AdminSubmissionsPage() {
   }, []);
 
   async function loadData() {
-    const [subs, gls, sgs] = await Promise.all([
+    const [subs, gls, sgs, projectData] = await Promise.all([
       getSubmissions({ ignoreProjectFilter: true }),
       getGradeLevels(),
       getSubjectGroups(),
+      getProjects(),
     ]);
 
     if (subs && subs.length > 0) setSubmissions(subs);
     if (gls && gls.length > 0) setGradeLevels(gls);
     if (sgs && sgs.length > 0) setSubjectGroups(sgs);
+    setProjects(projectData);
   }
 
   const handleDelete = async (sub: Submission) => {
@@ -111,10 +117,29 @@ export default function AdminSubmissionsPage() {
 
       const matchesGrade = selectedGrade === "ทั้งหมด" || sub.gradeLevel === selectedGrade;
       const matchesSubject = selectedSubject === "ทั้งหมด" || sub.subjectGroup === selectedSubject;
+      const relatedProject = projects.find((project) => project.id === sub.projectId);
+      const projectKind = relatedProject?.kind || "project";
+      const matchesKind = selectedKind === "all" || projectKind === selectedKind;
+      const matchesProject = selectedProjectId === "all" || sub.projectId === selectedProjectId;
 
-      return matchesSearch && matchesGrade && matchesSubject;
+      return matchesSearch && matchesGrade && matchesSubject && matchesKind && matchesProject;
     });
-  }, [submissions, search, selectedGrade, selectedSubject]);
+  }, [submissions, search, selectedGrade, selectedSubject, selectedKind, selectedProjectId, projects]);
+
+  const projectsForKind = selectedKind === "all"
+    ? projects
+    : projects.filter((project) => project.kind === selectedKind);
+
+  const kindCounts = useMemo(() => {
+    const projectKinds = new Map(projects.map((project) => [project.id, project.kind || "project"]));
+    let training = 0;
+    let project = 0;
+    for (const submission of submissions) {
+      if (projectKinds.get(submission.projectId || "") === "training") training += 1;
+      else project += 1;
+    }
+    return { all: submissions.length, training, project };
+  }, [projects, submissions]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -135,6 +160,21 @@ export default function AdminSubmissionsPage() {
 
           {/* Filter & Multi-Field Search Bar */}
           <div className="glass-panel p-4 sm:p-6 rounded-3xl border border-white space-y-4 shadow-xs bg-white">
+            <div className="flex flex-wrap items-center gap-2 pb-4 border-b border-slate-100">
+              {([
+                { key: "all", label: "ทั้งหมด", count: kindCounts.all },
+                { key: "training", label: "การอบรม", count: kindCounts.training },
+                { key: "project", label: "โครงการ", count: kindCounts.project },
+              ] as const).map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => { setSelectedKind(item.key); setSelectedProjectId("all"); }}
+                  className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition-colors ${selectedKind === item.key ? "bg-blue-600 text-white shadow-md shadow-blue-500/20" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                >
+                  {item.label} ({item.count})
+                </button>
+              ))}
+            </div>
             <div className="flex flex-col md:flex-row items-center justify-between gap-4">
               {/* Comprehensive Multi-Field Search Input */}
               <div className="relative w-full md:w-96">
@@ -154,6 +194,19 @@ export default function AdminSubmissionsPage() {
                   <SlidersHorizontal className="w-4 h-4 text-blue-600" />
                   <span>ตัวกรอง:</span>
                 </div>
+
+                <select
+                  value={selectedProjectId}
+                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                  className="px-3.5 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none max-w-[280px]"
+                >
+                  <option value="all">ทุกรอบในประเภทที่เลือก</option>
+                  {projectsForKind.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.kind === "training" ? "การอบรม" : "โครงการ"} · {project.name}
+                    </option>
+                  ))}
+                </select>
 
                 <select
                   value={selectedGrade}
@@ -217,6 +270,7 @@ export default function AdminSubmissionsPage() {
 
                           <td className="py-4 px-4 space-y-1 max-w-xs">
                             <div className="font-extrabold text-slate-900 line-clamp-2">{displayWorkTitle(sub.projectTitle)}</div>
+                            {sub.projectName && <div className="text-[10px] text-slate-400 line-clamp-1">{sub.projectName}</div>}
                             <div className="flex items-center gap-1.5">
                               {isDrive ? (
                                 <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-100 text-emerald-700 flex items-center gap-1">
