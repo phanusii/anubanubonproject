@@ -86,8 +86,11 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         setProjects(visibleProjects);
         setHiddenIds(new Set(projs.filter((p) => p.showInGallery === false).map((p) => p.id)));
 
-        // Default to the admin's first-ordered round; fall back to "ทั้งหมด".
-        const initialPid = visibleProjects[0]?.id || "all";
+        // Keep the landing gallery on "all rounds". Previously the first frame
+        // showed cached works from every round, then silently switched to the
+        // first project after Firestore loaded (for example,  all works → 3),
+        // which looked like submissions had disappeared.
+        const initialPid = "all";
         setSelectedProjectId(initialPid);
         await fetchFirstPage(initialPid);
       } catch (err) {
