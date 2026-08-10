@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { Submission } from "@/lib/types";
 import { X, Download, User, Tag, Calendar, ExternalLink, ZoomIn, HardDrive } from "lucide-react";
 import { extractGoogleDriveFileId, getGoogleDrivePreviewUrl, getGoogleDriveDownloadUrl } from "@/lib/google-drive-utils";
@@ -99,9 +100,11 @@ export default function SubmissionModal({ submission, onClose }: SubmissionModal
               </div>
             ) : (
               <div className="relative w-full h-full flex flex-col items-center justify-center group">
-                <img
+                <Image
                   src={submission.fileURL}
                   alt={submission.projectTitle}
+                  width={1200}
+                  height={900}
                   className={`max-h-[500px] object-contain rounded-2xl border border-slate-200/60 bg-white p-1 shadow-sm transition-transform duration-300 ${
                     zoomImage ? "scale-125 cursor-zoom-out" : "cursor-zoom-in"
                   }`}

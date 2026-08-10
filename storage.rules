@@ -6,7 +6,7 @@ service firebase.storage {
     // The email allowed to perform admin operations. Keep in sync with firestore.rules.
     function isAdmin() {
       return request.auth != null
-             && request.auth.token.email == '18403p@gmail.com';
+             && request.auth.token.email == 'phanu9818@anubanubon.ac.th';
     }
 
     match /uploads/{year}/{month}/{fileName} {

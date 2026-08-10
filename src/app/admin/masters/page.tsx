@@ -13,9 +13,9 @@ import {
   deleteSubjectGroup
 } from "@/lib/masters-service";
 import { DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
-import { getTeachers, saveTeacher, deleteTeacher, TeacherItem } from "@/lib/teachers-service";
+import { findSimilarTeachers, getTeachers, normalizeTeacherName, saveTeacher, deleteTeacher, TeacherItem } from "@/lib/teachers-service";
 import { GradeLevelOption, SubjectGroupOption } from "@/lib/types";
-import { Layers, BookOpen, Plus, Trash2, Edit2, Save, X, UserCheck, Search, Users } from "lucide-react";
+import { Layers, BookOpen, Plus, Trash2, Edit2, Save, X, Search, Users, AlertTriangle } from "lucide-react";
 
 export default function AdminMastersPage() {
   // Active Tab: 'teachers' | 'grades' | 'subjects'
@@ -31,6 +31,7 @@ export default function AdminMastersPage() {
   const [selectedGradeFilter, setSelectedGradeFilter] = useState("ทั้งหมด");
   const [editingTeacher, setEditingTeacher] = useState<TeacherItem | null>(null);
   const [showAddTeacherModal, setShowAddTeacherModal] = useState(false);
+  const [teacherFormMessage, setTeacherFormMessage] = useState("");
 
   // New Teacher Form State
   const [teacherForm, setTeacherForm] = useState({
@@ -81,15 +82,32 @@ export default function AdminMastersPage() {
     });
   }, [teachers, teacherSearch, selectedGradeFilter]);
 
+  const similarTeacherNames = useMemo(
+    () => findSimilarTeachers(teacherForm.fullName, teachers.filter((teacher) => teacher.id !== editingTeacher?.id)),
+    [teacherForm.fullName, teachers, editingTeacher?.id]
+  );
+  const exactTeacherDuplicate = similarTeacherNames.find(
+    (teacher) => normalizeTeacherName(teacher.fullName) === normalizeTeacherName(teacherForm.fullName)
+  );
+
   // --- Teacher Actions ---
   const handleSaveTeacherSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!teacherForm.fullName.trim()) return;
+    if (exactTeacherDuplicate) {
+      setTeacherFormMessage(`มีรายชื่อ ${exactTeacherDuplicate.fullName} อยู่ในระบบแล้ว กรุณาเลือกแก้ไขรายชื่อเดิม`);
+      return;
+    }
 
-    if (editingTeacher) {
-      await saveTeacher({ ...teacherForm, id: editingTeacher.id });
-    } else {
-      await saveTeacher(teacherForm);
+    try {
+      if (editingTeacher) {
+        await saveTeacher({ ...teacherForm, id: editingTeacher.id });
+      } else {
+        await saveTeacher(teacherForm);
+      }
+    } catch (error) {
+      setTeacherFormMessage(error instanceof Error ? error.message : "บันทึกรายชื่อไม่สำเร็จ");
+      return;
     }
 
     setTeacherForm({
@@ -99,6 +117,7 @@ export default function AdminMastersPage() {
       subjectGroup: subjectGroups[0]?.name || "กลุ่มสาระการเรียนรู้ภาษาไทย",
     });
     setEditingTeacher(null);
+    setTeacherFormMessage("");
     setShowAddTeacherModal(false);
     loadAllMasters();
   };
@@ -112,6 +131,7 @@ export default function AdminMastersPage() {
 
   const handleStartEditTeacher = (t: TeacherItem) => {
     setEditingTeacher(t);
+    setTeacherFormMessage("");
     setTeacherForm({
       fullName: t.fullName,
       position: t.position,
@@ -241,6 +261,7 @@ export default function AdminMastersPage() {
                   <button
                     onClick={() => {
                       setEditingTeacher(null);
+                      setTeacherFormMessage("");
                       setTeacherForm({
                         fullName: "",
                         position: "ครูวิทยฐานะชำนาญการ",
@@ -525,9 +546,21 @@ export default function AdminMastersPage() {
                   required
                   placeholder="เช่น ครูสมชาย ใจดี"
                   value={teacherForm.fullName}
-                  onChange={(e) => setTeacherForm({ ...teacherForm, fullName: e.target.value })}
+                  onChange={(e) => { setTeacherForm({ ...teacherForm, fullName: e.target.value }); setTeacherFormMessage(""); }}
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-900 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
                 />
+                {similarTeacherNames.length > 0 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+                    <p className="text-[11px] font-extrabold text-amber-800 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" />พบรายชื่อที่เหมือนหรือใกล้เคียง</p>
+                    {similarTeacherNames.map((teacher) => (
+                      <button key={teacher.id} type="button" onClick={() => handleStartEditTeacher(teacher)} className="w-full text-left rounded-lg bg-white border border-amber-100 px-3 py-2 hover:border-amber-300">
+                        <span className="block text-xs font-bold text-slate-900">{teacher.fullName}</span>
+                        <span className="block text-[10px] text-slate-500">{teacher.gradeLevel} · {teacher.position} — กดเพื่อแก้ไขรายชื่อเดิม</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {teacherFormMessage && <p className="text-xs font-bold text-red-600">{teacherFormMessage}</p>}
               </div>
 
               <div className="space-y-1.5">
@@ -588,7 +621,8 @@ export default function AdminMastersPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2 rounded-xl ios-gradient-blue text-white font-extrabold text-xs shadow-md shadow-blue-500/20"
+                  disabled={Boolean(exactTeacherDuplicate)}
+                  className="px-6 py-2 rounded-xl ios-gradient-blue text-white font-extrabold text-xs shadow-md shadow-blue-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {editingTeacher ? "บันทึกการแก้ไข" : "เพิ่มรายชื่อครู"}
                 </button>

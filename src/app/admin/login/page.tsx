@@ -23,7 +23,7 @@ export default function AdminLoginPage() {
     try {
       // Authenticate strictly against Firebase Auth. No client-side password fallback.
       const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
-      const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || "18403p@gmail.com").toLowerCase();
+      const adminEmail = (process.env.NEXT_PUBLIC_ADMIN_EMAIL || "phanu9818@anubanubon.ac.th").toLowerCase();
       if (credential.user.email?.toLowerCase() !== adminEmail) {
         await signOut(auth);
         throw new Error("User is not an administrator");

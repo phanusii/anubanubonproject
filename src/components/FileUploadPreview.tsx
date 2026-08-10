@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import Image from "next/image";
 import { Upload, FileText, Image as ImageIcon, X, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { generatePdfThumbnail } from "@/lib/pdf-thumbnail";
 
@@ -217,9 +218,11 @@ export default function FileUploadPreview({
             </div>
           ) : previewUrl ? (
             <div className="relative rounded-2xl overflow-hidden bg-slate-50 max-h-48 flex items-center justify-center border border-slate-200 p-1">
-              <img
+              <Image
                 src={previewUrl}
                 alt="File Preview"
+                width={800}
+                height={600}
                 className="max-h-44 object-contain rounded-xl"
               />
 

@@ -11,6 +11,8 @@ export interface Submission {
   // Which training round/project this submission belongs to (stamped at creation)
   projectId?: string;
   projectName?: string;
+  /** Stable id of the required work slot. Legacy submissions fall back to their title/index. */
+  workSlotId?: string;
   fileType: string; // 'pdf' | 'png' | 'jpg' | 'jpeg' | 'webp' | 'drive'
   fileURL: string;
   fileName?: string;
@@ -22,6 +24,75 @@ export interface Submission {
   driveLink?: string;
   driveFileId?: string;
   submissionMethod?: 'file' | 'drive';
+}
+
+export type CertificateTextAlign = "left" | "center" | "right";
+
+export interface CertificateTextField {
+  x: number;
+  y: number;
+  width: number;
+  fontFamily: string;
+  fontSize: number;
+  minFontSize: number;
+  fontWeight: "normal" | "bold";
+  color: string;
+  align: CertificateTextAlign;
+}
+
+export interface CertificateSettings {
+  enabled: boolean;
+  title?: string;
+  description?: string;
+  issueDateText?: string;
+  budgetYear: string;
+  numberPrefix?: string;
+  numberStart: number;
+  numberDigits: number;
+  /** Google Slides presentation used as the certificate template. */
+  slideTemplateId?: string;
+  slideTemplateUrl?: string;
+  templateType?: "google-slides" | "legacy-file";
+  slideNameField?: CertificateSlideField;
+  slideNumberField?: CertificateSlideField;
+  slideDateField?: CertificateSlideField;
+  /** Legacy image/PDF template fields retained for existing records. */
+  templateFileId?: string;
+  templateUrl?: string;
+  templateMimeType?: string;
+  templateVersion: number;
+  orientation: "landscape" | "portrait";
+  nameField: CertificateTextField;
+  numberField: CertificateTextField;
+  dateField?: CertificateTextField;
+}
+
+export interface CertificateSlideField {
+  slideIndex: number;
+  objectId: string;
+  sourceText: string;
+}
+
+export interface CertificateRecord {
+  id: string;
+  projectId: string;
+  recipientKey: string;
+  recipientName: string;
+  certificateNumber: string;
+  budgetYear: string;
+  issuedAt: number;
+  templateVersion: number;
+  submissionIds: string[];
+  pdfFileId?: string;
+  pdfUrl?: string;
+  status: "pending" | "issued" | "failed" | "revoked";
+  error?: string;
+  snapshot: {
+    fullName: string;
+    position: string;
+    gradeLevel: string;
+    subjectGroup: string;
+  };
 }
 
 export interface TrainingSettings {
@@ -72,6 +143,7 @@ export interface Project {
   order?: number;
   // Whether this round appears in the public "คลังผลงานครู" round dropdown (default: true).
   showInGallery?: boolean;
+  certificate?: CertificateSettings;
 }
 
 export interface GradeLevelOption {

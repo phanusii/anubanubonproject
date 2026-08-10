@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { Submission } from "@/lib/types";
 import { FileText, Image as ImageIcon, ExternalLink, HardDrive, Smile } from "lucide-react";
 import { isGoogleDriveLink } from "@/lib/google-drive-utils";
@@ -17,6 +18,7 @@ export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryC
   const isDrive = submission.fileType === "drive" || isGoogleDriveLink(submission.fileURL);
   const [imgError, setImgError] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
+  const compactAvatarUrl = avatarUrl?.replace(/=w\d+$/i, "=w64").replace(/([?&]sz=)w\d+/i, "$1w64");
 
   return (
     <div
@@ -27,11 +29,11 @@ export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryC
         {/* Preview Thumbnail Container — A4 portrait to fit PDF-page thumbnails */}
         <div className="relative aspect-[210/297] rounded-2xl overflow-hidden bg-white border border-slate-100 flex items-center justify-center group-hover:shadow-md transition-all">
           {submission.thumbnail && !imgError ? (
-            <img
+            <Image
               src={submission.thumbnail}
               alt={submission.projectTitle}
-              loading="lazy"
-              decoding="async"
+              fill
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
               className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500"
               onError={() => setImgError(true)}
             />
@@ -90,11 +92,12 @@ export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryC
       <div className="pt-3 border-t border-slate-100 space-y-1 text-xs text-slate-600 font-semibold">
         <div className="flex items-center gap-1.5 text-slate-900 font-bold truncate">
           <span className="w-5 h-5 rounded-full overflow-hidden shrink-0 flex items-center justify-center bg-gradient-to-br from-pink-200 via-purple-200 to-blue-200 border border-white shadow-2xs">
-            {avatarUrl && !avatarError ? (
-              <img
-                src={avatarUrl}
+            {compactAvatarUrl && !avatarError ? (
+              <Image
+                src={compactAvatarUrl}
                 alt=""
-                loading="lazy"
+                width={20}
+                height={20}
                 className="w-full h-full object-cover"
                 onError={() => setAvatarError(true)}
               />

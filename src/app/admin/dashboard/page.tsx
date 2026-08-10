@@ -6,7 +6,7 @@ import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getDashboardStats } from "@/lib/submission-service";
 import { DashboardStats } from "@/lib/types";
-import { FileCheck, Users, FileText, Image as ImageIcon, TrendingUp, Sparkles } from "lucide-react";
+import { FileCheck, Users, FileText, Image as ImageIcon, TrendingUp } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 export default function AdminDashboardPage() {

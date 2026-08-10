@@ -138,6 +138,14 @@ function sendTelegram_(text, explicitChatId) {
   assertSuccess_(response, "ส่ง Telegram");
 }
 
+/** Called by the authenticated admin web page; returns Telegram's real result immediately. */
+function sendTelegramTestNow_(chatId) {
+  chatId = String(chatId || "").trim();
+  if (!chatId) throw new Error("กรุณากรอก Telegram Chat ID");
+  sendTelegram_("✅ ทดสอบการแจ้งเตือนสำเร็จ\n\nระบบพร้อมแจ้งเตือนเมื่อมีครูส่งงานหรือผลงานใหม่", chatId);
+  return true;
+}
+
 function assertSuccess_(response, action) {
   const status = response.getResponseCode();
   if (status < 200 || status >= 300) {

@@ -1,21 +1,23 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import FileUploadPreview from "@/components/FileUploadPreview";
 import {
   getTrainingSettings,
   getUserSubmissionsByName,
   uploadFileToGoogleDrive,
   createSubmission,
-  replaceSubmission
+  replaceSubmission,
+  getProjectSubmissions
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
-import { getTeachers, updateTeacherSubject, TeacherItem } from "@/lib/teachers-service";
+import { findSimilarTeachers, getTeachers, normalizeTeacherName, updateTeacherSubject, TeacherItem } from "@/lib/teachers-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
 import { gradeLabel, submitVerb } from "@/lib/format";
 import { TrainingSettings, GradeLevelOption, SubjectGroupOption, Submission, Project } from "@/lib/types";
-import { Send, CheckCircle2, AlertCircle, Sparkles, User, FileText, RefreshCw, HelpCircle, HardDrive, Link as LinkIcon, Upload, Check, Users, PlusCircle, Lock } from "lucide-react";
+import { certificateProgress, issueCertificate, latestSubmissionPerSlot, slotIdAt } from "@/lib/certificate-service";
+import { Send, CheckCircle2, AlertCircle, Sparkles, User, FileText, HelpCircle, HardDrive, Link as LinkIcon, Upload, Check, PlusCircle } from "lucide-react";
 import confetti from "canvas-confetti";
 
 export default function SubmitSection() {
@@ -24,6 +26,7 @@ export default function SubmitSection() {
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>([]);
   const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>([]);
   const [teacherList, setTeacherList] = useState<TeacherItem[]>([]);
+  const [projectKnownPeople, setProjectKnownPeople] = useState<TeacherItem[]>([]);
 
   // Selected Grade Level First
   const [gradeLevel, setGradeLevel] = useState("");
@@ -41,7 +44,6 @@ export default function SubmitSection() {
   const [school, setSchool] = useState("");
   const [province, setProvince] = useState("");
   const [subjectGroup, setSubjectGroup] = useState("");
-  const [projectTitle, setProjectTitle] = useState("");
   const [description, setDescription] = useState("");
 
   // Submission Method Toggle ('file' | 'drive')
@@ -68,6 +70,7 @@ export default function SubmitSection() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [confirmedExistingName, setConfirmedExistingName] = useState("");
 
   useEffect(() => {
     async function initData() {
@@ -89,17 +92,55 @@ export default function SubmitSection() {
       if (sgs.length > 0) setSubjectGroup(sgs[0].name);
 
       setTeacherList(ts);
+      if (proj) getProjectSubmissions(proj.id).then((submissions) => {
+        const peopleByName = new Map<string, TeacherItem>();
+        submissions.forEach((item) => {
+          const key = normalizeTeacherName(item.fullName);
+          if (key && !peopleByName.has(key)) peopleByName.set(key, { id: `submission-${item.id}`, fullName: item.fullName, position: item.position, gradeLevel: item.gradeLevel, subjectGroup: item.subjectGroup });
+        });
+        setProjectKnownPeople(Array.from(peopleByName.values()));
+      }).catch(() => undefined);
       setSchool(s.schoolName || "โรงเรียนอนุบาลอุบลราชธานี");
 
-      // Prefer the active round's slot titles, falling back to global settings.
-      const slotTitles = proj?.workSlotTitles || s?.workSlotTitles;
-      const slot0Title = slotTitles?.[0] || "ชิ้นที่ 1: ผลงานการเรียนรู้/สื่อการสอน";
-      setProjectTitle(slot0Title);
+      // A missing-work button on the certificate page opens this form with the
+      // teacher and requested slot already selected.
+      const params = new URLSearchParams(window.location.search);
+      const requestedName = (params.get("certificateName") || "").trim();
+      const requestedSlot = Math.max(0, Number(params.get("slot") || 1) - 1);
+      if (requestedName && proj) {
+        const normalized = normalizeTeacherName(requestedName);
+        const teacher = ts.find((item) => normalizeTeacherName(item.fullName) === normalized);
+        const personSubmissions = (await getUserSubmissionsByName(requestedName)).filter((item) => item.projectId === proj.id);
+        const latestProfile = [...personSubmissions].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+        setFullName(teacher?.fullName || latestProfile?.fullName || requestedName);
+        setConfirmedExistingName(normalized);
+        setSelectedTeacherId(teacher?.id || "CUSTOM");
+        setIsCustomName(!teacher);
+        setPosition(latestProfile?.position || teacher?.position || "");
+        setGradeLevel(latestProfile?.gradeLevel || teacher?.gradeLevel || defaultGrade);
+        setSubjectGroup(latestProfile?.subjectGroup || teacher?.subjectGroup || sgs[0]?.name || "");
+        setTeacherPhotoUrl(teacher?.photoUrl || "");
+        setUserExistingSubmissions(personSubmissions);
+        const safeSlot = Math.min(requestedSlot, Math.max(0, (proj.workSlotTitles?.length || 1) - 1));
+        setSelectedSlotIndex(safeSlot);
+        const existing = latestSubmissionPerSlot(personSubmissions, proj).get(slotIdAt(safeSlot));
+        setReplacingSubmissionId(existing?.id || null);
+      }
     }
     initData();
   }, []);
 
   const teachersInCurrentGrade = teacherList.filter((t) => t.gradeLevel === gradeLevel);
+  const knownPeople = useMemo(() => {
+    const result = new Map<string, TeacherItem>();
+    [...teacherList, ...projectKnownPeople].forEach((person) => {
+      const key = normalizeTeacherName(person.fullName);
+      if (key && !result.has(key)) result.set(key, person);
+    });
+    return Array.from(result.values());
+  }, [teacherList, projectKnownPeople]);
+  const similarPeople = useMemo(() => findSimilarTeachers(fullName, knownPeople), [fullName, knownPeople]);
+  const exactExistingPerson = similarPeople.find((person) => normalizeTeacherName(person.fullName) === normalizeTeacherName(fullName));
 
   // Slot titles + max come from the active round when available.
   const slotTitles = activeProject?.workSlotTitles || settings?.workSlotTitles;
@@ -120,6 +161,7 @@ export default function SubmitSection() {
     setIsCustomName(false);
     setFullName("");
     setTeacherPhotoUrl("");
+    setConfirmedExistingName("");
 
     const matchedTeachers = teacherList.filter((t) => t.gradeLevel === newGrade);
     if (matchedTeachers.length === 0) {
@@ -132,6 +174,7 @@ export default function SubmitSection() {
       setIsCustomName(true);
       setSelectedTeacherId("CUSTOM");
       setFullName("");
+      setConfirmedExistingName("");
       return;
     }
 
@@ -141,11 +184,29 @@ export default function SubmitSection() {
     const selected = teacherList.find((t) => t.id === value);
     if (selected) {
       setFullName(selected.fullName);
+      setConfirmedExistingName(normalizeTeacherName(selected.fullName));
       setPosition(selected.position);
       if (selected.subjectGroup) setSubjectGroup(selected.subjectGroup);
       setTeacherPhotoUrl(selected.photoUrl || "");
       handleCheckUserSubmissions(selected.fullName);
     }
+  };
+
+  const handleUseExistingPerson = (person: TeacherItem) => {
+    const rosterTeacher = teacherList.find(
+      (teacher) => normalizeTeacherName(teacher.fullName) === normalizeTeacherName(person.fullName)
+    );
+    if (rosterTeacher) {
+      handleTeacherDropdownChange(rosterTeacher.id);
+      return;
+    }
+    setFullName(person.fullName);
+    setPosition(person.position);
+    setGradeLevel(person.gradeLevel);
+    setSubjectGroup(person.subjectGroup);
+    setConfirmedExistingName(normalizeTeacherName(person.fullName));
+    setErrorMessage("");
+    handleCheckUserSubmissions(person.fullName);
   };
 
   const handleCheckUserSubmissions = async (nameVal: string) => {
@@ -159,6 +220,10 @@ export default function SubmitSection() {
       : allUserSubs;
     setUserExistingSubmissions(existingList);
 
+    if (activeProject?.certificate?.enabled && certificateProgress(existingList, activeProject).complete) {
+      issueCertificate(activeProject.id, nameVal.trim()).catch(() => undefined);
+    }
+
     if (allUserSubs.length > 0) {
       const last = allUserSubs[0];
       if (!position) setPosition(last.position);
@@ -169,23 +234,20 @@ export default function SubmitSection() {
     }
 
     const max = maxUpload;
-    if (existingList.length < max) {
-      const emptyIdx = existingList.length;
+    const occupied = activeProject ? latestSubmissionPerSlot(existingList, activeProject) : new Map();
+    if (occupied.size < max) {
+      const emptyIdx = Array.from({ length: max }).findIndex((_, index) => !occupied.has(slotIdAt(index)));
       setSelectedSlotIndex(emptyIdx);
       setReplacingSubmissionId(null);
-      setProjectTitle(getSlotTitle(emptyIdx));
     } else if (existingList.length > 0) {
       setSelectedSlotIndex(0);
       setReplacingSubmissionId(existingList[0].id);
-      setProjectTitle(getSlotTitle(0));
     }
     setIsCheckingLimit(false);
   };
 
   const handleSelectSlot = (slotIdx: number, existingSub?: Submission) => {
     setSelectedSlotIndex(slotIdx);
-    const defaultTitle = getSlotTitle(slotIdx);
-    setProjectTitle(defaultTitle);
 
     if (existingSub) {
       setReplacingSubmissionId(existingSub.id);
@@ -215,6 +277,10 @@ export default function SubmitSection() {
 
     if (!fullName.trim() || !position.trim() || !school.trim()) {
       setErrorMessage("กรุณากรอกข้อมูลที่มีเครื่องหมาย * ให้ครบถ้วน");
+      return;
+    }
+    if (isCustomName && exactExistingPerson && confirmedExistingName !== normalizeTeacherName(fullName)) {
+      setErrorMessage(`พบรายชื่อ ${exactExistingPerson.fullName} อยู่แล้ว กรุณากดเลือกรายชื่อเดิมด้านล่าง`);
       return;
     }
 
@@ -291,6 +357,7 @@ export default function SubmitSection() {
         gradeLevel,
         subjectGroup,
         projectTitle: finalTitle,
+        workSlotId: slotIdAt(selectedSlotIndex),
         description: description.trim(),
         fileType: ext,
         fileURL,
@@ -304,11 +371,18 @@ export default function SubmitSection() {
         ...(activeProject ? { projectId: activeProject.id, projectName: activeProject.name } : {}),
       };
 
+      let savedSubmission: Submission;
       if (replacingSubmissionId) {
-        await replaceSubmission(replacingSubmissionId, subData);
+        savedSubmission = await replaceSubmission(replacingSubmissionId, subData);
       } else {
-        await createSubmission(subData);
+        savedSubmission = await createSubmission(subData);
       }
+
+      const nextSubmissions = [
+        savedSubmission,
+        ...userExistingSubmissions.filter((item) => item.id !== replacingSubmissionId),
+      ];
+      setUserExistingSubmissions(nextSubmissions);
 
       // Keep the roster's subject group aligned with the teacher's latest
       // submission. This is best-effort and never blocks a successful upload.
@@ -318,6 +392,15 @@ export default function SubmitSection() {
 
       setIsUploading(false);
       setIsSuccess(true);
+
+      if (activeProject?.certificate?.enabled && certificateProgress(nextSubmissions, activeProject).complete) {
+        try {
+          const issued = await issueCertificate(activeProject.id, fullName.trim());
+          void issued;
+        } catch (certificateError) {
+          console.warn("Automatic certificate generation failed:", certificateError);
+        }
+      }
 
       try {
         confetti({
@@ -339,9 +422,9 @@ export default function SubmitSection() {
     setPosition("");
     setSelectedTeacherId("");
     setIsCustomName(false);
+    setConfirmedExistingName("");
     setSchool(settings?.schoolName || "โรงเรียนอนุบาลอุบลราชธานี");
     setProvince("");
-    setProjectTitle(getSlotTitle(0));
     setDescription("");
     setSelectedFile(null);
     setThumbnailDataUrl("");
@@ -376,6 +459,7 @@ export default function SubmitSection() {
             <div className="w-20 h-20 mx-auto rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30">
               <CheckCircle2 className="w-10 h-10" />
             </div>
+
             <div className="space-y-2">
               <h2 className="text-2xl font-extrabold text-slate-900">
                 {replacingSubmissionId ? "อัปเดตไฟล์เดิมสำเร็จแล้ว!" : `${verb}สำเร็จเรียบร้อยแล้ว!`}
@@ -483,10 +567,35 @@ export default function SubmitSection() {
                         value={fullName}
                         onChange={(e) => {
                           setFullName(e.target.value);
-                          handleCheckUserSubmissions(e.target.value);
+                          setConfirmedExistingName("");
+                          setErrorMessage("");
                         }}
                         className="w-full px-4 py-3 rounded-2xl border border-amber-300 bg-white text-slate-900 font-bold text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none"
                       />
+                      {similarPeople.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-[11px] font-extrabold text-amber-800 flex items-center gap-1.5">
+                            <AlertCircle className="w-3.5 h-3.5" />พบชื่อที่เหมือนหรือใกล้เคียง กรุณาตรวจสอบก่อนเพิ่มชื่อใหม่
+                          </p>
+                          {similarPeople.map((person) => (
+                            <button
+                              key={person.id}
+                              type="button"
+                              onClick={() => handleUseExistingPerson(person)}
+                              className={`w-full text-left p-3 rounded-xl border bg-white transition-colors ${
+                                normalizeTeacherName(person.fullName) === normalizeTeacherName(fullName)
+                                  ? "border-red-300 ring-1 ring-red-200"
+                                  : "border-amber-200 hover:border-blue-400"
+                              }`}
+                            >
+                              <span className="block text-xs font-extrabold text-slate-900">{person.fullName}</span>
+                              <span className="block text-[10px] font-semibold text-slate-500 mt-0.5">
+                                {gradeLabel(person.gradeLevel)} · {person.position} — กดเพื่อใช้รายชื่อนี้
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -586,7 +695,9 @@ export default function SubmitSection() {
 
                 <div className="space-y-3">
                   {Array.from({ length: maxUpload }).map((_, idx) => {
-                    const existingSub = userExistingSubmissions[idx];
+                    const existingSub = activeProject
+                      ? latestSubmissionPerSlot(userExistingSubmissions, activeProject).get(slotIdAt(idx))
+                      : userExistingSubmissions[idx];
                     const isSelected = selectedSlotIndex === idx;
                     const title = getSlotTitle(idx);
 

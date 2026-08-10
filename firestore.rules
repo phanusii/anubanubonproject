@@ -6,7 +6,7 @@ service cloud.firestore {
     // The email allowed to perform admin operations. Update this to your admin account.
     // (Rules are public config, not a secret — the actual protection is Firebase Auth.)
     function adminEmail() {
-      return '18403p@gmail.com';
+      return 'phanu9818@anubanubon.ac.th';
     }
 
     // True only for the signed-in admin account.
@@ -23,7 +23,7 @@ service cloud.firestore {
       return request.resource.data.keys().hasOnly([
                'fullName', 'position', 'school', 'province', 'gradeLevel',
                'subjectGroup', 'projectTitle', 'description', 'projectId',
-               'projectName', 'fileType', 'fileURL', 'fileName', 'fileSize',
+               'projectName', 'workSlotId', 'fileType', 'fileURL', 'fileName', 'fileSize',
                'thumbnail', 'uploadDate', 'createdAt', 'driveLink',
                'driveFileId', 'submissionMethod'
              ])
@@ -40,6 +40,10 @@ service cloud.firestore {
              && request.resource.data.gradeLevel.size() <= 100
              && request.resource.data.subjectGroup is string
              && request.resource.data.subjectGroup.size() <= 300
+             && (!('workSlotId' in request.resource.data)
+                 || (request.resource.data.workSlotId is string
+                     && request.resource.data.workSlotId.size() > 0
+                     && request.resource.data.workSlotId.size() <= 100))
              && request.resource.data.fileType is string
              && request.resource.data.fileType in ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'drive']
              && request.resource.data.fileURL is string
@@ -93,6 +97,18 @@ service cloud.firestore {
 
       // Update and delete strictly restricted to the admin account.
       allow update, delete: if isAdmin();
+    }
+
+    // Certificates are issued only by the trusted Apps Script service. Public
+    // visitors may read them for download/verification; admins may revoke them.
+    match /certificates/{certificateId} {
+      allow read: if true;
+      allow create: if false;
+      allow update, delete: if isAdmin();
+    }
+
+    match /certificateCounters/{counterId} {
+      allow read, write: if false;
     }
   }
 }

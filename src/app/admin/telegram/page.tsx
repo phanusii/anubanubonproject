@@ -5,7 +5,7 @@ import { Send, ShieldCheck, Timer, CheckCircle2, BellRing } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
-import { getTrainingSettings, updateTrainingSettings } from "@/lib/submission-service";
+import { getTrainingSettings, sendTelegramTest, updateTrainingSettings } from "@/lib/submission-service";
 
 export default function TelegramSettingsPage() {
   const [enabled, setEnabled] = useState(false);
@@ -42,15 +42,14 @@ export default function TelegramSettingsPage() {
     }
     setTesting(true);
     setMessage("");
-    const ok = await updateTrainingSettings({
-      telegramNotificationsEnabled: true,
-      telegramChatId: chatId.trim(),
-      telegramTestRequestedAt: Date.now(),
-    });
-    setMessage(ok
-      ? "ส่งคำขอทดสอบแล้ว กรุณาตรวจ Telegram ภายในประมาณ 1 นาที"
-      : "ส่งคำขอทดสอบไม่สำเร็จ กรุณาเข้าสู่ระบบใหม่แล้วลองอีกครั้ง");
-    setTesting(false);
+    try {
+      const ok = await updateTrainingSettings({ telegramNotificationsEnabled: true, telegramChatId: chatId.trim() });
+      if (!ok) throw new Error("บันทึก Chat ID ไม่สำเร็จ");
+      await sendTelegramTest(chatId);
+      setMessage("ส่งข้อความทดสอบสำเร็จ กรุณาตรวจสอบ Telegram ได้ทันที");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ส่งข้อความทดสอบไม่สำเร็จ");
+    } finally { setTesting(false); }
   };
 
   return (
@@ -77,7 +76,7 @@ export default function TelegramSettingsPage() {
                 <label className="flex items-center justify-between gap-4 p-4 rounded-2xl border border-slate-200 bg-slate-50">
                   <span>
                     <span className="block font-extrabold text-slate-800">เปิดการแจ้งเตือน</span>
-                    <span className="block text-xs text-slate-500 mt-1">ระบบตรวจรายการใหม่ประมาณทุก 1 นาที</span>
+                    <span className="block text-xs text-slate-500 mt-1">ระบบตรวจรายการใหม่ประมาณทุก 1 นาที และปุ่มทดสอบส่งทันที</span>
                   </span>
                   <input
                     type="checkbox"

@@ -4,10 +4,10 @@ import { useEffect, useState, useMemo } from "react";
 import type { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 import MasonryCard from "@/components/MasonryCard";
 import SubmissionModal from "@/components/SubmissionModal";
-import { getSubmissionsPage, getTrainingSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
+import { getSubmissionsPage, getTrainingSettings, getInstantSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
-import { getTeachers } from "@/lib/teachers-service";
+import { getInstantTeachers, getTeachers } from "@/lib/teachers-service";
 import { budgetYearOf, gradeLabel, sortGrades } from "@/lib/format";
 import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings, Project } from "@/lib/types";
 import { Search, Sparkles, FolderKanban, Layers } from "lucide-react";
@@ -23,7 +23,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   const [submissions, setSubmissions] = useState<Submission[]>(() => getInstantSubmissions());
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
   const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>(DEFAULT_SUBJECT_GROUPS);
-  const [settings, setSettings] = useState<TrainingSettings | null>(null);
+  const [settings, setSettings] = useState<TrainingSettings | null>(() => getInstantSettings());
 
   // Training rounds / projects — tabs to browse works by round ("all" = every round)
   const [projects, setProjects] = useState<Project[]>(instantVisibleProjects);
@@ -31,7 +31,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   // Project IDs the admin hid — their works are excluded even under "ทั้งหมด".
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   // Teacher profile pictures keyed by normalized name (for the card avatar).
-  const [avatarByName, setAvatarByName] = useState<Map<string, string>>(new Map());
+  const [avatarByName, setAvatarByName] = useState<Map<string, string>>(() => new Map(getInstantTeachers().filter((t) => t.photoUrl).map((t) => [normName(t.fullName), t.photoUrl || ""])));
 
   // Pagination state
   const [cursor, setCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
@@ -51,7 +51,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   // Load (or reload) the first page for a given round selection.
   const fetchFirstPage = async (pid: string) => {
     try {
-      const page = await getSubmissionsPage({ pageSize: PAGE_SIZE, projectId: projectIdParam(pid) });
+      const page = await getSubmissionsPage({ pageSize: PAGE_SIZE, projectId: projectIdParam(pid), ignoreProjectFilter: true });
       setSubmissions(page.items);
       setCursor(page.cursor);
       setHasMore(page.hasMore);
@@ -63,6 +63,8 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   useEffect(() => {
     async function loadInitial() {
       try {
+        const initialPid = instantVisibleProjects[0]?.id || "all";
+        const firstPagePromise = fetchFirstPage(initialPid);
         const [projs, gls, sgs, st, teachers] = await Promise.all([
           getProjects(),
           getGradeLevels(),
@@ -89,9 +91,10 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
 
         // The landing gallery follows the first round in the display order set
         // by Admin. "All rounds" remains available as the final dropdown option.
-        const initialPid = visibleProjects[0]?.id || "all";
-        setSelectedProjectId(initialPid);
-        await fetchFirstPage(initialPid);
+        const resolvedPid = visibleProjects[0]?.id || "all";
+        setSelectedProjectId(resolvedPid);
+        await firstPagePromise;
+        if (resolvedPid !== initialPid) await fetchFirstPage(resolvedPid);
       } catch (err) {
         console.error("Gallery page initial load error:", err);
       }
@@ -152,6 +155,8 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
 
       const matchesGrade = selectedGrade === "ทั้งหมด" || sub.gradeLevel === selectedGrade;
       const matchesSubject = selectedSubject === "ทั้งหมด" || sub.subjectGroup === selectedSubject;
+      const matchesLegacyProjectFilter = settings?.activeProjectFilterMode !== "specific" || !settings.activeProjectFilterName?.trim() ||
+        [sub.projectTitle, sub.description || ""].join(" ").toLowerCase().includes(settings.activeProjectFilterName.trim().toLowerCase());
       // Exclude works belonging to hidden rounds (matters under "ทั้งหมด").
       const notHidden = !sub.projectId || !hiddenIds.has(sub.projectId);
       // A submission whose projectId no longer exists is an orphan left by a
@@ -162,9 +167,9 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         ? true
         : selectedProjectId !== "" && sub.projectId === selectedProjectId;
 
-      return matchesSearch && matchesGrade && matchesSubject && notHidden && belongsToExistingProject && matchesProject;
+      return matchesSearch && matchesGrade && matchesSubject && matchesLegacyProjectFilter && notHidden && belongsToExistingProject && matchesProject;
     });
-  }, [submissions, search, selectedGrade, selectedSubject, hiddenIds, selectedProjectId, projects]);
+  }, [submissions, search, selectedGrade, selectedSubject, hiddenIds, selectedProjectId, projects, settings]);
 
   const isSpecificFilterActive = settings?.activeProjectFilterMode === 'specific' && settings.activeProjectFilterName;
 
@@ -207,18 +212,20 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         </div>
 
         {/* Round / project selector — a dropdown ordered by the admin's setting */}
-        {projects.length > 0 && (
-          <div className="glass-panel p-3 sm:p-4 rounded-3xl border border-white bg-white shadow-xs">
+        <div className="glass-panel p-3 sm:p-4 rounded-3xl border border-white bg-white shadow-xs min-h-[70px]">
             <div className="flex items-center gap-3 flex-wrap">
               <span className="flex items-center gap-1.5 text-xs font-bold text-slate-700 shrink-0">
                 <Layers className="w-4 h-4 text-blue-600" />
                 <span>เลือกรอบ:</span>
               </span>
               <select
+                aria-label="เลือกรอบการอบรมหรือโครงการ"
                 value={selectedProjectId}
                 onChange={(e) => selectProject(e.target.value)}
+                disabled={projects.length === 0}
                 className="flex-1 min-w-[220px] px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none shadow-2xs"
               >
+                {projects.length === 0 && <option value="">กำลังโหลดรอบ...</option>}
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -230,7 +237,6 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
               </select>
             </div>
           </div>
-        )}
 
         {/* Search + count + filters — all on one line (desktop) */}
         <div className="glass-panel p-3 sm:p-4 rounded-3xl border border-white shadow-sm bg-white">
@@ -261,6 +267,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
 
             {/* Grade Level Filter */}
             <select
+              aria-label="กรองตามสายชั้น"
               value={selectedGrade}
               onChange={(e) => setSelectedGrade(e.target.value)}
               className="shrink-0 w-auto max-w-[190px] px-3.5 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
@@ -275,6 +282,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
 
             {/* Subject Group Filter */}
             <select
+              aria-label="กรองตามกลุ่มสาระ"
               value={selectedSubject}
               onChange={(e) => setSelectedSubject(e.target.value)}
               className="shrink-0 w-auto max-w-[210px] px-3.5 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"

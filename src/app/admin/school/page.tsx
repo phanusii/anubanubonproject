@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getTrainingSettings, updateTrainingSettings, compressAndResizeImage, fileToDataURL, deleteStorageFileByUrl } from "@/lib/submission-service";
 import { TrainingSettings } from "@/lib/types";
-import { Building, Upload, Image as ImageIcon, CheckCircle2, Save, Sparkles, MapPin, GraduationCap } from "lucide-react";
+import { Building, Upload, Image as ImageIcon, CheckCircle2, Save, MapPin } from "lucide-react";
 
 export default function AdminSchoolPage() {
   const [settings, setSettings] = useState<TrainingSettings>({
@@ -118,9 +119,11 @@ export default function AdminSchoolPage() {
 
               <div className="flex flex-col sm:flex-row items-center gap-6">
                 <div className="relative group shrink-0">
-                  <img
+                  <Image
                     src={settings.schoolLogoUrl || "https://images.unsplash.com/photo-1594312915251-48db9280c8f1?w=200&auto=format&fit=crop"}
                     alt="School Logo"
+                    width={112}
+                    height={112}
                     className="w-28 h-28 rounded-full object-cover border-4 border-white shadow-lg ring-4 ring-blue-500/20"
                   />
                   <label className="absolute inset-0 rounded-full bg-slate-900/40 text-white flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-[10px] font-bold">
@@ -224,9 +227,11 @@ export default function AdminSchoolPage() {
 
               {settings.bannerUrl && (
                 <div className="rounded-2xl overflow-hidden border border-slate-200 h-36 relative shadow-xs">
-                  <img
+                  <Image
                     src={settings.bannerUrl}
                     alt="Banner Preview"
+                    fill
+                    sizes="(max-width: 768px) 100vw, 900px"
                     className="w-full h-full object-cover"
                   />
                   <div className="absolute inset-0 bg-slate-900/20 flex items-center justify-center">

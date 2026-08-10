@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { getTrainingSettings } from "@/lib/submission-service";
 import { TrainingSettings } from "@/lib/types";
 import { Building, Sparkles } from "lucide-react";
@@ -22,9 +23,11 @@ export default function Footer() {
         <div className="flex items-center gap-2">
           {settings?.schoolLogoUrl ? (
             <div className="w-7 h-7 rounded-full overflow-hidden border border-slate-200 bg-white shrink-0 p-0.5">
-              <img
+              <Image
                 src={settings.schoolLogoUrl}
                 alt="School Logo"
+                width={28}
+                height={28}
                 className="w-full h-full object-cover rounded-full"
               />
             </div>

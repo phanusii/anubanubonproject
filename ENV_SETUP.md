@@ -12,7 +12,10 @@ NEXT_PUBLIC_FIREBASE_PROJECT_ID=
 NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 NEXT_PUBLIC_FIREBASE_APP_ID=
-NEXT_PUBLIC_ADMIN_EMAIL=18403p@gmail.com
+NEXT_PUBLIC_ADMIN_EMAIL=phanu9818@anubanubon.ac.th
+
+# Google Apps Script certificate web-app /exec URL
+NEXT_PUBLIC_CERTIFICATE_SERVICE_URL=
 
 # Files are uploaded through the existing Google Drive Apps Script endpoint.
 ```

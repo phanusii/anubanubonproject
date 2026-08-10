@@ -26,6 +26,49 @@ const DEFAULT_TEACHERS: TeacherItem[] = [
 
 let memoryTeachersCache: TeacherItem[] | null = null;
 
+/** Normalize a displayed Thai name for duplicate checks without changing what is stored. */
+export function normalizeTeacherName(value: string): string {
+  return String(value || "")
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/^(นาย|นางสาว|นาง|ครู)\s*/u, "")
+    .replace(/[.\-_]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function editDistance(a: string, b: string): number {
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i++) {
+    let diagonal = previous[0];
+    previous[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const old = previous[j];
+      previous[j] = Math.min(previous[j] + 1, previous[j - 1] + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diagonal = old;
+    }
+  }
+  return previous[b.length];
+}
+
+export function findSimilarTeachers<T extends { fullName: string }>(query: string, items: T[], limit = 5): T[] {
+  const key = normalizeTeacherName(query);
+  if (key.length < 2) return [];
+  return items
+    .map((item) => {
+      const candidate = normalizeTeacherName(item.fullName);
+      const distance = editDistance(key, candidate);
+      const similarity = 1 - distance / Math.max(key.length, candidate.length, 1);
+      const contains = candidate.includes(key) || key.includes(candidate);
+      const exact = candidate === key;
+      return { item, score: exact ? 3 : contains ? 2 : similarity };
+    })
+    .filter(({ score }) => score >= 0.58)
+    .sort((a, b) => b.score - a.score || a.item.fullName.localeCompare(b.item.fullName, "th"))
+    .slice(0, limit)
+    .map(({ item }) => item);
+}
+
 function getLocalTeachers(): TeacherItem[] {
   if (typeof window === "undefined") return DEFAULT_TEACHERS;
   const stored = localStorage.getItem("app_teachers");
@@ -101,6 +144,11 @@ export async function updateTeacherPhoto(id: string, photoUrl: string, photoFile
  * Get all teachers with optional grade level filter
  */
 export async function getTeachers(gradeLevel?: string): Promise<TeacherItem[]> {
+  if (memoryTeachersCache) {
+    return gradeLevel && gradeLevel !== "ทั้งหมด"
+      ? memoryTeachersCache.filter((teacher) => teacher.gradeLevel === gradeLevel)
+      : [...memoryTeachersCache];
+  }
   let list: TeacherItem[] = memoryTeachersCache ? [...memoryTeachersCache] : [];
   try {
     const snapshot = await getDocs(collection(db, "teachers"));
@@ -129,6 +177,11 @@ export async function getTeachers(gradeLevel?: string): Promise<TeacherItem[]> {
  * Save or Add a teacher
  */
 export async function saveTeacher(item: Omit<TeacherItem, "id"> & { id?: string }): Promise<TeacherItem> {
+  const normalizedName = normalizeTeacherName(item.fullName);
+  const duplicate = (await getTeachers()).find(
+    (teacher) => teacher.id !== item.id && normalizeTeacherName(teacher.fullName) === normalizedName
+  );
+  if (duplicate) throw new Error(`มีรายชื่อ ${duplicate.fullName} อยู่ในระบบแล้ว`);
   const teacherId = item.id || `teacher-${Date.now()}`;
   const newItem: TeacherItem = { ...item, id: teacherId, createdAt: Date.now() };
 
@@ -170,7 +223,14 @@ export async function deleteTeacher(id: string): Promise<void> {
 export async function bulkReplaceTeachers(
   items: (Omit<TeacherItem, "id" | "subjectGroup"> & { subjectGroup?: string })[]
 ): Promise<number> {
-  const built: TeacherItem[] = items.map((it, i) => ({
+  const seenNames = new Set<string>();
+  const uniqueItems = items.filter((item) => {
+    const key = normalizeTeacherName(item.fullName);
+    if (!key || seenNames.has(key)) return false;
+    seenNames.add(key);
+    return true;
+  });
+  const built: TeacherItem[] = uniqueItems.map((it, i) => ({
     ...it,
     subjectGroup: it.subjectGroup ?? "",
     id: `teacher-${Date.now()}-${i}`,

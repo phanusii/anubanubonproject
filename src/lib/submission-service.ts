@@ -1,4 +1,4 @@
-import { db } from "./firebase";
+import { auth, db } from "./firebase";
 import { 
   collection, 
   addDoc, 
@@ -83,6 +83,8 @@ export const DEFAULT_SETTINGS: TrainingSettings = {
 // High Performance Runtime Memory Caches
 let memorySettingsCache: { data: TrainingSettings; timestamp: number } | null = null;
 let memorySubmissionsCache: { data: Submission[]; timestamp: number } | null = null;
+const galleryPageCache = new Map<string, { data: SubmissionsPage; timestamp: number }>();
+const projectSubmissionsCache = new Map<string, { data: Submission[]; timestamp: number }>();
 const CACHE_TTL_MS = 120000;
 
 // Upper bound on how many newest submissions we fetch in one read. Bounds Firestore
@@ -110,6 +112,8 @@ function getLocalSubmissions(): Submission[] {
 
 function saveLocalSubmissions(subs: Submission[]) {
   memorySubmissionsCache = { data: subs, timestamp: Date.now() };
+  galleryPageCache.clear();
+  projectSubmissionsCache.clear();
   if (typeof window !== "undefined") {
     localStorage.setItem("app_submissions", JSON.stringify(subs));
   }
@@ -322,6 +326,23 @@ export async function getPersonSubmissions(fullName: string): Promise<Submission
   }
 }
 
+/** Read only one round's submissions; avoids downloading the global collection. */
+export async function getProjectSubmissions(projectId: string, forceRefresh = false): Promise<Submission[]> {
+  if (!projectId) return [];
+  const cached = projectSubmissionsCache.get(projectId);
+  if (!forceRefresh && cached && Date.now() - cached.timestamp < CACHE_TTL_MS) return [...cached.data];
+  try {
+    const snapshot = await getDocs(query(collection(db, "submissions"), where("projectId", "==", projectId)));
+    const items = snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as Omit<Submission, "id">) }))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    projectSubmissionsCache.set(projectId, { data: items, timestamp: Date.now() });
+    return items;
+  } catch (err) {
+    console.warn("getProjectSubmissions error, falling back to cached submissions:", err);
+    return (await getSubmissions({ ignoreProjectFilter: true })).filter((item) => item.projectId === projectId);
+  }
+}
+
 /**
  * Check how many submissions a full name has made
  */
@@ -337,6 +358,14 @@ const DRIVE_UPLOAD_URL =
   process.env.NEXT_PUBLIC_DRIVE_UPLOAD_URL ||
   "https://script.google.com/macros/s/AKfycbyhEJADSzKxiEsGcl80VuJyPPBaz_5GJhG7syFaJ2LgOake0smcU2Ipge5YmgyGNYg2/exec";
 const DRIVE_UPLOAD_SECRET = process.env.NEXT_PUBLIC_DRIVE_UPLOAD_SECRET || "anuban-upload-2569";
+
+/** Send a Telegram test immediately through the trusted Apps Script endpoint. */
+export async function sendTelegramTest(chatId: string): Promise<void> {
+  const idToken = await auth.currentUser?.getIdToken();
+  if (!idToken) throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลอีกครั้ง");
+  const result = await postDriveJson({ action: "telegramTest", chatId: chatId.trim(), idToken }, 60000);
+  if (!result?.ok) throw new Error(String(result?.error || "ส่งข้อความทดสอบไม่สำเร็จ"));
+}
 
 export interface DriveUploadResult {
   url: string;
@@ -529,8 +558,10 @@ export interface DriveRevision {
 
 /** List the version history (revisions) of a Drive file, newest first. */
 export async function getDriveRevisions(fileId: string): Promise<DriveRevision[]> {
+  const idToken = await auth.currentUser?.getIdToken();
+  if (!idToken) throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลอีกครั้ง");
   const res = await postDriveJson(
-    { action: "listRevisions", secret: DRIVE_UPLOAD_SECRET, fileId },
+    { action: "listRevisions", fileId, idToken },
     60000
   );
   if (res && res.ok && Array.isArray((res as { revisions?: unknown }).revisions)) {
@@ -543,8 +574,10 @@ export async function getDriveRevisions(fileId: string): Promise<DriveRevision[]
 
 /** Restore an old revision as the file's current content (Drive keeps history). */
 export async function restoreDriveRevision(fileId: string, revisionId: string): Promise<boolean> {
+  const idToken = await auth.currentUser?.getIdToken();
+  if (!idToken) throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลอีกครั้ง");
   const res = await postDriveJson(
-    { action: "restoreRevision", secret: DRIVE_UPLOAD_SECRET, fileId, revisionId },
+    { action: "restoreRevision", fileId, revisionId, idToken },
     180000
   );
   if (res && res.ok) return true;
@@ -725,12 +758,19 @@ export async function getSubmissionsPage(params?: {
   projectId?: string; // filter to a specific training round/project
 }): Promise<SubmissionsPage> {
   const pageSize = params?.pageSize ?? 60;
+  const cacheKey = !params?.cursor ? `${params?.projectId || "all"}:${pageSize}:${params?.ignoreProjectFilter ? "raw" : "filtered"}` : "";
+  const cachedPage = cacheKey ? galleryPageCache.get(cacheKey) : undefined;
+  if (cachedPage && Date.now() - cachedPage.timestamp < CACHE_TTL_MS) return cachedPage.data;
 
   try {
     const base = collection(db, "submissions");
-    const pageQuery = params?.cursor
-      ? query(base, orderBy("createdAt", "desc"), startAfter(params.cursor), limit(pageSize))
-      : query(base, orderBy("createdAt", "desc"), limit(pageSize));
+    const pageQuery = params?.projectId
+      ? (params.cursor
+          ? query(base, where("projectId", "==", params.projectId), orderBy("createdAt", "desc"), startAfter(params.cursor), limit(pageSize))
+          : query(base, where("projectId", "==", params.projectId), orderBy("createdAt", "desc"), limit(pageSize)))
+      : (params?.cursor
+          ? query(base, orderBy("createdAt", "desc"), startAfter(params.cursor), limit(pageSize))
+          : query(base, orderBy("createdAt", "desc"), limit(pageSize)));
 
     const snapshot = await getDocs(pageQuery);
     let items = snapshot.docs.map((d) => ({
@@ -753,12 +793,9 @@ export async function getSubmissionsPage(params?: {
       }
     }
 
-    // Filter to a specific training round/project (by stamped projectId).
-    if (params?.projectId) {
-      items = items.filter((s) => s.projectId === params.projectId);
-    }
-
-    return { items, cursor: lastDoc, hasMore };
+    const result = { items, cursor: lastDoc, hasMore };
+    if (cacheKey) galleryPageCache.set(cacheKey, { data: result, timestamp: Date.now() });
+    return result;
   } catch (err) {
     console.warn("getSubmissionsPage error, falling back to local submissions:", err);
     const local = getLocalSubmissions().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));

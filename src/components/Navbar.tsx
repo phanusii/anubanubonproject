@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useState, useEffect } from "react";
 import {
   Send,
@@ -10,6 +11,7 @@ import {
   Menu,
   X,
   Sparkles,
+  Award,
 } from "lucide-react";
 import { getTrainingSettings, getInstantSettings } from "@/lib/submission-service";
 import { getActiveProject } from "@/lib/projects-service";
@@ -56,6 +58,7 @@ export default function Navbar() {
     { label: "คลังผลงานครู", href: "#gallery", icon: LayoutGrid, hash: true },
     { label: submitVerb(projectKind), href: "#submit", icon: Send, hash: true },
     { label: "สถิติ", href: "#stats", icon: BarChart3, hash: true },
+    { label: "เกียรติบัตร", href: "/certificate", icon: Award, hash: false },
     { label: "ผู้ดูแลระบบ", href: "/admin/login", icon: ShieldCheck, hash: false },
   ];
 
@@ -69,11 +72,12 @@ export default function Navbar() {
           <Link href="/#gallery" className="flex items-center gap-3 group">
             {settings?.schoolLogoUrl ? (
               <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-md shadow-blue-500/10 bg-white shrink-0 group-hover:scale-105 transition-transform duration-300 flex items-center justify-center p-0.5">
-                <img
+                <Image
                   src={settings.schoolLogoUrl}
                   alt="School Logo"
-                  loading="eager"
-                  decoding="sync"
+                  width={48}
+                  height={48}
+                  priority
                   className="w-full h-full object-cover rounded-full"
                 />
               </div>
@@ -120,6 +124,8 @@ export default function Navbar() {
           <div className="flex md:hidden items-center gap-2">
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={mobileMenuOpen ? "ปิดเมนู" : "เปิดเมนู"}
+              aria-expanded={mobileMenuOpen}
               className="p-2.5 rounded-2xl text-slate-700 bg-white/80 shadow-xs border border-slate-100"
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
