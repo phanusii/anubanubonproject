@@ -32,6 +32,7 @@ export default function AdminStatsPage() {
   const [loading, setLoading] = useState(instantTeachers.length === 0 && instantProjects.length === 0 && instantSubmissions.length === 0);
   const [copied, setCopied] = useState(false);
   const [incompleteGroupBy, setIncompleteGroupBy] = useState<"grade" | "subject">("grade");
+  const [teacherListStatus, setTeacherListStatus] = useState<"incomplete" | "complete">("incomplete");
 
   useEffect(() => {
     Promise.all([
@@ -124,6 +125,20 @@ export default function AdminStatsPage() {
     );
   }, [incompleteGroupBy, progress, subjectByTeacher]);
 
+  const displayedTeacherGroups = useMemo(() => {
+    const groups = new Map<string, TeacherProgress[]>();
+    for (const item of progress.filter((row) => teacherListStatus === "complete" ? row.complete : !row.complete)) {
+      const key = incompleteGroupBy === "grade"
+        ? item.teacher.gradeLevel || "ไม่ระบุ"
+        : shortSubject(subjectByTeacher.get(norm(item.teacher.fullName)) || item.teacher.subjectGroup) || "ไม่ระบุ";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)?.push(item);
+    }
+    return [...groups.entries()].sort(([a], [b]) =>
+      incompleteGroupBy === "grade" ? gradeOrder(a) - gradeOrder(b) : a.localeCompare(b, "th")
+    );
+  }, [incompleteGroupBy, progress, subjectByTeacher, teacherListStatus]);
+
   const copyIncomplete = async () => {
     if (!project) return;
     const lines = [`📋 รายชื่อครูที่ส่งงานไม่ครบ`, project.name, `เกณฑ์ครบ ${project.workSlotTitles.length} ชิ้น`, `จัดกลุ่มตาม${incompleteGroupBy === "grade" ? "สายชั้น" : "กลุ่มสาระ"}`, ""];
@@ -179,24 +194,30 @@ export default function AdminStatsPage() {
 
             <section className="rounded-3xl bg-white border border-slate-100 shadow-xs overflow-hidden">
               <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-                <div><h2 className="font-extrabold text-slate-900">ครูที่ยังส่งไม่ครบ</h2><p className="text-xs text-slate-500">แสดงชิ้นงานที่ยังขาดรายบุคคล แยกเป็นหมวดหมู่</p></div>
+                <div><h2 className="font-extrabold text-slate-900">รายชื่อครูตามสถานะการส่งงาน</h2><p className="text-xs text-slate-500">ตรวจสอบผู้ที่ส่งครบและยังส่งไม่ครบ แยกเป็นหมวดหมู่</p></div>
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="flex p-1 rounded-xl bg-slate-100">
                     <button onClick={() => setIncompleteGroupBy("grade")} className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-colors ${incompleteGroupBy === "grade" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>ตามสายชั้น</button>
                     <button onClick={() => setIncompleteGroupBy("subject")} className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-colors ${incompleteGroupBy === "subject" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>ตามกลุ่มสาระ</button>
                   </div>
-                  <button onClick={copyIncomplete} disabled={!project} className="px-4 py-2.5 rounded-2xl bg-blue-600 text-white text-xs font-extrabold flex items-center gap-2 disabled:opacity-50"><Clipboard className="w-4 h-4" />{copied ? "คัดลอกแล้ว" : "คัดลอกสำหรับ LINE"}</button>
+                  {teacherListStatus === "incomplete" && <button onClick={copyIncomplete} disabled={!project} className="px-4 py-2.5 rounded-2xl bg-blue-600 text-white text-xs font-extrabold flex items-center gap-2 disabled:opacity-50"><Clipboard className="w-4 h-4" />{copied ? "คัดลอกแล้ว" : "คัดลอกสำหรับ LINE"}</button>}
+                </div>
+              </div>
+              <div className="px-5 pt-4 bg-white">
+                <div className="inline-flex p-1 rounded-2xl bg-slate-100">
+                  <button onClick={() => setTeacherListStatus("incomplete")} className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition-colors ${teacherListStatus === "incomplete" ? "bg-amber-500 text-white shadow-sm" : "text-slate-500"}`}>ยังส่งไม่ครบ ({summary.incomplete})</button>
+                  <button onClick={() => setTeacherListStatus("complete")} className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition-colors ${teacherListStatus === "complete" ? "bg-emerald-500 text-white shadow-sm" : "text-slate-500"}`}>ส่งครบแล้ว ({summary.complete})</button>
                 </div>
               </div>
               <div className="max-h-[640px] overflow-y-auto">
-                {incompleteGroups.map(([group, items]) => <div key={group}>
+                {displayedTeacherGroups.map(([group, items]) => <div key={group}>
                   <div className="sticky top-0 z-10 px-4 py-2.5 bg-blue-50/95 backdrop-blur border-y border-blue-100 flex items-center justify-between">
                     <h3 className="text-xs font-extrabold text-blue-800">{incompleteGroupBy === "grade" ? gradeLabel(group) : group}</h3>
                     <span className="px-2 py-0.5 rounded-full bg-white text-[11px] font-bold text-blue-700">{items.length} คน</span>
                   </div>
-                  <div className="divide-y divide-slate-100">{items.map((item) => <div key={item.teacher.id} className="p-4 grid sm:grid-cols-[220px_110px_1fr] gap-2"><div><p className="font-bold text-sm text-slate-900">{item.teacher.fullName}</p><p className="text-[11px] text-slate-500">{gradeLabel(item.teacher.gradeLevel)} · {shortSubject(subjectByTeacher.get(norm(item.teacher.fullName)) || item.teacher.subjectGroup) || "ไม่ระบุ"}</p></div><p className="text-xs font-extrabold text-amber-600">ส่ง {item.submitted}/{project?.workSlotTitles.length || 0}</p><div className="flex flex-wrap gap-1.5">{item.missing.map((title) => <span key={title} className="px-2 py-1 rounded-lg bg-rose-50 text-rose-700 text-[11px] font-semibold">ขาด: {title}</span>)}</div></div>)}</div>
+                  <div className="divide-y divide-slate-100">{items.map((item) => <div key={item.teacher.id} className="p-4 grid sm:grid-cols-[220px_110px_1fr] gap-2"><div><p className="font-bold text-sm text-slate-900">{item.teacher.fullName}</p><p className="text-[11px] text-slate-500">{gradeLabel(item.teacher.gradeLevel)} · {shortSubject(subjectByTeacher.get(norm(item.teacher.fullName)) || item.teacher.subjectGroup) || "ไม่ระบุ"}</p></div><p className={`text-xs font-extrabold ${item.complete ? "text-emerald-600" : "text-amber-600"}`}>{item.complete ? "ส่งครบ" : "ส่ง"} {item.submitted}/{project?.workSlotTitles.length || 0}</p><div className="flex flex-wrap gap-1.5">{item.complete ? <span className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-semibold">ครบทุกชิ้นงานแล้ว</span> : item.missing.map((title) => <span key={title} className="px-2 py-1 rounded-lg bg-rose-50 text-rose-700 text-[11px] font-semibold">ขาด: {title}</span>)}</div></div>)}</div>
                 </div>)}
-                {incompleteGroups.length === 0 && <p className="p-8 text-center text-sm font-bold text-emerald-600">ครูทุกคนส่งครบแล้ว</p>}
+                {displayedTeacherGroups.length === 0 && <p className="p-8 text-center text-sm font-bold text-slate-500">ไม่มีรายชื่อในสถานะนี้</p>}
               </div>
             </section>
           </>}
