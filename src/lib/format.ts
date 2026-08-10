@@ -29,6 +29,11 @@ export function shortSubject(name: string): string {
     .trim();
 }
 
+/** Hide the file-format hint from work titles without changing stored slot names. */
+export function displayWorkTitle(name: string): string {
+  return (name || "").replace(/\s*\(\s*ไฟล์\s*PDF\s*\)\s*$/i, "").trim();
+}
+
 /** Budget year with transparent support for legacy academicYear documents. */
 export function budgetYearOf(value?: { budgetYear?: string; academicYear?: string }): string {
   return value?.budgetYear || value?.academicYear || "-";

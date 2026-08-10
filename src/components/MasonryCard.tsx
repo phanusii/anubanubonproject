@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Submission } from "@/lib/types";
 import { FileText, Image as ImageIcon, ExternalLink, HardDrive, Smile } from "lucide-react";
 import { isGoogleDriveLink } from "@/lib/google-drive-utils";
-import { gradeLabel } from "@/lib/format";
+import { displayWorkTitle, gradeLabel } from "@/lib/format";
 
 interface MasonryCardProps {
   submission: Submission;
@@ -81,7 +81,7 @@ export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryC
         {/* Project Title */}
         <div className="space-y-1">
           <h3 className="font-extrabold text-sm text-slate-900 leading-snug line-clamp-2 group-hover:text-blue-600 transition-colors">
-            {submission.projectTitle}
+            {displayWorkTitle(submission.projectTitle)}
           </h3>
         </div>
       </div>

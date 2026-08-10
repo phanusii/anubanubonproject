@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Submission } from "@/lib/types";
 import { X, Download, User, Tag, Calendar, ExternalLink, ZoomIn, HardDrive } from "lucide-react";
 import { extractGoogleDriveFileId, getGoogleDrivePreviewUrl, getGoogleDriveDownloadUrl } from "@/lib/google-drive-utils";
-import { gradeLabel } from "@/lib/format";
+import { displayWorkTitle, gradeLabel } from "@/lib/format";
 
 interface SubmissionModalProps {
   submission: Submission | null;
@@ -34,7 +34,7 @@ export default function SubmissionModal({ submission, onClose }: SubmissionModal
               </span>
             )}
             <h2 className="font-extrabold text-lg text-slate-900 truncate">
-              {submission.projectTitle}
+              {displayWorkTitle(submission.projectTitle)}
             </h2>
           </div>
 

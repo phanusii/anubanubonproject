@@ -5,7 +5,7 @@ import { getPersonSubmissions } from "@/lib/submission-service";
 import { getTeachers } from "@/lib/teachers-service";
 import { getProjects } from "@/lib/projects-service";
 import { Submission } from "@/lib/types";
-import { gradeLabel } from "@/lib/format";
+import { displayWorkTitle, gradeLabel } from "@/lib/format";
 import {
   extractGoogleDriveFileId,
   getGoogleDrivePreviewUrl,
@@ -216,7 +216,7 @@ function WorkPreviewCard({ work, index, latestSender }: { work: Submission; inde
             </span>
           )}
           <h3 className="font-extrabold text-sm text-slate-900 truncate">
-            {work.projectTitle}
+            {displayWorkTitle(work.projectTitle)}
           </h3>
         </div>
         <a
