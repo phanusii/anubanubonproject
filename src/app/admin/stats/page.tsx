@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
-import { getProjects } from "@/lib/projects-service";
-import { getSubmissions } from "@/lib/submission-service";
-import { getTeachers, TeacherItem } from "@/lib/teachers-service";
+import { getInstantProjects, getProjects } from "@/lib/projects-service";
+import { getInstantSubmissions, getSubmissions } from "@/lib/submission-service";
+import { getInstantTeachers, getTeachers, TeacherItem } from "@/lib/teachers-service";
 import { gradeLabel, gradeOrder, shortSubject } from "@/lib/format";
 import { Project, Submission } from "@/lib/types";
 import { BarChart3, CheckCircle2, Clipboard, Clock3, FileStack, Users } from "lucide-react";
@@ -22,11 +22,14 @@ type TeacherProgress = {
 };
 
 export default function AdminStatsPage() {
-  const [teachers, setTeachers] = useState<TeacherItem[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [projectId, setProjectId] = useState("");
-  const [loading, setLoading] = useState(true);
+  const instantTeachers = getInstantTeachers();
+  const instantProjects = getInstantProjects();
+  const instantSubmissions = getInstantSubmissions();
+  const [teachers, setTeachers] = useState<TeacherItem[]>(instantTeachers);
+  const [projects, setProjects] = useState<Project[]>(instantProjects);
+  const [submissions, setSubmissions] = useState<Submission[]>(instantSubmissions);
+  const [projectId, setProjectId] = useState(instantProjects[0]?.id || "");
+  const [loading, setLoading] = useState(instantTeachers.length === 0 && instantProjects.length === 0 && instantSubmissions.length === 0);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -38,7 +41,7 @@ export default function AdminStatsPage() {
       setTeachers(teacherData);
       setProjects(projectData);
       setSubmissions(submissionData);
-      setProjectId(projectData[0]?.id || "");
+      setProjectId((current) => current && projectData.some((item) => item.id === current) ? current : projectData[0]?.id || "");
     }).catch((error) => console.error("Admin stats load error:", error))
       .finally(() => setLoading(false));
   }, []);
@@ -60,7 +63,8 @@ export default function AdminStatsPage() {
     return teachers.map((teacher) => {
       const submittedTitles = works.get(norm(teacher.fullName)) || new Set<string>();
       const missing = requiredTitles.filter((title) => !submittedTitles.has(title.trim()));
-      return { teacher, submitted: submittedTitles.size, missing, complete: missing.length === 0 };
+      const matched = requiredTitles.length - missing.length;
+      return { teacher, submitted: matched, missing, complete: requiredTitles.length > 0 && missing.length === 0 };
     });
   }, [project, projectSubmissions, teachers]);
 
@@ -154,8 +158,8 @@ export default function AdminStatsPage() {
               <ChartCard title="ความคืบหน้าตามสายชั้น"><ResponsiveContainer width="100%" height={280}><BarChart data={gradeRows}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="grade" /><YAxis allowDecimals={false} /><Tooltip /><Legend /><Bar dataKey="complete" name="ส่งครบ" fill="#10b981" radius={[6,6,0,0]} /><Bar dataKey="total" name="ครูทั้งหมด" fill="#bfdbfe" radius={[6,6,0,0]} /></BarChart></ResponsiveContainer></ChartCard>
             </div>
 
-            <ProgressTable title="สรุปตามสายชั้น" rows={gradeRows.map((row) => ({ label: gradeLabel(row.grade), total: row.total, complete: row.complete, works: row.works }))} />
-            <ProgressTable title="สรุปตามกลุ่มสาระ" rows={subjectRows} />
+            <ProgressTable title="สรุปตามสายชั้น" required={project?.workSlotTitles.length || project?.maxUpload || 1} rows={gradeRows.map((row) => ({ label: gradeLabel(row.grade), total: row.total, complete: row.complete, works: row.works }))} />
+            <ProgressTable title="สรุปตามกลุ่มสาระ" required={project?.workSlotTitles.length || project?.maxUpload || 1} rows={subjectRows} />
 
             <section className="rounded-3xl bg-white border border-slate-100 shadow-xs overflow-hidden">
               <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-extrabold text-slate-900">ครูที่ยังส่งไม่ครบ</h2><p className="text-xs text-slate-500">แสดงชิ้นงานที่ยังขาดรายบุคคล</p></div><button onClick={copyIncomplete} disabled={!project} className="px-4 py-2.5 rounded-2xl bg-blue-600 text-white text-xs font-extrabold flex items-center gap-2 disabled:opacity-50"><Clipboard className="w-4 h-4" />{copied ? "คัดลอกแล้ว" : "คัดลอกสำหรับ LINE"}</button></div>
@@ -178,6 +182,6 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
   return <section className="p-5 rounded-3xl bg-white border border-slate-100 shadow-xs"><h2 className="font-extrabold text-slate-900 mb-3">{title}</h2>{children}</section>;
 }
 
-function ProgressTable({ title, rows }: { title: string; rows: Array<{ label: string; total: number; complete: number; works: number }> }) {
-  return <section className="rounded-3xl bg-white border border-slate-100 shadow-xs overflow-hidden"><h2 className="p-5 font-extrabold text-slate-900 border-b border-slate-100">{title}</h2><div className="overflow-x-auto"><table className="w-full text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="text-left p-3">รายการ</th><th className="p-3">ครู</th><th className="p-3">ส่งครบ</th><th className="p-3">ชิ้นงาน</th><th className="text-left p-3 min-w-48">ความคืบหน้า</th></tr></thead><tbody>{rows.map((row) => { const percent = row.total ? Math.round(row.complete / row.total * 100) : 0; return <tr key={row.label} className="border-t border-slate-100"><td className="p-3 font-bold">{row.label}</td><td className="p-3 text-center">{row.total}</td><td className="p-3 text-center text-emerald-600 font-bold">{row.complete}</td><td className="p-3 text-center">{row.works}</td><td className="p-3"><div className="flex items-center gap-2"><div className="h-2 flex-1 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{ width: `${percent}%` }} /></div><span>{percent}%</span></div></td></tr>; })}</tbody></table></div></section>;
+function ProgressTable({ title, rows, required = 1 }: { title: string; rows: Array<{ label: string; total: number; complete: number; works: number }>; required?: number }) {
+  return <section className="rounded-3xl bg-white border border-slate-100 shadow-xs overflow-hidden"><h2 className="p-5 font-extrabold text-slate-900 border-b border-slate-100">{title}</h2><div className="overflow-x-auto"><table className="w-full text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="text-left p-3">รายการ</th><th className="p-3">ครู</th><th className="p-3">ส่งครบ</th><th className="p-3">ชิ้นงาน</th><th className="text-left p-3 min-w-48">ความคืบหน้า</th></tr></thead><tbody>{rows.map((row) => { const expected = row.total * required; const percent = expected ? Math.min(100, Math.round(row.works / expected * 100)) : 0; return <tr key={row.label} className="border-t border-slate-100"><td className="p-3 font-bold">{row.label}</td><td className="p-3 text-center">{row.total}</td><td className="p-3 text-center text-emerald-600 font-bold">{row.complete}</td><td className="p-3 text-center">{row.works}/{expected}</td><td className="p-3"><div className="flex items-center gap-2"><div className="h-2 flex-1 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{ width: `${percent}%` }} /></div><span>{percent}%</span></div></td></tr>; })}</tbody></table></div></section>;
 }

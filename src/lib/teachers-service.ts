@@ -24,6 +24,8 @@ const DEFAULT_TEACHERS: TeacherItem[] = [
   { id: "t-6", fullName: "ครูประเสริฐ ชัยชนะ", position: "ครู คศ.2", gradeLevel: "ป.6", subjectGroup: "กลุ่มสาระการเรียนรู้ภาษาไทย" },
 ];
 
+let memoryTeachersCache: TeacherItem[] | null = null;
+
 function getLocalTeachers(): TeacherItem[] {
   if (typeof window === "undefined") return DEFAULT_TEACHERS;
   const stored = localStorage.getItem("app_teachers");
@@ -35,9 +37,16 @@ function getLocalTeachers(): TeacherItem[] {
 }
 
 function saveLocalTeachers(items: TeacherItem[]) {
+  memoryTeachersCache = items;
   if (typeof window !== "undefined") {
     localStorage.setItem("app_teachers", JSON.stringify(items));
   }
+}
+
+/** Return cached roster immediately so statistics never need to block the whole page. */
+export function getInstantTeachers(): TeacherItem[] {
+  if (memoryTeachersCache) return [...memoryTeachersCache];
+  return getLocalTeachers();
 }
 
 /**
@@ -92,11 +101,12 @@ export async function updateTeacherPhoto(id: string, photoUrl: string, photoFile
  * Get all teachers with optional grade level filter
  */
 export async function getTeachers(gradeLevel?: string): Promise<TeacherItem[]> {
-  let list: TeacherItem[] = [];
+  let list: TeacherItem[] = memoryTeachersCache ? [...memoryTeachersCache] : [];
   try {
     const snapshot = await getDocs(collection(db, "teachers"));
     if (!snapshot.empty) {
       list = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TeacherItem, "id">) }));
+      saveLocalTeachers(list);
     }
   } catch (err) {
     console.warn("Firestore getTeachers error, fallback to local:", err);
@@ -105,6 +115,8 @@ export async function getTeachers(gradeLevel?: string): Promise<TeacherItem[]> {
   if (list.length === 0) {
     list = getLocalTeachers();
   }
+
+  memoryTeachersCache = list;
 
   if (gradeLevel && gradeLevel !== "ทั้งหมด") {
     list = list.filter((t) => t.gradeLevel === gradeLevel);

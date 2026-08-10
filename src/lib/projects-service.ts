@@ -6,6 +6,19 @@ import { getTrainingSettings, updateTrainingSettings } from "./submission-servic
 // High-performance in-memory cache (mirrors masters-service pattern)
 let cachedProjects: Project[] | null = null;
 
+/** Return the last cached rounds immediately while Firestore refreshes in background. */
+export function getInstantProjects(): Project[] {
+  if (cachedProjects) return [...cachedProjects];
+  if (typeof window !== "undefined") {
+    try {
+      const value = localStorage.getItem("app_projects");
+      const parsed = value ? JSON.parse(value) : [];
+      if (Array.isArray(parsed)) return sortProjects(parsed);
+    } catch {}
+  }
+  return [];
+}
+
 function sortProjects(items: Project[]): Project[] {
   // Newest first (by order if provided, else createdAt)
   return [...items].sort((a, b) => {

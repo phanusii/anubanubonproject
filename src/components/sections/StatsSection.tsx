@@ -2,8 +2,8 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { getInstantSubmissions, getSubmissions } from "@/lib/submission-service";
-import { getTeachers, TeacherItem } from "@/lib/teachers-service";
-import { getProjects } from "@/lib/projects-service";
+import { getInstantTeachers, getTeachers, TeacherItem } from "@/lib/teachers-service";
+import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { gradeLabel, gradeOrder } from "@/lib/format";
 import { Submission, Project } from "@/lib/types";
 import {
@@ -38,13 +38,16 @@ function pct(n: number, d: number): number {
 }
 
 export default function StatsSection() {
-  const [teachers, setTeachers] = useState<TeacherItem[]>([]);
+  const instantTeachers = getInstantTeachers();
+  const instantProjects = getInstantProjects().filter((p) => p.showInGallery !== false);
+  const instantSubs = getInstantSubmissions();
+  const [teachers, setTeachers] = useState<TeacherItem[]>(instantTeachers);
   const [subs, setSubs] = useState<Submission[]>(() => getInstantSubmissions());
   const [allSubs, setAllSubs] = useState<Submission[]>(() => getInstantSubmissions());
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("all");
-  const [required, setRequired] = useState<number>(1);
-  const [loading, setLoading] = useState(() => getInstantSubmissions().length === 0);
+  const [projects, setProjects] = useState<Project[]>(instantProjects);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(instantProjects[0]?.id || "all");
+  const [required, setRequired] = useState<number>(() => instantProjects[0]?.workSlotTitles?.length || instantProjects[0]?.maxUpload || 1);
+  const [loading, setLoading] = useState(() => instantTeachers.length === 0 && instantSubs.length === 0);
   const [expanded, setExpanded] = useState<string | null>(null);
   // Hidden rounds are excluded from the dropdown and from the "ทุกรอบ" totals.
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
@@ -54,7 +57,11 @@ export default function StatsSection() {
     // Under "ทุกรอบ", drop works that belong to hidden rounds.
     setSubs(selected.filter((s) => !s.projectId || !hidden.has(s.projectId)));
     const proj = projsForLookup.find((p) => p.id === pid);
-    const req = proj?.workSlotTitles?.length || proj?.maxUpload || 1;
+    const req = pid === "all"
+      ? Math.max(1, projsForLookup
+          .filter((p) => p.showInGallery !== false)
+          .reduce((sum, p) => sum + (p.workSlotTitles?.length || p.maxUpload || 1), 0))
+      : proj?.workSlotTitles?.length || proj?.maxUpload || 1;
     setRequired(req);
   };
 
@@ -93,13 +100,21 @@ export default function StatsSection() {
 
   // Count works per teacher (by normalized name).
   const worksByTeacher = useMemo(() => {
-    const map = new Map<string, number>();
+    const sets = new Map<string, Set<string>>();
+    const allowed = new Map(projects.map((project) => [
+      project.id,
+      new Set((project.workSlotTitles || []).map((title) => title.trim())),
+    ]));
     for (const s of subs) {
       const k = normName(s.fullName);
-      map.set(k, (map.get(k) || 0) + 1);
+      const title = s.projectTitle?.trim();
+      const projectTitles = s.projectId ? allowed.get(s.projectId) : undefined;
+      if (!title || (projectTitles?.size && !projectTitles.has(title))) continue;
+      if (!sets.has(k)) sets.set(k, new Set());
+      sets.get(k)?.add(`${s.projectId || "legacy"}::${title}`);
     }
-    return map;
-  }, [subs]);
+    return new Map([...sets].map(([key, titles]) => [key, titles.size]));
+  }, [projects, subs]);
 
   // The imported roster has no subject group, so derive each teacher's group from
   // the subject group they picked on their submission (so submitters show correctly).
@@ -331,7 +346,11 @@ function StatTable({
           </thead>
           <tbody>
             {groups.map((g) => {
-              const p = pct(g.complete, g.totalTeachers);
+              // Progress means completed work slots, not only the share of teachers
+              // who reached 100%. Cap at the expected slots so duplicates cannot
+              // produce more than 100%.
+              const expectedWorks = g.totalTeachers * required;
+              const p = pct(Math.min(g.works, expectedWorks), expectedWorks);
               const isOpen = expanded === title + "|" + g.key;
               return (
                 <Fragment key={g.key}>
