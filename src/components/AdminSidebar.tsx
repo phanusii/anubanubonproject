@@ -12,7 +12,8 @@ import {
   Sparkles,
   Building,
   CalendarRange,
-  BarChart3
+  BarChart3,
+  Send
 } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { signOut } from "firebase/auth";
@@ -35,6 +36,7 @@ export default function AdminSidebar() {
     { label: "จัดการรอบ/โครงการ", href: "/admin/projects", icon: CalendarRange },
     { label: "จัดการผลงาน", href: "/admin/submissions", icon: FileCheck2 },
     { label: "สถิติละเอียด", href: "/admin/stats", icon: BarChart3 },
+    { label: "แจ้งเตือน Telegram", href: "/admin/telegram", icon: Send },
     { label: "ข้อมูลโรงเรียน & โลโก้", href: "/admin/school", icon: Building },
     { label: "จัดการสายชั้น & กลุ่มสาระ", href: "/admin/masters", icon: Layers },
   ];
