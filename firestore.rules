@@ -78,7 +78,11 @@ service cloud.firestore {
       allow create, delete: if isAdmin();
       // Admins can edit freely; the public submit flow may set ONLY these self-service
       // fields on an existing teacher: subject group (auto-fill) and profile picture.
-      allow update: if isAdmin();
+      allow update: if isAdmin()
+                    || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['subjectGroup'])
+                        && request.resource.data.subjectGroup is string
+                        && request.resource.data.subjectGroup.size() > 0
+                        && request.resource.data.subjectGroup.size() <= 300);
     }
 
     // Submissions collection

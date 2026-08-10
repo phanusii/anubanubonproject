@@ -11,7 +11,7 @@ import {
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
-import { getTeachers, TeacherItem } from "@/lib/teachers-service";
+import { getTeachers, updateTeacherSubject, TeacherItem } from "@/lib/teachers-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
 import { gradeLabel, submitVerb } from "@/lib/format";
 import { TrainingSettings, GradeLevelOption, SubjectGroupOption, Submission, Project } from "@/lib/types";
@@ -308,6 +308,12 @@ export default function SubmitSection() {
         await replaceSubmission(replacingSubmissionId, subData);
       } else {
         await createSubmission(subData);
+      }
+
+      // Keep the roster's subject group aligned with the teacher's latest
+      // submission. This is best-effort and never blocks a successful upload.
+      if (selectedTeacherId && subjectGroup) {
+        await updateTeacherSubject(selectedTeacherId, subjectGroup);
       }
 
       setIsUploading(false);
