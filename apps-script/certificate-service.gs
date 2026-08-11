@@ -655,7 +655,9 @@ function certificateId_(projectId, recipientKey) {
 function assertAdmin_(idToken) {
   if (!idToken) throw new Error("กรุณาเข้าสู่ระบบผู้ดูแล");
   var apiKey = PropertiesService.getScriptProperties().getProperty("FIREBASE_API_KEY");
-  var adminEmail = (PropertiesService.getScriptProperties().getProperty("ADMIN_EMAIL") || "phanu9818@anubanubon.ac.th").toLowerCase();
+  // Keep this aligned with Firebase Auth/Firestore rules. Do not let a stale
+  // Script Property silently lock the real administrator out.
+  var adminEmail = "phanu9818@anubanubon.ac.th";
   if (!apiKey) throw new Error("Missing FIREBASE_API_KEY in Script Properties");
   var response = UrlFetchApp.fetch("https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=" + encodeURIComponent(apiKey), {
     method: "post", contentType: "application/json", payload: JSON.stringify({ idToken: idToken }), muteHttpExceptions: true
