@@ -7,7 +7,7 @@ import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getProjects, saveProject } from "@/lib/projects-service";
 import { getProjectSubmissions } from "@/lib/submission-service";
-import { certificateProgress, createCertificatePreview, getCertificates, inspectCertificateTemplate, retryCertificate, revokeCertificate } from "@/lib/certificate-service";
+import { certificateProgress, createCertificatePreview, getCertificates, inspectCertificateTemplate, issueCertificate, retryCertificate, revokeCertificate } from "@/lib/certificate-service";
 import { CertificateRecord, CertificateSettings, CertificateSlideField, CertificateTextField, Project } from "@/lib/types";
 
 const field = (y: number, size: number): CertificateTextField => ({
@@ -48,6 +48,7 @@ export default function CertificatesAdminPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [slideFields, setSlideFields] = useState<CertificateSlideField[]>([]);
+  const [issuingAutomatically, setIssuingAutomatically] = useState(false);
 
   useEffect(() => { getProjects(true).then((items) => { setProjects(items); if (items[0]) setProjectId(items[0].id); }); }, []);
   const project = useMemo(() => projects.find((item) => item.id === projectId), [projects, projectId]);
@@ -58,17 +59,46 @@ export default function CertificatesAdminPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setConfig(project.certificate || defaults(project));
     setSlideFields([]);
-    Promise.all([getCertificates(project.id), getProjectSubmissions(project.id, true)])
-      .then(([certificateItems, submissions]) => {
+    setIssuingAutomatically(false);
+    let cancelled = false;
+    void Promise.all([getCertificates(project.id), getProjectSubmissions(project.id, true)])
+      .then(async ([certificateItems, submissions]) => {
+        if (cancelled) return;
         setRecords(certificateItems);
         const groups = new Map<string, typeof submissions>();
         submissions.forEach((item) => {
           const key = item.fullName.trim().toLowerCase().replace(/\s+/g, " ");
           groups.set(key, [...(groups.get(key) || []), item]);
         });
-        setEligibleNames(Array.from(groups.values()).filter((items) => certificateProgress(items, project).complete).map((items) => [...items].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0].fullName));
+        const eligible = Array.from(groups.values()).filter((items) => certificateProgress(items, project).complete).map((items) => [...items].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0].fullName);
+        setEligibleNames(eligible);
+
+        // Create every missing certificate immediately. Work in small batches to
+        // stay below Apps Script's concurrent execution quota for large rounds.
+        const issuedKeys = new Set(certificateItems.filter((item) => item.status === "issued").map((item) => item.recipientName.trim().toLowerCase().replace(/\s+/g, " ")));
+        const missing = project.certificate?.enabled
+          ? eligible.filter((fullName) => !issuedKeys.has(fullName.trim().toLowerCase().replace(/\s+/g, " ")))
+          : [];
+        if (missing.length) {
+          setIssuingAutomatically(true);
+          setMessage(`พบผู้ส่งครบ ${missing.length} คน กำลังสร้างเกียรติบัตรอัตโนมัติ...`);
+          for (let index = 0; index < missing.length && !cancelled; index += 3) {
+            await Promise.allSettled(missing.slice(index, index + 3).map((fullName) => issueCertificate(project.id, fullName)));
+          }
+          if (!cancelled) {
+            const refreshed = await getCertificates(project.id);
+            setRecords(refreshed);
+            setMessage("สร้างและอัปเดตรายการเกียรติบัตรอัตโนมัติแล้ว");
+            setIssuingAutomatically(false);
+          }
+        }
       })
-      .catch(() => { setRecords([]); setEligibleNames([]); });
+      .catch(() => { if (!cancelled) { setRecords([]); setEligibleNames([]); setIssuingAutomatically(false); } });
+
+    const refreshTimer = window.setInterval(() => {
+      void getCertificates(project.id).then((items) => { if (!cancelled) setRecords(items); }).catch(() => undefined);
+    }, 15000);
+    return () => { cancelled = true; window.clearInterval(refreshTimer); };
   }, [project]);
 
   const save = async () => {
@@ -81,7 +111,7 @@ export default function CertificatesAdminPage() {
     const updated = { ...project, certificate: nextConfig };
     await saveProject(updated);
     setProjects((items) => items.map((item) => item.id === updated.id ? updated : item));
-    setMessage("บันทึกการตั้งค่าเกียรติบัตรแล้ว"); setBusy(false);
+    setMessage(nextConfig.enabled ? "บันทึกแล้ว ระบบกำลังตรวจและสร้างเกียรติบัตรให้ผู้ส่งครบอัตโนมัติ" : "บันทึกการตั้งค่าเกียรติบัตรแล้ว"); setBusy(false);
   };
 
   const preview = async () => {
@@ -199,7 +229,7 @@ export default function CertificatesAdminPage() {
       </>}
       {message && <p className="text-sm font-bold text-blue-700">{message}</p>}
     </section>
-    <section className="bg-white rounded-3xl p-6 border border-slate-100 space-y-4"><div className="grid sm:grid-cols-4 gap-3"><div className="rounded-2xl bg-blue-50 p-4"><p className="text-xs text-slate-500">มีสิทธิ์</p><p className="text-2xl font-extrabold">{eligibleNames.length}</p></div><div className="rounded-2xl bg-emerald-50 p-4"><p className="text-xs text-slate-500">ออกแล้ว</p><p className="text-2xl font-extrabold">{records.filter((r) => r.status === "issued").length}</p></div><div className="rounded-2xl bg-amber-50 p-4"><p className="text-xs text-slate-500">รอดำเนินการ</p><p className="text-2xl font-extrabold">{records.filter((r) => r.status === "pending").length}</p></div><div className="rounded-2xl bg-red-50 p-4"><p className="text-xs text-slate-500">ผิดพลาด</p><p className="text-2xl font-extrabold">{records.filter((r) => r.status === "failed").length}</p></div></div><div><h2 className="font-extrabold mb-2">ผู้มีสิทธิ์ที่ยังไม่มีเกียรติบัตร</h2><div className="flex flex-wrap gap-2">{eligibleNames.filter((name) => !records.some((r) => r.recipientName === name && r.status === "issued")).map((name) => <button key={name} onClick={() => issueFor(name)} disabled={busy} className="px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-bold">ออกให้ {name}</button>)}</div></div></section>
+    <section className="bg-white rounded-3xl p-6 border border-slate-100 space-y-4">{issuingAutomatically && <div className="rounded-2xl bg-blue-50 border border-blue-200 p-4 flex items-center gap-3 text-blue-700"><Loader2 className="w-5 h-5 animate-spin shrink-0" /><div><p className="font-extrabold">กำลังสร้างเกียรติบัตรอัตโนมัติ</p><p className="text-xs font-semibold">รายการจะปรากฏด้านล่างทันทีเมื่อสร้างเสร็จ</p></div></div>}<div className="grid sm:grid-cols-4 gap-3"><div className="rounded-2xl bg-blue-50 p-4"><p className="text-xs text-slate-500">มีสิทธิ์</p><p className="text-2xl font-extrabold">{eligibleNames.length}</p></div><div className="rounded-2xl bg-emerald-50 p-4"><p className="text-xs text-slate-500">ออกแล้ว</p><p className="text-2xl font-extrabold">{records.filter((r) => r.status === "issued").length}</p></div><div className="rounded-2xl bg-amber-50 p-4"><p className="text-xs text-slate-500">รอดำเนินการ</p><p className="text-2xl font-extrabold">{records.filter((r) => r.status === "pending").length}</p></div><div className="rounded-2xl bg-red-50 p-4"><p className="text-xs text-slate-500">ผิดพลาด</p><p className="text-2xl font-extrabold">{records.filter((r) => r.status === "failed").length}</p></div></div><div><h2 className="font-extrabold mb-2">ผู้มีสิทธิ์ที่ยังไม่มีเกียรติบัตร</h2><div className="flex flex-wrap gap-2">{eligibleNames.filter((name) => !records.some((r) => r.recipientName === name && r.status === "issued")).map((name) => <button key={name} onClick={() => issueFor(name)} disabled={busy || issuingAutomatically} className="px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-bold disabled:opacity-50">{issuingAutomatically ? "กำลังออกให้ " : "ออกให้ "}{name}</button>)}</div></div></section>
     <section className="bg-white rounded-3xl p-6 border border-slate-100 space-y-4"><div className="flex justify-between gap-3"><h2 className="font-extrabold text-slate-900">รายการเกียรติบัตร ({records.length})</h2><button onClick={exportCsv} disabled={!records.length} className="text-sm font-bold flex gap-2 items-center disabled:opacity-40"><Download className="w-4 h-4" />ดาวน์โหลด CSV</button></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-slate-500 border-b"><th className="py-3">เลขที่</th><th>ผู้รับ</th><th>ตำแหน่ง</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>{records.map((r) => <tr key={r.id} className="border-b"><td className="py-3 font-bold">{r.certificateNumber}</td><td>{r.recipientName}</td><td>{r.snapshot?.position}</td><td>{r.status}</td><td><div className="flex gap-2">{r.pdfUrl && <button onClick={() => downloadFresh(r)} disabled={busy} className="text-blue-600 font-bold disabled:opacity-40">สร้างล่าสุดและดาวน์โหลด</button>}<button onClick={() => reissue(r)} disabled={busy} className="text-amber-600 font-bold disabled:opacity-40">ออกใหม่</button>{r.status !== "revoked" && <button onClick={() => revoke(r)} disabled={busy} className="text-red-600 font-bold disabled:opacity-40">ยกเลิก</button>}</div></td></tr>)}</tbody></table></div></section>
   </main></div><Footer /></div>;
 }
