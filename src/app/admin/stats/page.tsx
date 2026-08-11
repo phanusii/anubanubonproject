@@ -6,7 +6,7 @@ import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { getInstantSubmissions, getSubmissions } from "@/lib/submission-service";
-import { getInstantTeachers, getTeachers, TeacherItem } from "@/lib/teachers-service";
+import { getInstantTeachers, getTeachers, mergeTeachersWithSubmitters, TeacherItem } from "@/lib/teachers-service";
 import { gradeLabel, gradeOrder, shortSubject } from "@/lib/format";
 import { Project, Submission } from "@/lib/types";
 import { BarChart3, CheckCircle2, Clipboard, Clock3, FileStack, Users } from "lucide-react";
@@ -53,6 +53,10 @@ export default function AdminStatsPage() {
     () => submissions.filter((item) => item.projectId === projectId),
     [projectId, submissions],
   );
+  const statisticalTeachers = useMemo(
+    () => mergeTeachersWithSubmitters(teachers, projectSubmissions),
+    [teachers, projectSubmissions],
+  );
 
   const progress = useMemo<TeacherProgress[]>(() => {
     const requiredTitles = project?.workSlotTitles || [];
@@ -62,13 +66,13 @@ export default function AdminStatsPage() {
       if (!works.has(key)) works.set(key, new Set());
       works.get(key)?.add(item.projectTitle.trim());
     }
-    return teachers.map((teacher) => {
+    return statisticalTeachers.map((teacher) => {
       const submittedTitles = works.get(norm(teacher.fullName)) || new Set<string>();
       const missing = requiredTitles.filter((title) => !submittedTitles.has(title.trim()));
       const matched = requiredTitles.length - missing.length;
       return { teacher, submitted: matched, missing, complete: requiredTitles.length > 0 && missing.length === 0 };
     });
-  }, [project, projectSubmissions, teachers]);
+  }, [project, projectSubmissions, statisticalTeachers]);
 
   const summary = useMemo(() => {
     const submitted = progress.filter((item) => item.submitted > 0).length;

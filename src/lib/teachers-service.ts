@@ -1,5 +1,6 @@
 import { db } from "./firebase";
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, updateDoc, query, where } from "firebase/firestore";
+import { Submission } from "./types";
 
 export interface TeacherItem {
   id: string;
@@ -68,6 +69,42 @@ export function findSimilarTeachers<T extends { fullName: string }>(query: strin
     .sort((a, b) => b.score - a.score || a.item.fullName.localeCompare(b.item.fullName, "th"))
     .slice(0, limit)
     .map(({ item }) => item);
+}
+
+/**
+ * Include people who typed a new name while submitting, even when they are not
+ * yet in the master roster. The latest submission is authoritative for profile
+ * fields, while normalized names prevent duplicate people in statistics.
+ */
+export function mergeTeachersWithSubmitters(teachers: TeacherItem[], submissions: Submission[]): TeacherItem[] {
+  const merged = new Map<string, TeacherItem>();
+  teachers.forEach((teacher) => merged.set(normalizeTeacherName(teacher.fullName), teacher));
+
+  const latestByName = new Map<string, Submission>();
+  [...submissions]
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    .forEach((submission) => {
+      const key = normalizeTeacherName(submission.fullName);
+      if (key && !latestByName.has(key)) latestByName.set(key, submission);
+    });
+
+  latestByName.forEach((submission, key) => {
+    const existing = merged.get(key);
+    merged.set(key, {
+      id: existing?.id || `submitter-${key}`,
+      fullName: submission.fullName || existing?.fullName || "ไม่ระบุชื่อ",
+      position: submission.position || existing?.position || "",
+      gradeLevel: submission.gradeLevel || existing?.gradeLevel || "ไม่ระบุ",
+      subjectGroup: submission.subjectGroup || existing?.subjectGroup || "",
+      email: existing?.email,
+      phone: existing?.phone,
+      createdAt: existing?.createdAt || submission.createdAt,
+      photoUrl: existing?.photoUrl,
+      photoFileId: existing?.photoFileId,
+    });
+  });
+
+  return [...merged.values()];
 }
 
 function getLocalTeachers(): TeacherItem[] {

@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { getInstantSubmissions, getSubmissions } from "@/lib/submission-service";
-import { getInstantTeachers, getTeachers, TeacherItem } from "@/lib/teachers-service";
+import { getInstantTeachers, getTeachers, mergeTeachersWithSubmitters, TeacherItem } from "@/lib/teachers-service";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { gradeLabel, gradeOrder } from "@/lib/format";
 import { Submission, Project } from "@/lib/types";
@@ -126,9 +126,14 @@ export default function StatsSection() {
     return map;
   }, [subs]);
 
+  const statisticalTeachers = useMemo(
+    () => mergeTeachersWithSubmitters(teachers, subs),
+    [teachers, subs],
+  );
+
   const buildGroups = (pick: (t: TeacherItem) => string): GroupStat[] => {
     const groups = new Map<string, GroupStat>();
-    for (const t of teachers) {
+    for (const t of statisticalTeachers) {
       const key = pick(t) || "ไม่ระบุ";
       if (!groups.has(key)) {
         groups.set(key, {
@@ -155,7 +160,7 @@ export default function StatsSection() {
   const byGrade = useMemo(
     () => buildGroups((t) => t.gradeLevel).sort((a, b) => gradeOrder(a.key) - gradeOrder(b.key)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [teachers, worksByTeacher, required]
+    [statisticalTeachers, worksByTeacher, required]
   );
   const bySubject = useMemo(
     () =>
@@ -163,23 +168,23 @@ export default function StatsSection() {
         (a, b) => b.totalTeachers - a.totalTeachers
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [teachers, worksByTeacher, required, subjectByTeacher]
+    [statisticalTeachers, worksByTeacher, required, subjectByTeacher]
   );
 
   // School overall
   const overall = useMemo(() => {
-    const totalTeachers = teachers.length;
+    const totalTeachers = statisticalTeachers.length;
     let submitted = 0;
     let complete = 0;
     let works = 0;
-    for (const t of teachers) {
+    for (const t of statisticalTeachers) {
       const c = worksByTeacher.get(normName(t.fullName)) || 0;
       works += c;
       if (c >= 1) submitted += 1;
       if (c >= required) complete += 1;
     }
     return { totalTeachers, submitted, complete, works };
-  }, [teachers, worksByTeacher, required]);
+  }, [statisticalTeachers, worksByTeacher, required]);
 
   return (
     <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-8 space-y-8">
