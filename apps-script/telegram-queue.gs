@@ -80,16 +80,25 @@ function refreshCertificatesFromSettingsV2_() {
 
       grouped[projectId].some(function(entry, index) {
         var expected = toThaiDigits_(prefix + String(start + index) + "/" + year);
-        var stale = String(entry.record.certificateNumber || "") !== expected ||
+        var numberOrTemplateStale = String(entry.record.certificateNumber || "") !== expected ||
           Number(entry.record.templateVersion || 1) !== Number(config.templateVersion || 1);
+        var storageStale = Number(entry.record.storageVersion || 0) < 2;
+        var stale = numberOrTemplateStale || storageStale;
         if (!stale) return false;
         try {
-          var generated = renderCertificate_(project, config, entry.record.snapshot || {}, expected, config.issueDateText || "");
+          if (storageStale && !numberOrTemplateStale && entry.record.pdfFileId) {
+            organizeCertificateFile_(project, entry.record.snapshot || {}, entry.record.pdfFileId, expected);
+          } else {
+            var oldFileId = entry.record.pdfFileId;
+            var generated = renderCertificate_(project, config, entry.record.snapshot || {}, expected, config.issueDateText || "");
+            entry.record.pdfFileId = generated.id;
+            entry.record.pdfUrl = generated.url;
+            trashReplacedCertificate_(oldFileId, generated.id);
+          }
           entry.record.certificateNumber = expected;
           entry.record.budgetYear = year;
           entry.record.templateVersion = Number(config.templateVersion || 1);
-          entry.record.pdfFileId = generated.id;
-          entry.record.pdfUrl = generated.url;
+          entry.record.storageVersion = 2;
           entry.record.status = "issued";
           entry.record.updatedAt = Date.now();
           delete entry.record.error;

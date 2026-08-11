@@ -84,10 +84,11 @@ function issueCertificate_(projectId, fullName, forceRetry, renumber) {
     var sameSubmissions = existing && JSON.stringify(existing.submissionIds || []) === JSON.stringify(completion.submissionIds || []);
     var sameSnapshot = existing && JSON.stringify(existing.snapshot || {}) === JSON.stringify(snapshot);
     var sameTemplate = existing && Number(existing.templateVersion || 1) === Number(config.templateVersion || 1);
+    var sameStorage = existing && Number(existing.storageVersion || 0) >= 2;
     // Reuse the current PDF only when nothing that affects the certificate has
     // changed. A replacement/latest submission gets a new id, so completing or
     // updating work automatically regenerates the PDF while preserving its number.
-    if (existing && existing.status === "issued" && !forceRetry && sameSubmissions && sameSnapshot && sameTemplate) {
+    if (existing && existing.status === "issued" && !forceRetry && sameSubmissions && sameSnapshot && sameTemplate && sameStorage) {
       return withId_(documentId, existing);
     }
     if (existing && existing.status === "pending" && !forceRetry && sameSubmissions && sameSnapshot && sameTemplate) {
@@ -108,8 +109,10 @@ function issueCertificate_(projectId, fullName, forceRetry, renumber) {
       var generated = renderCertificate_(project, config, snapshot, number, config.issueDateText || "");
       pending.pdfFileId = generated.id;
       pending.pdfUrl = generated.url;
+      pending.storageVersion = 2;
       pending.status = "issued";
       pending.issuedAt = Date.now();
+      trashReplacedCertificate_(existing && existing.pdfFileId, generated.id);
       setCertificateRecord_(documentId, pending);
       return withId_(documentId, pending);
     } catch (renderError) {
@@ -199,15 +202,51 @@ function renderCertificate_(project, config, snapshot, certificateNumber, dateTe
     presentation.saveAndClose();
 
     var exportResponse = UrlFetchApp.fetch("https://www.googleapis.com/drive/v3/files/" + workingFile.getId() + "/export?mimeType=application%2Fpdf", { headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() } });
-    var folderId = PropertiesService.getScriptProperties().getProperty("CERTIFICATE_FOLDER_ID");
-    var folder = folderId ? DriveApp.getFolderById(folderId) : DriveApp.getRootFolder();
+    var folder = certificateDestinationFolder_(project, snapshot);
     var safeName = String(snapshot.fullName || "").replace(/[\\/:*?"<>|]/g, "-");
-    var pdf = folder.createFile(exportResponse.getBlob().setName("เกียรติบัตร-" + safeName + "-" + certificateNumber.replace("/", "-") + ".pdf"));
+    var safeNumber = String(certificateNumber || "").replace(/[\\/:*?"<>|]/g, "-");
+    var pdf = folder.createFile(exportResponse.getBlob().setName(safeNumber + " - " + safeName + ".pdf"));
     pdf.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     return { id: pdf.getId(), url: "https://drive.google.com/file/d/" + pdf.getId() + "/view" };
   } finally {
     workingFile.setTrashed(true);
   }
+}
+
+/** Store certificates as <certificate root>/<project name>/<grade level>/. */
+function certificateDestinationFolder_(project, snapshot) {
+  var folderId = PropertiesService.getScriptProperties().getProperty("CERTIFICATE_FOLDER_ID");
+  var root = folderId ? DriveApp.getFolderById(folderId) : DriveApp.getRootFolder();
+  var projectName = safeDriveFolderName_(project && project.name, "ไม่ระบุโครงการ");
+  var gradeLevel = safeDriveFolderName_(snapshot && snapshot.gradeLevel, "ไม่ระบุสายชั้น");
+  return getOrCreateDriveFolder_(getOrCreateDriveFolder_(root, projectName), gradeLevel);
+}
+
+function getOrCreateDriveFolder_(parent, name) {
+  var folders = parent.getFoldersByName(name);
+  return folders.hasNext() ? folders.next() : parent.createFolder(name);
+}
+
+function safeDriveFolderName_(value, fallback) {
+  var name = String(value || "").replace(/[\\/:*?"<>|]/g, "-").trim();
+  return name || fallback;
+}
+
+/** Move an existing PDF without changing its Drive file id or public URL. */
+function organizeCertificateFile_(project, snapshot, fileId, certificateNumber) {
+  if (!fileId) return false;
+  var file = DriveApp.getFileById(fileId);
+  var folder = certificateDestinationFolder_(project, snapshot || {});
+  var safeName = String((snapshot && snapshot.fullName) || "").replace(/[\\/:*?"<>|]/g, "-");
+  var safeNumber = String(certificateNumber || "").replace(/[\\/:*?"<>|]/g, "-");
+  file.setName(safeNumber + " - " + safeName + ".pdf");
+  file.moveTo(folder);
+  return true;
+}
+
+function trashReplacedCertificate_(oldFileId, newFileId) {
+  if (!oldFileId || String(oldFileId) === String(newFileId)) return;
+  try { DriveApp.getFileById(oldFileId).setTrashed(true); } catch (_) {}
 }
 
 function inspectSlidesTemplate_(value) {

@@ -27,3 +27,8 @@ grouped Telegram summary instead of flooding the chat.
 The endpoint does not accept a client-provided completion flag or certificate number. It reloads the project and submissions, locks number allocation, and returns the existing certificate on repeated requests. The certificate registry and counters are stored in `certificate-registry.json` inside the configured Drive folder, avoiding paid Cloud Functions and Workspace restrictions on linking a standard Cloud project.
 
 The certificate template is a native Google Slides presentation owned by, or shared with, the Apps Script owner. Paste the presentation URL in `/admin/certificates`, scan its text boxes, then choose the sample-name box and sample-number box. The service copies the presentation, replaces only those two selected boxes, exports PDF, then trashes the temporary copy. Legacy templates using `{{FULL_NAME}}` and `{{CERTIFICATE_NUMBER}}` remain supported.
+
+Issued PDFs are organized automatically under `CERTIFICATE_FOLDER_ID` as
+`<project name>/<grade level>/<certificate number> - <recipient name>.pdf`.
+The minute worker also moves legacy PDFs into this structure without changing
+their Drive file IDs or download links.
