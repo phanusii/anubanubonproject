@@ -12,8 +12,14 @@ function installTelegramNotifierV2() {
   sendTelegram_("✅ อัปเกรดระบบแจ้งเตือนสำหรับผู้ส่ง 300 คนเรียบร้อยแล้ว");
 }
 
+/** Manual admin repair; the minute trigger calls the same worker automatically. */
+function runCertificateSettingsRefreshV2() {
+  refreshCertificatesFromSettingsV2_();
+}
+
 function notifyNewSubmissionsV2() {
   var properties = PropertiesService.getScriptProperties();
+  refreshCertificatesFromSettingsV2_();
   var settings = getDocument_(SETTINGS_DOCUMENT);
   var chatId = String(settings.telegramChatId || "").trim();
   if (settings.telegramNotificationsEnabled && chatId) {
@@ -41,6 +47,69 @@ function notifyNewSubmissionsV2() {
   if (!settings.telegramNotificationsEnabled) return;
   if (!chatId) return;
   sendTelegram_(formatSubmissionSummaryV2_(documents), chatId);
+}
+
+/**
+ * Rebuild up to three stale certificates per minute from the latest settings.
+ * Numbers are reassigned deterministically from numberStart (for example 66/2569)
+ * in original issue order, so saving a new starting number updates existing PDFs.
+ */
+function refreshCertificatesFromSettingsV2_() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return;
+  try {
+    var registry = loadCertificateRegistry_();
+    var grouped = {};
+    Object.keys(registry.records || {}).forEach(function(id) {
+      var record = registry.records[id];
+      if (!record || !record.projectId || record.status === "revoked") return;
+      (grouped[record.projectId] = grouped[record.projectId] || []).push({ id: id, record: record });
+    });
+
+    var rebuilt = 0;
+    Object.keys(grouped).some(function(projectId) {
+      var project = getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
+      var config = project.certificate || {};
+      if (!config.enabled || !config.slideTemplateId) return false;
+      var start = Number(config.numberStart || 1);
+      var year = String(config.budgetYear || project.budgetYear || project.academicYear || "");
+      var prefix = String(config.numberPrefix || "");
+      grouped[projectId].sort(function(a, b) {
+        return Number(a.record.issuedAt || 0) - Number(b.record.issuedAt || 0);
+      });
+
+      grouped[projectId].some(function(entry, index) {
+        var expected = toThaiDigits_(prefix + String(start + index) + "/" + year);
+        var stale = String(entry.record.certificateNumber || "") !== expected ||
+          Number(entry.record.templateVersion || 1) !== Number(config.templateVersion || 1);
+        if (!stale) return false;
+        try {
+          var generated = renderCertificate_(project, config, entry.record.snapshot || {}, expected, config.issueDateText || "");
+          entry.record.certificateNumber = expected;
+          entry.record.budgetYear = year;
+          entry.record.templateVersion = Number(config.templateVersion || 1);
+          entry.record.pdfFileId = generated.id;
+          entry.record.pdfUrl = generated.url;
+          entry.record.status = "issued";
+          entry.record.updatedAt = Date.now();
+          delete entry.record.error;
+        } catch (error) {
+          entry.record.status = "failed";
+          entry.record.error = String(error && error.message ? error.message : error);
+        }
+        registry.records[entry.id] = entry.record;
+        rebuilt += 1;
+        return rebuilt >= 3;
+      });
+      registry.counters[projectId] = Math.max(Number(registry.counters[projectId] || 0), start + grouped[projectId].length);
+      return rebuilt >= 3;
+    });
+    if (rebuilt) saveCertificateRegistry_(registry);
+  } catch (error) {
+    console.log("Certificate settings refresh skipped: " + error.message);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function autoIssueCompletedCertificatesV2_(documents) {
