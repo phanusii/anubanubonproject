@@ -377,25 +377,39 @@ export default function CertificatesAdminPage() {
       setCandidates(items);
       setMessage(`ตรวจแล้ว ${items.length} คน กรุณาตรวจรายชื่อก่อนยืนยัน`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ตรวจรายชื่อไม่สำเร็จ");
+      setMessage(
+        error instanceof Error ? error.message : "ตรวจรายชื่อไม่สำเร็จ",
+      );
     } finally {
       setBusy(false);
     }
   };
 
   const confirmBatch = async () => {
-    if (!project || !confirm("ยืนยันออกเกียรติบัตรให้ผู้มีสิทธิ์ที่ยังไม่มีบัตร?")) return;
+    if (
+      !project ||
+      !confirm("ยืนยันออกเกียรติบัตรให้ผู้มีสิทธิ์ที่ยังไม่มีบัตร?")
+    )
+      return;
     setBusy(true);
     try {
       let current = await startCertificateBatch(project.id);
       setJob(current);
-      while (current.status === "running") current = await runCertificateBatch(project.id) || current;
+      while (current.status === "running")
+        current = (await runCertificateBatch(project.id)) || current;
       setJob(current);
       setRecords(await getCertificates(project.id));
       setCandidates([]);
-      setMessage(`ประมวลผลเสร็จ ออกแล้ว ${current.issued} ผิดพลาด ${current.failed}`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "เริ่มประมวลผลไม่สำเร็จ"); }
-    finally { setBusy(false); }
+      setMessage(
+        `ประมวลผลเสร็จ ออกแล้ว ${current.issued} ผิดพลาด ${current.failed}`,
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "เริ่มประมวลผลไม่สำเร็จ",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   const slideId = config
@@ -414,6 +428,28 @@ export default function CertificatesAdminPage() {
     : "๒/๒๕๖๙";
   const nameSource = config?.slideNameField?.sourceText || "ยังไม่ได้เลือก";
   const numberSource = config?.slideNumberField?.sourceText || "ยังไม่ได้เลือก";
+  const issuedCount = records.filter(
+    (record) => record.status === "issued",
+  ).length;
+  const pendingCount = records.filter(
+    (record) => record.status === "pending",
+  ).length;
+  const failedCount = records.filter(
+    (record) => record.status === "failed",
+  ).length;
+  const newEligible = candidates.filter((item) => item.eligible);
+  const alreadyIssued = candidates.filter((item) => item.reason === "ออกแล้ว");
+  const notEligible = candidates.filter(
+    (item) => !item.eligible && item.reason !== "ออกแล้ว",
+  );
+  const jobLabel =
+    job?.status === "running"
+      ? "กำลังออกเกียรติบัตร"
+      : job?.status === "completed"
+        ? "สรุปเสร็จแล้ว"
+        : job?.status === "failed"
+          ? "พบข้อผิดพลาด"
+          : "รอถึงเวลาสรุป";
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -595,12 +631,59 @@ export default function CertificatesAdminPage() {
                       />
                     </label>
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
-                      <StepTitle number={4} title="วัน–เวลาสรุปผล" done={Boolean(config.certificateFinalizeAt)} />
-                      <input type="datetime-local" value={config.certificateFinalizeAt || ""} onChange={(e) => setConfig({ ...config, certificateFinalizeAt: e.target.value })} className="w-full px-3 py-2.5 rounded-xl border bg-white font-bold" />
-                      {project?.closeDate && config.certificateFinalizeAt && new Date(config.certificateFinalizeAt) < new Date(project.closeDate) && <p className="text-xs font-extrabold text-rose-600">คำเตือน: เวลาสรุปอยู่ก่อนเวลาปิดรับงาน</p>}
-                      <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={config.issueForComplete !== false} onChange={(e) => setConfig({ ...config, issueForComplete: e.target.checked })} /> ผู้ส่งครบทุกชิ้น</label>
-                      <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={Boolean(config.issueForPartial)} onChange={(e) => setConfig({ ...config, issueForPartial: e.target.checked })} /> ผู้ส่งอย่างน้อย 1 ชิ้นแต่ยังไม่ครบ</label>
-                      <p className="text-xs text-slate-500">ผู้ที่ไม่เคยส่งงานจะไม่ได้รับเกียรติบัตร</p>
+                      <StepTitle
+                        number={4}
+                        title="วัน–เวลาสรุปผล"
+                        done={Boolean(config.certificateFinalizeAt)}
+                      />
+                      <input
+                        type="datetime-local"
+                        value={config.certificateFinalizeAt || ""}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            certificateFinalizeAt: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2.5 rounded-xl border bg-white font-bold"
+                      />
+                      {project?.closeDate &&
+                        config.certificateFinalizeAt &&
+                        new Date(config.certificateFinalizeAt) <
+                          new Date(project.closeDate) && (
+                          <p className="text-xs font-extrabold text-rose-600">
+                            คำเตือน: เวลาสรุปอยู่ก่อนเวลาปิดรับงาน
+                          </p>
+                        )}
+                      <label className="flex items-center gap-2 text-sm font-bold">
+                        <input
+                          type="checkbox"
+                          checked={config.issueForComplete !== false}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              issueForComplete: e.target.checked,
+                            })
+                          }
+                        />{" "}
+                        ผู้ส่งครบทุกชิ้น
+                      </label>
+                      <label className="flex items-center gap-2 text-sm font-bold">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(config.issueForPartial)}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              issueForPartial: e.target.checked,
+                            })
+                          }
+                        />{" "}
+                        ผู้ส่งอย่างน้อย 1 ชิ้นแต่ยังไม่ครบ
+                      </label>
+                      <p className="text-xs text-slate-500">
+                        ผู้ที่ไม่เคยส่งงานจะไม่ได้รับเกียรติบัตร
+                      </p>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <button
@@ -711,38 +794,172 @@ export default function CertificatesAdminPage() {
               <p className="text-sm font-bold text-blue-700">{message}</p>
             )}
           </section>
-          <section className="bg-white rounded-3xl p-6 border border-slate-100 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div><h2 className="font-extrabold">สรุปรอบแรก</h2><p className="text-xs text-slate-500">{config?.certificateFinalizeAt ? `ตัดยอด ${new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Bangkok" }).format(new Date(config.certificateFinalizeAt))}` : "ยังไม่ได้ตั้งเวลาตัดยอด"}</p></div><span className="px-3 py-2 rounded-xl bg-slate-100 text-xs font-extrabold">{job?.status || "รอถึงเวลา"}</span></div>
-            <div className="grid sm:grid-cols-4 gap-3">
-              <div className="rounded-2xl bg-blue-50 p-4">
-                <p className="text-xs text-slate-500">มีสิทธิ์</p>
-                <p className="text-2xl font-extrabold">
-                  {job?.total || candidates.filter((item) => item.eligible).length}
+          <section className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-100 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-extrabold text-blue-600">
+                  สถานะการออกเกียรติบัตร
+                </p>
+                <h2 className="text-xl font-extrabold mt-1">
+                  รอบสรุปอัตโนมัติ
+                </h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  ระบบจะตรวจและออกให้ตามเงื่อนไขที่เลือกเมื่อถึงเวลาตัดยอด
                 </p>
               </div>
-              <div className="rounded-2xl bg-emerald-50 p-4">
-                <p className="text-xs text-slate-500">ออกแล้ว</p>
-                <p className="text-2xl font-extrabold">
-                  {records.filter((r) => r.status === "issued").length}
+              <span
+                className={`px-4 py-2 rounded-full text-xs font-extrabold ${job?.status === "completed" ? "bg-emerald-100 text-emerald-700" : job?.status === "running" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}
+              >
+                {jobLabel}
+              </span>
+            </div>
+            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-bold text-slate-500">กำหนดตัดยอด</p>
+                <p className="font-extrabold text-slate-900">
+                  {config?.certificateFinalizeAt
+                    ? new Intl.DateTimeFormat("th-TH", {
+                        dateStyle: "long",
+                        timeStyle: "short",
+                        timeZone: "Asia/Bangkok",
+                      }).format(new Date(config.certificateFinalizeAt)) + " น."
+                    : "ยังไม่ได้กำหนด"}
                 </p>
               </div>
-              <div className="rounded-2xl bg-amber-50 p-4">
-                <p className="text-xs text-slate-500">รอดำเนินการ</p>
-                <p className="text-2xl font-extrabold">
-                  {records.filter((r) => r.status === "pending").length}
+              <p className="text-xs font-semibold text-slate-500">
+                เกียรติบัตรเดิมจะไม่ถูกสร้างซ้ำ
+              </p>
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4">
+                <p className="text-xs font-bold text-emerald-700">
+                  ออกแล้วทั้งหมด
+                </p>
+                <p className="text-3xl font-black text-emerald-900 mt-1">
+                  {issuedCount}
                 </p>
               </div>
-              <div className="rounded-2xl bg-red-50 p-4">
-                <p className="text-xs text-slate-500">ผิดพลาด</p>
-                <p className="text-2xl font-extrabold">
-                  {records.filter((r) => r.status === "failed").length}
+              <div className="rounded-2xl bg-blue-50 border border-blue-100 p-4">
+                <p className="text-xs font-bold text-blue-700">รอบนี้ทั้งหมด</p>
+                <p className="text-3xl font-black text-blue-900 mt-1">
+                  {job?.total || 0}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-amber-50 border border-amber-100 p-4">
+                <p className="text-xs font-bold text-amber-700">
+                  กำลังดำเนินการ
+                </p>
+                <p className="text-3xl font-black text-amber-900 mt-1">
+                  {pendingCount}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-rose-50 border border-rose-100 p-4">
+                <p className="text-xs font-bold text-rose-700">ผิดพลาด</p>
+                <p className="text-3xl font-black text-rose-900 mt-1">
+                  {failedCount}
                 </p>
               </div>
             </div>
-            <div className="space-y-3">
-              <button onClick={scanCandidates} disabled={busy} className="px-4 py-3 rounded-xl bg-blue-600 text-white text-sm font-extrabold disabled:opacity-50">ตรวจผู้ที่ยังไม่มีเกียรติบัตร</button>
-              {candidates.length > 0 && <div className="grid md:grid-cols-3 gap-3">{(["complete", "partial", "none"] as const).map((type) => <div key={type} className="rounded-2xl border p-3"><h3 className="font-extrabold text-sm">{type === "complete" ? "ส่งครบ" : type === "partial" ? "ส่งบางส่วน" : "ไม่มีสิทธิ์ตามการตั้งค่า"}</h3><div className="mt-2 max-h-48 overflow-auto space-y-1">{candidates.filter((item) => type === "none" ? !item.eligible : item.qualificationType === type).map((item) => <p key={item.fullName} className="text-xs font-semibold">{item.fullName} · {item.submitted}/{item.required}</p>)}</div></div>)}</div>}
-              {candidates.some((item) => item.eligible) && <button onClick={confirmBatch} disabled={busy} className="px-4 py-3 rounded-xl bg-emerald-600 text-white text-sm font-extrabold disabled:opacity-50">ยืนยันออกเกียรติบัตรรอบเพิ่มเติม</button>}
+            <div className="border-t border-slate-100 pt-5 space-y-4">
+              <div>
+                <h3 className="font-extrabold text-slate-900">
+                  ต้องการตรวจรอบเพิ่มเติม?
+                </h3>
+                <p className="text-sm text-slate-500">
+                  ใช้สำหรับครูที่ส่งงานภายหลังรอบสรุป
+                  ระบบจะแสดงรายชื่อให้ตรวจก่อนออกบัตร
+                </p>
+              </div>
+              <button
+                onClick={scanCandidates}
+                disabled={busy}
+                className="w-full sm:w-auto px-5 py-3 rounded-2xl bg-blue-600 text-white text-sm font-extrabold disabled:opacity-50 shadow-sm"
+              >
+                1. ตรวจรายชื่อรอบเพิ่มเติม
+              </button>
+              {candidates.length > 0 && (
+                <div className="rounded-3xl border border-blue-200 bg-blue-50/60 p-4 sm:p-5 space-y-4">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="rounded-2xl bg-white p-3 text-center">
+                      <p className="text-2xl font-black text-emerald-600">
+                        {newEligible.length}
+                      </p>
+                      <p className="text-[11px] font-bold text-slate-500">
+                        ออกเพิ่มได้
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-white p-3 text-center">
+                      <p className="text-2xl font-black text-blue-600">
+                        {alreadyIssued.length}
+                      </p>
+                      <p className="text-[11px] font-bold text-slate-500">
+                        มีบัตรแล้ว
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-white p-3 text-center">
+                      <p className="text-2xl font-black text-slate-500">
+                        {notEligible.length}
+                      </p>
+                      <p className="text-[11px] font-bold text-slate-500">
+                        ยังไม่ตรงเกณฑ์
+                      </p>
+                    </div>
+                  </div>
+                  {newEligible.length > 0 ? (
+                    <div className="grid md:grid-cols-2 gap-3">
+                      {(["complete", "partial"] as const).map((type) => {
+                        const rows = newEligible.filter(
+                          (item) => item.qualificationType === type,
+                        );
+                        return (
+                          <div
+                            key={type}
+                            className="rounded-2xl bg-white border border-slate-200 p-4"
+                          >
+                            <h4 className="font-extrabold text-sm">
+                              {type === "complete"
+                                ? `ส่งครบ (${rows.length})`
+                                : `ส่งบางส่วน (${rows.length})`}
+                            </h4>
+                            <div className="mt-2 max-h-48 overflow-auto space-y-1.5">
+                              {rows.length ? (
+                                rows.map((item) => (
+                                  <p
+                                    key={item.fullName}
+                                    className="text-xs font-semibold text-slate-700"
+                                  >
+                                    • {item.fullName}{" "}
+                                    <span className="text-slate-400">
+                                      {item.submitted}/{item.required}
+                                    </span>
+                                  </p>
+                                ))
+                              ) : (
+                                <p className="text-xs text-slate-400">
+                                  ไม่มีรายชื่อ
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="rounded-2xl bg-white p-4 text-center text-sm font-extrabold text-slate-600">
+                      ตรวจแล้ว ไม่พบผู้ที่ต้องออกเกียรติบัตรเพิ่ม
+                    </p>
+                  )}
+                  {newEligible.length > 0 && (
+                    <button
+                      onClick={confirmBatch}
+                      disabled={busy}
+                      className="w-full px-5 py-3.5 rounded-2xl bg-emerald-600 text-white text-sm font-extrabold disabled:opacity-50"
+                    >
+                      2. ยืนยันออกเพิ่ม {newEligible.length} คน
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </section>
           <section className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-100 space-y-4">
