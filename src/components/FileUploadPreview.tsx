@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import Image from "next/image";
 import { Upload, FileText, Image as ImageIcon, X, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { generatePdfThumbnail } from "@/lib/pdf-thumbnail";
+import { compressPdf } from "@/lib/pdf-compression";
 
 // Large files upload in chunks (resumable) so the ceiling is high; only truly huge
 // files need the Google Drive link fallback.
@@ -79,8 +80,10 @@ export default function FileUploadPreview({
     }
 
     const isImage = rawFile.type.startsWith("image/") || ["png", "jpg", "jpeg", "webp"].includes(ext || "");
+    const isPdf = rawFile.type === "application/pdf" || ext === "pdf";
 
-    // Compress images before upload (PDFs can't be compressed in the browser).
+    // Compress supported files before upload. Compression falls back to the
+    // original whenever it cannot produce a meaningfully smaller file.
     setIsGeneratingThumbnail(true);
     let file = rawFile;
     if (isImage) {
@@ -90,6 +93,16 @@ export default function FileUploadPreview({
         setCompressionNote(
           `บีบอัดรูปแล้ว: ${(rawFile.size / 1048576).toFixed(1)} → ${(file.size / 1048576).toFixed(1)} MB`
         );
+      }
+    } else if (isPdf) {
+      const compressed = await compressPdf(rawFile);
+      if (compressed.size < rawFile.size) {
+        file = compressed;
+        setCompressionNote(
+          `บีบอัด PDF แล้ว: ${(rawFile.size / 1048576).toFixed(1)} → ${(file.size / 1048576).toFixed(1)} MB`
+        );
+      } else {
+        setCompressionNote("PDF มีขนาดเหมาะสมแล้ว จึงใช้ไฟล์ต้นฉบับ");
       }
     }
 
@@ -114,7 +127,7 @@ export default function FileUploadPreview({
     if (isImage) {
       thumb = URL.createObjectURL(file);
       setPreviewUrl(thumb);
-    } else if (file.type === "application/pdf" || ext === "pdf") {
+    } else if (isPdf) {
       thumb = await generatePdfThumbnail(file);
       setPreviewUrl(thumb);
     }
@@ -166,7 +179,7 @@ export default function FileUploadPreview({
             ลากและวางไฟล์ผลงานที่นี่ หรือ <span className="text-blue-600 underline">คลิกเพื่อเลือกไฟล์</span>
           </p>
           <p className="text-xs text-slate-500 mt-2 font-medium">
-            รองรับ PDF, PNG, JPG, JPEG, WEBP · ไฟล์ใหญ่อัปโหลดแบบแบ่งส่วนได้ · รูปภาพบีบอัดอัตโนมัติ
+            รองรับ PDF, PNG, JPG, JPEG, WEBP · ไฟล์ใหญ่อัปโหลดแบบแบ่งส่วนได้ · PDF และรูปภาพบีบอัดอัตโนมัติ
           </p>
           <p className="text-[11px] text-amber-600 mt-1 font-semibold">
             ไฟล์ใหญ่มาก (เกิน {DIRECT_UPLOAD_MAX_MB} MB) แนะนำใช้ลิงก์ Google Drive (แท็บด้านบน)
@@ -214,7 +227,7 @@ export default function FileUploadPreview({
           {/* Preview Image or PDF canvas thumbnail */}
           {isGeneratingThumbnail ? (
             <div className="h-36 rounded-2xl skeleton-loading flex items-center justify-center text-xs text-slate-500 font-medium">
-              กำลังสร้างรูปตัวอย่าง (Thumbnail)...
+              กำลังลดขนาดไฟล์และสร้างรูปตัวอย่าง...
             </div>
           ) : previewUrl ? (
             <div className="relative rounded-2xl overflow-hidden bg-slate-50 max-h-48 flex items-center justify-center border border-slate-200 p-1">
