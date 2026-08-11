@@ -35,6 +35,10 @@ The minute worker also moves legacy PDFs into this structure without changing
 their Drive file IDs or download links.
 Run `runOrganizeDriveStructureV3` once to move legacy grade and teacher folders
 into the new `ผลงาน` and `เกียรติบัตร` sections.
+Profile pictures are shared across all rounds under
+`รูปประจำตัว/<grade level>/<teacher name>`. Run
+`runMoveProfilePicturesToSharedFolderV3` once to merge legacy profile folders
+from individual projects into this shared location without changing file IDs.
 
 Run `runCertificateStorageCleanupV2` to permanently remove generated PDFs that
 are no longer referenced by the certificate registry. Reissued certificates

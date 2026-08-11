@@ -34,7 +34,7 @@ function runOrganizeDriveStructureV3() {
   while (projects.hasNext()) {
     var projectFolder = projects.next();
     var projectName = projectFolder.getName();
-    if (projectName === "ผลงาน" || projectName === "เกียรติบัตร") continue;
+    if (projectName === "ผลงาน" || projectName === "เกียรติบัตร" || projectName === "รูปประจำตัว") continue;
     var workRoot = getOrCreateDriveFolder_(projectFolder, "ผลงาน");
     var certificateRoot = getOrCreateDriveFolder_(projectFolder, "เกียรติบัตร");
     var legacyGrades = projectFolder.getFolders();
@@ -64,6 +64,55 @@ function runOrganizeDriveStructureV3() {
   }
   refreshCertificatesFromSettingsV2_();
   return { movedTeacherFolders: movedFolders, movedCertificates: movedCertificates };
+}
+
+/** Move every legacy profile-picture folder to one shared root-level folder. */
+function runMoveProfilePicturesToSharedFolderV3() {
+  if (typeof FOLDER_ID === "undefined" || !FOLDER_ID) throw new Error("ไม่พบ FOLDER_ID");
+  var root = DriveApp.getFolderById(FOLDER_ID);
+  var shared = getOrCreateDriveFolder_(root, "รูปประจำตัว");
+  var sources = [];
+  var projects = root.getFolders();
+  while (projects.hasNext()) {
+    var project = projects.next();
+    if (project.getId() === shared.getId()) continue;
+    collectLegacyProfileFolders_(project, sources);
+  }
+  sources.forEach(function (source) { mergeDriveFolders_(source, shared); });
+  return { movedFolders: sources.length, sharedFolderId: shared.getId() };
+}
+
+function collectLegacyProfileFolders_(folder, result) {
+  var children = folder.getFolders();
+  while (children.hasNext()) {
+    var child = children.next();
+    if (/^(รูปประจำตัว|รูปภาพประจำตัว|profile pictures?|avatars?)$/i.test(child.getName().trim())) {
+      result.push(child);
+    } else {
+      collectLegacyProfileFolders_(child, result);
+    }
+  }
+}
+
+function mergeDriveFolders_(source, destination) {
+  var files = source.getFiles();
+  while (files.hasNext()) files.next().moveTo(destination);
+  var children = source.getFolders();
+  while (children.hasNext()) {
+    var child = children.next();
+    var target = getOrCreateDriveFolder_(destination, child.getName());
+    mergeDriveFolders_(child, target);
+  }
+  try { source.setTrashed(true); } catch (_) {}
+}
+
+/** Common destination for any future profile-picture upload flow. */
+function sharedProfilePictureFolder_(gradeLevel, teacherName) {
+  if (typeof FOLDER_ID === "undefined" || !FOLDER_ID) throw new Error("ไม่พบ FOLDER_ID");
+  var folder = getOrCreateDriveFolder_(DriveApp.getFolderById(FOLDER_ID), "รูปประจำตัว");
+  if (gradeLevel) folder = getOrCreateDriveFolder_(folder, String(gradeLevel).trim());
+  if (teacherName) folder = getOrCreateDriveFolder_(folder, String(teacherName).trim());
+  return folder;
 }
 
 function notifyNewSubmissionsV2() {
