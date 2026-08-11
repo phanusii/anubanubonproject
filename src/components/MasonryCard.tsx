@@ -4,7 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import { Submission } from "@/lib/types";
 import { FileText, Image as ImageIcon, ExternalLink, HardDrive, Smile } from "lucide-react";
-import { isGoogleDriveLink } from "@/lib/google-drive-utils";
+import { extractGoogleDriveFileId, getGoogleDriveThumbnail, isGoogleDriveLink } from "@/lib/google-drive-utils";
 import { displayWorkTitle, gradeLabel, shortThaiDate } from "@/lib/format";
 
 interface MasonryCardProps {
@@ -16,7 +16,14 @@ interface MasonryCardProps {
 export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryCardProps) {
   const isPdf = submission.fileType === "pdf";
   const isDrive = submission.fileType === "drive" || isGoogleDriveLink(submission.fileURL);
-  const [imgError, setImgError] = useState(false);
+  const driveFileId = submission.driveFileId || extractGoogleDriveFileId(submission.fileURL);
+  const thumbnailCandidates = Array.from(new Set([
+    submission.thumbnail,
+    driveFileId ? getGoogleDriveThumbnail(driveFileId) : "",
+    driveFileId ? `https://lh3.googleusercontent.com/d/${driveFileId}=w1000` : "",
+  ].filter(Boolean))) as string[];
+  const [thumbnailIndex, setThumbnailIndex] = useState(0);
+  const previewThumbnail = thumbnailCandidates[thumbnailIndex] || "";
   const [avatarError, setAvatarError] = useState(false);
   const compactAvatarUrl = avatarUrl?.replace(/=w\d+$/i, "=w64").replace(/([?&]sz=)w\d+/i, "$1w64");
 
@@ -28,14 +35,14 @@ export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryC
       <div className="space-y-3">
         {/* Preview Thumbnail Container — A4 portrait to fit PDF-page thumbnails */}
         <div className="relative aspect-[210/297] rounded-2xl overflow-hidden bg-white border border-slate-100 flex items-center justify-center group-hover:shadow-md transition-all">
-          {submission.thumbnail && !imgError ? (
+          {previewThumbnail ? (
             <Image
-              src={submission.thumbnail}
+              src={previewThumbnail}
               alt={submission.projectTitle}
               fill
               sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
               className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-500"
-              onError={() => setImgError(true)}
+              onError={() => setThumbnailIndex((index) => index + 1)}
             />
           ) : isPdf ? (
             <div className="flex flex-col items-center justify-center p-6 text-red-500 space-y-2">
