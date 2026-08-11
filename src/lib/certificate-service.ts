@@ -1,7 +1,10 @@
 import { CertificateRecord, CertificateSlideField, Project, Submission } from "./types";
 import { auth } from "./firebase";
 
-const SERVICE_URL = process.env.NEXT_PUBLIC_CERTIFICATE_SERVICE_URL || "";
+// The Apps Script web-app URL is public by design. Keep a checked-in fallback
+// so certificate lookup also works in clean CI/Firebase builds without .env.local.
+const SERVICE_URL = process.env.NEXT_PUBLIC_CERTIFICATE_SERVICE_URL
+  || "https://script.google.com/macros/s/AKfycbyhEJADSzKxiEsGcl80VuJyPPBaz_5GJhG7syFaJ2LgOake0smcU2Ipge5YmgyGNYg2/exec";
 
 export function certificateRecipientKey(fullName: string): string {
   return fullName.trim().toLowerCase().replace(/\s+/g, " ");
@@ -31,7 +34,6 @@ export function certificateProgress(submissions: Submission[], project: Project)
 }
 
 async function callService(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
-  if (!SERVICE_URL) throw new Error("ยังไม่ได้ตั้งค่า NEXT_PUBLIC_CERTIFICATE_SERVICE_URL");
   const response = await fetch(SERVICE_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },

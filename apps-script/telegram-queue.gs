@@ -89,8 +89,19 @@ function formatSubmissionSummaryV2_(documents) {
   });
   lines.push("", "รายการล่าสุด:");
   items.slice(-15).reverse().forEach(function(item) {
-    lines.push("• " + (item.fullName || "ไม่ระบุชื่อ") + " — " + (item.projectTitle || "ไม่ระบุชิ้นงาน"));
+    lines.push("• " + (item.fullName || "ไม่ระบุชื่อ") + " — " + cleanWorkTitleV2_(item.projectTitle));
+    var workUrl = String(item.fileURL || item.driveLink || "").trim();
+    if (workUrl) lines.push("  🔗 ดูงานที่ส่ง: " + workUrl);
   });
   if (items.length > 15) lines.push("…และอีก " + (items.length - 15) + " รายการ");
   return lines.join("\n");
+}
+
+function cleanWorkTitleV2_(value) {
+  var title = String(value || "ไม่ระบุชิ้นงาน").trim();
+  // Remove one or more trailing notes such as (ไฟล์ PDF) or (รูปภาพ / PDF / Google Drive).
+  while (/\s*\([^()]*\)\s*$/.test(title)) {
+    title = title.replace(/\s*\([^()]*\)\s*$/, "").trim();
+  }
+  return title || "ไม่ระบุชิ้นงาน";
 }

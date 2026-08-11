@@ -141,10 +141,10 @@ function formatSubmissionMessage_(data) {
     "👤 " + (data.fullName || "ไม่ระบุชื่อ"),
     "🏷️ " + (data.position || "ไม่ระบุตำแหน่ง"),
     "📚 " + (data.gradeLevel || "-") + " · " + shortSubject_(data.subjectGroup || "-"),
-    "📝 " + (data.projectTitle || "ไม่ระบุชิ้นงาน"),
+    "📝 " + cleanWorkTitle_(data.projectTitle),
     "📁 " + (data.projectName || "ไม่ระบุรอบ"),
   ];
-  if (data.fileURL) lines.push("🔗 " + data.fileURL);
+  if (data.fileURL || data.driveLink) lines.push("🔗 ดูงานที่ส่ง: " + (data.fileURL || data.driveLink));
   return lines.join("\n");
 }
 
@@ -163,7 +163,9 @@ function formatSubmissionSummary_(documents) {
     "รายการล่าสุด:",
   ];
   items.slice(-15).reverse().forEach((item) => {
-    lines.push("• " + (item.fullName || "ไม่ระบุชื่อ") + " — " + (item.projectTitle || "ไม่ระบุชิ้นงาน"));
+    lines.push("• " + (item.fullName || "ไม่ระบุชื่อ") + " — " + cleanWorkTitle_(item.projectTitle));
+    const workUrl = String(item.fileURL || item.driveLink || "").trim();
+    if (workUrl) lines.push("  🔗 ดูงานที่ส่ง: " + workUrl);
   });
   if (items.length > 15) lines.push("…และอีก " + (items.length - 15) + " รายการ");
   return lines.join("\n");
@@ -171,6 +173,14 @@ function formatSubmissionSummary_(documents) {
 
 function shortSubject_(value) {
   return String(value).replace(/^กลุ่มสาระการเรียนรู้/, "").trim();
+}
+
+function cleanWorkTitle_(value) {
+  let title = String(value || "ไม่ระบุชิ้นงาน").trim();
+  while (/\s*\([^()]*\)\s*$/.test(title)) {
+    title = title.replace(/\s*\([^()]*\)\s*$/, "").trim();
+  }
+  return title || "ไม่ระบุชิ้นงาน";
 }
 
 function sendTelegram_(text, explicitChatId) {
