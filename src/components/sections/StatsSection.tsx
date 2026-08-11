@@ -165,7 +165,11 @@ export default function StatsSection() {
   const bySubject = useMemo(
     () =>
       buildGroups((t) => subjectByTeacher.get(normName(t.fullName)) || t.subjectGroup).sort(
-        (a, b) => b.totalTeachers - a.totalTeachers
+        (a, b) => {
+          if (a.key === "ไม่ระบุ") return 1;
+          if (b.key === "ไม่ระบุ") return -1;
+          return b.totalTeachers - a.totalTeachers || a.label.localeCompare(b.label, "th");
+        }
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [statisticalTeachers, worksByTeacher, required, subjectByTeacher]
