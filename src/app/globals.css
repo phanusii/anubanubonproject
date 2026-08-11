@@ -52,6 +52,14 @@ body::after {
   background: linear-gradient(145deg, rgba(191,90,242,.12), rgba(99,230,190,.08));
 }
 
+@keyframes liquid-drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(1.25rem, -1rem, 0) scale(1.06); }
+}
+
+body::before { animation: liquid-drift 14s ease-in-out infinite; }
+body::after { animation: liquid-drift 18s ease-in-out infinite reverse; }
+
 ::selection { background: rgba(10, 132, 255, 0.2); color: #082f66; }
 
 html {
@@ -67,6 +75,15 @@ html {
 img, video, canvas, iframe {
   max-width: 100%;
 }
+
+main h1,
+main h2,
+main h3 {
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+main p { text-wrap: pretty; }
 
 /* iOS Glassmorphism Panel */
 .glass-panel {
@@ -100,6 +117,26 @@ aside.bg-white {
   box-shadow: var(--liquid-shadow) !important;
 }
 
+main section.bg-white,
+main article.bg-white,
+main div.bg-white.rounded-3xl {
+  position: relative;
+  isolation: isolate;
+}
+
+main section.bg-white::before,
+main article.bg-white::before,
+main div.bg-white.rounded-3xl::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0.5px 10% auto;
+  height: 1px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.95), transparent);
+  pointer-events: none;
+}
+
 button,
 a,
 input,
@@ -110,6 +147,17 @@ textarea {
 
 button:not(:disabled):active,
 a:active { transform: scale(.975); }
+
+button[class*="bg-blue-"], a[class*="bg-blue-"],
+button[class*="bg-emerald-"], a[class*="bg-emerald-"],
+button[class*="bg-amber-"], a[class*="bg-amber-"] {
+  box-shadow: 0 8px 20px color-mix(in srgb, currentColor 17%, transparent);
+}
+
+button:not(:disabled):hover,
+a[class*="rounded-"]:hover {
+  filter: saturate(1.04);
+}
 
 input:not([type="checkbox"]):not([type="radio"]),
 textarea,
@@ -128,6 +176,7 @@ select:focus {
 }
 
 table thead { background: rgba(248,250,252,.48); }
+table th { color: #64748b; font-weight: 700; letter-spacing: .01em; }
 table tbody tr { transition: background-color .18s ease; }
 table tbody tr:hover { background: rgba(239,246,255,.5); }
 
@@ -137,6 +186,12 @@ table tbody tr:hover { background: rgba(239,246,255,.5); }
   -webkit-backdrop-filter: blur(30px) saturate(155%) !important;
   border-color: rgba(148,163,184,.18) !important;
   box-shadow: 0 10px 34px rgba(45,70,130,.10) !important;
+}
+
+.liquid-navbar > div > div > div.hidden {
+  background: rgba(241,245,249,.62);
+  border-color: rgba(148,163,184,.16);
+  box-shadow: inset 0 1px 2px rgba(15,23,42,.025), 0 1px 0 rgba(255,255,255,.8);
 }
 
 .glass-card:hover {
@@ -241,6 +296,9 @@ select option {
   button, a, input, select, textarea { touch-action: manipulation; }
   .glass-panel { backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
   table { font-size: 0.75rem; }
+  main { padding-left: 0.875rem; padding-right: 0.875rem; }
+  main h1 { line-height: 1.22; }
+  body::before, body::after { opacity: .46; }
 }
 
 @media (prefers-reduced-motion: reduce) {
