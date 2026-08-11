@@ -17,6 +17,13 @@ function runCertificateSettingsRefreshV2() {
   refreshCertificatesFromSettingsV2_();
 }
 
+/** Manual safe cleanup for obsolete generated certificate PDFs. */
+function runCertificateStorageCleanupV2() {
+  var result = cleanupObsoleteCertificatePdfs_();
+  console.log("Certificate cleanup: deleted=" + result.deleted + ", kept=" + result.kept);
+  return result;
+}
+
 function notifyNewSubmissionsV2() {
   var properties = PropertiesService.getScriptProperties();
   refreshCertificatesFromSettingsV2_();

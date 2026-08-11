@@ -32,3 +32,8 @@ Issued PDFs are organized automatically under `CERTIFICATE_FOLDER_ID` as
 `<project name>/<grade level>/<certificate number> - <recipient name>.pdf`.
 The minute worker also moves legacy PDFs into this structure without changing
 their Drive file IDs or download links.
+
+Run `runCertificateStorageCleanupV2` to permanently remove generated PDFs that
+are no longer referenced by the certificate registry. Reissued certificates
+also permanently delete the replaced PDF automatically, with Drive trash used
+only as a temporary fallback when the delete API is unavailable.

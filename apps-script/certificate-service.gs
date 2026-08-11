@@ -246,7 +246,67 @@ function organizeCertificateFile_(project, snapshot, fileId, certificateNumber) 
 
 function trashReplacedCertificate_(oldFileId, newFileId) {
   if (!oldFileId || String(oldFileId) === String(newFileId)) return;
-  try { DriveApp.getFileById(oldFileId).setTrashed(true); } catch (_) {}
+  try { permanentlyDeleteDriveFile_(oldFileId); } catch (_) {
+    // Fall back to the recoverable trash operation if the Drive API is
+    // temporarily unavailable. The cleanup worker will retry permanent removal.
+    try { DriveApp.getFileById(oldFileId).setTrashed(true); } catch (__) {}
+  }
+}
+
+function permanentlyDeleteDriveFile_(fileId) {
+  var response = UrlFetchApp.fetch("https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId), {
+    method: "delete",
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  });
+  var code = response.getResponseCode();
+  if (code !== 204 && code !== 404) throw new Error("ลบไฟล์เกียรติบัตรเก่าไม่สำเร็จ (" + code + ")");
+}
+
+/**
+ * Permanently remove generated certificate PDFs that are no longer referenced
+ * by the registry. Only files inside CERTIFICATE_FOLDER_ID and matching the
+ * service's filename patterns are eligible, so templates and unrelated files
+ * remain untouched.
+ */
+function cleanupObsoleteCertificatePdfs_() {
+  var folderId = PropertiesService.getScriptProperties().getProperty("CERTIFICATE_FOLDER_ID");
+  if (!folderId) throw new Error("ยังไม่ได้ตั้งค่า CERTIFICATE_FOLDER_ID");
+  var registry = loadCertificateRegistry_();
+  var keep = {};
+  Object.keys(registry.records || {}).forEach(function (id) {
+    var fileId = registry.records[id] && registry.records[id].pdfFileId;
+    if (fileId) keep[String(fileId)] = true;
+  });
+
+  var folderIds = [];
+  collectCertificateFolderIds_(DriveApp.getFolderById(folderId), folderIds);
+  var candidates = [];
+  folderIds.forEach(function (parentId) {
+    var token = "";
+    do {
+      var url = "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent("'" + parentId + "' in parents and mimeType='application/pdf'") + "&fields=nextPageToken,files(id,name,trashed)&pageSize=1000";
+      if (token) url += "&pageToken=" + encodeURIComponent(token);
+      var data = JSON.parse(UrlFetchApp.fetch(url, { headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() } }).getContentText());
+      (data.files || []).forEach(function (file) {
+        if (!keep[file.id] && isGeneratedCertificatePdfName_(file.name)) candidates.push(file.id);
+      });
+      token = data.nextPageToken || "";
+    } while (token);
+  });
+  candidates.forEach(permanentlyDeleteDriveFile_);
+  return { deleted: candidates.length, kept: Object.keys(keep).length };
+}
+
+function collectCertificateFolderIds_(folder, result) {
+  result.push(folder.getId());
+  var children = folder.getFolders();
+  while (children.hasNext()) collectCertificateFolderIds_(children.next(), result);
+}
+
+function isGeneratedCertificatePdfName_(name) {
+  name = String(name || "");
+  return /^เกียรติบัตร-.+\.pdf$/i.test(name) || /^.+\s-\s.+\.pdf$/i.test(name);
 }
 
 function inspectSlidesTemplate_(value) {
