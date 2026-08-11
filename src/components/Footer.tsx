@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { getTrainingSettings } from "@/lib/submission-service";
 import { TrainingSettings } from "@/lib/types";
-import { Building, Sparkles } from "lucide-react";
+import { Code2, Sparkles } from "lucide-react";
 
 export default function Footer() {
   const [settings, setSettings] = useState<TrainingSettings | null>(null);
@@ -39,9 +39,9 @@ export default function Footer() {
           <span>{settings?.schoolName || "โรงเรียนอนุบาลอุบลราชธานี"} &copy; {new Date().getFullYear()}</span>
         </div>
 
-        <div className="flex items-center gap-1.5 text-slate-500">
-          <Building className="w-3.5 h-3.5 text-blue-500" />
-          <span>{settings?.educationalArea || "สำนักงานเขตพื้นที่การศึกษาประถมศึกษาอุบลราชธานี เขต 1"}</span>
+        <div className="flex items-center gap-1.5 text-slate-500 text-center sm:text-right">
+          <Code2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+          <span>พัฒนาโดย ครูสีสวย ป.6WP (ครูภานุพันธ์ สุดไชย)</span>
         </div>
       </div>
     </footer>

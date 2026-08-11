@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
+import ProfileImageCropper from "@/components/ProfileImageCropper";
 import {
   getGradeLevels,
   saveGradeLevel,
@@ -12,10 +13,10 @@ import {
   saveSubjectGroup,
   deleteSubjectGroup
 } from "@/lib/masters-service";
-import { DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
-import { findSimilarTeachers, getTeachers, normalizeTeacherName, saveTeacher, deleteTeacher, TeacherItem } from "@/lib/teachers-service";
+import { DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS, uploadFileToGoogleDrive } from "@/lib/submission-service";
+import { findSimilarTeachers, getTeachers, normalizeTeacherName, saveTeacher, deleteTeacher, updateTeacherPhoto, TeacherItem } from "@/lib/teachers-service";
 import { GradeLevelOption, SubjectGroupOption } from "@/lib/types";
-import { Layers, BookOpen, Plus, Trash2, Edit2, Save, X, Search, Users, AlertTriangle } from "lucide-react";
+import { Layers, BookOpen, Plus, Trash2, Edit2, Save, X, Search, Users, AlertTriangle, Camera, Loader2 } from "lucide-react";
 
 export default function AdminMastersPage() {
   // Active Tab: 'teachers' | 'grades' | 'subjects'
@@ -32,6 +33,10 @@ export default function AdminMastersPage() {
   const [editingTeacher, setEditingTeacher] = useState<TeacherItem | null>(null);
   const [showAddTeacherModal, setShowAddTeacherModal] = useState(false);
   const [teacherFormMessage, setTeacherFormMessage] = useState("");
+  const [profileCropSource, setProfileCropSource] = useState<File | null>(null);
+  const [croppedProfileFile, setCroppedProfileFile] = useState<File | null>(null);
+  const [profilePreviewUrl, setProfilePreviewUrl] = useState("");
+  const [savingTeacher, setSavingTeacher] = useState(false);
 
   // New Teacher Form State
   const [teacherForm, setTeacherForm] = useState({
@@ -100,13 +105,23 @@ export default function AdminMastersPage() {
     }
 
     try {
-      if (editingTeacher) {
-        await saveTeacher({ ...teacherForm, id: editingTeacher.id });
-      } else {
-        await saveTeacher(teacherForm);
+      setSavingTeacher(true);
+      const saved = editingTeacher
+        ? await saveTeacher({ ...teacherForm, id: editingTeacher.id, photoUrl: editingTeacher.photoUrl, photoFileId: editingTeacher.photoFileId })
+        : await saveTeacher(teacherForm);
+      if (croppedProfileFile) {
+        const uploaded = await uploadFileToGoogleDrive(croppedProfileFile, undefined, {
+          storageCategory: "profile",
+          gradeLevel: teacherForm.gradeLevel,
+          submitterName: teacherForm.fullName.trim(),
+          workLabel: "รูปประจำตัว",
+          existingFileId: editingTeacher?.photoFileId,
+        });
+        await updateTeacherPhoto(saved.id, uploaded.url, uploaded.id);
       }
     } catch (error) {
       setTeacherFormMessage(error instanceof Error ? error.message : "บันทึกรายชื่อไม่สำเร็จ");
+      setSavingTeacher(false);
       return;
     }
 
@@ -117,6 +132,9 @@ export default function AdminMastersPage() {
       subjectGroup: subjectGroups[0]?.name || "กลุ่มสาระการเรียนรู้ภาษาไทย",
     });
     setEditingTeacher(null);
+    setCroppedProfileFile(null);
+    setProfilePreviewUrl("");
+    setSavingTeacher(false);
     setTeacherFormMessage("");
     setShowAddTeacherModal(false);
     loadAllMasters();
@@ -138,6 +156,8 @@ export default function AdminMastersPage() {
       gradeLevel: t.gradeLevel,
       subjectGroup: t.subjectGroup,
     });
+    setCroppedProfileFile(null);
+    setProfilePreviewUrl(t.photoUrl || "");
     setShowAddTeacherModal(true);
   };
 
@@ -268,6 +288,8 @@ export default function AdminMastersPage() {
                         gradeLevel: gradeLevels[0]?.name || "ป.1",
                         subjectGroup: subjectGroups[0]?.name || "กลุ่มสาระการเรียนรู้ภาษาไทย",
                       });
+                      setCroppedProfileFile(null);
+                      setProfilePreviewUrl("");
                       setShowAddTeacherModal(true);
                     }}
                     className="px-5 py-2.5 rounded-2xl ios-gradient-blue text-white font-extrabold text-xs shadow-md shadow-blue-500/20 flex items-center gap-2 hover:scale-105 transition-all shrink-0"
@@ -522,7 +544,7 @@ export default function AdminMastersPage() {
       {/* Add / Edit Teacher Modal */}
       {showAddTeacherModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="w-full max-w-md glass-panel p-6 rounded-3xl border border-white bg-white shadow-2xl space-y-6">
+          <div className="w-full max-w-md max-h-[94dvh] overflow-y-auto glass-panel p-5 sm:p-6 rounded-3xl border border-white bg-white shadow-2xl space-y-6">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
                 <Users className="w-5 h-5 text-blue-600" />
@@ -537,6 +559,22 @@ export default function AdminMastersPage() {
             </div>
 
             <form onSubmit={handleSaveTeacherSubmit} className="space-y-4">
+              <div className="flex items-center gap-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-3">
+                <div className="w-20 h-20 rounded-full overflow-hidden bg-white border-2 border-white shadow-sm flex items-center justify-center shrink-0">
+                  {profilePreviewUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={profilePreviewUrl} alt="รูปประจำตัวครู" className="w-full h-full object-cover" />
+                  ) : <Users className="w-8 h-8 text-slate-300" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-extrabold text-slate-800">รูปประจำตัว</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">เลือกแล้วครอปให้พอดีก่อนบันทึก ใช้รูปเดียวกันได้ทุกรอบ</p>
+                  <label className="mt-2 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-blue-200 text-blue-700 text-xs font-bold cursor-pointer hover:bg-blue-50">
+                    <Camera className="w-4 h-4" />เลือกรูปและครอป
+                    <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { const selected = event.target.files?.[0]; if (selected) setProfileCropSource(selected); event.currentTarget.value = ""; }} />
+                  </label>
+                </div>
+              </div>
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-slate-800">
                   ชื่อ-สกุล ครู <span className="text-red-500">*</span>
@@ -621,16 +659,17 @@ export default function AdminMastersPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={Boolean(exactTeacherDuplicate)}
+                  disabled={Boolean(exactTeacherDuplicate) || savingTeacher}
                   className="px-6 py-2 rounded-xl ios-gradient-blue text-white font-extrabold text-xs shadow-md shadow-blue-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {editingTeacher ? "บันทึกการแก้ไข" : "เพิ่มรายชื่อครู"}
+                  {savingTeacher ? <span className="flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />กำลังบันทึก</span> : editingTeacher ? "บันทึกการแก้ไข" : "เพิ่มรายชื่อครู"}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+      {profileCropSource && <ProfileImageCropper file={profileCropSource} onCancel={() => setProfileCropSource(null)} onCrop={(file, previewUrl) => { if (profilePreviewUrl.startsWith("blob:")) URL.revokeObjectURL(profilePreviewUrl); setCroppedProfileFile(file); setProfilePreviewUrl(previewUrl); setProfileCropSource(null); }} />}
     </div>
   );
 }
