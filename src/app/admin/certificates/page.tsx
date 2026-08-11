@@ -61,9 +61,11 @@ export default function CertificatesAdminPage() {
     setSlideFields([]);
     setIssuingAutomatically(false);
     let cancelled = false;
-    void Promise.all([getCertificates(project.id), getProjectSubmissions(project.id, true)])
-      .then(async ([certificateItems, submissions]) => {
+    void Promise.allSettled([getCertificates(project.id), getProjectSubmissions(project.id, true)])
+      .then(async ([certificateResult, submissionsResult]) => {
         if (cancelled) return;
+        const certificateItems = certificateResult.status === "fulfilled" ? certificateResult.value : [];
+        const submissions = submissionsResult.status === "fulfilled" ? submissionsResult.value : [];
         setRecords(certificateItems);
         const groups = new Map<string, typeof submissions>();
         submissions.forEach((item) => {
@@ -72,6 +74,12 @@ export default function CertificatesAdminPage() {
         });
         const eligible = Array.from(groups.values()).filter((items) => certificateProgress(items, project).complete).map((items) => [...items].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0].fullName);
         setEligibleNames(eligible);
+
+        if (certificateResult.status === "rejected") {
+          setMessage(`อ่านทะเบียนเกียรติบัตรไม่สำเร็จ: ${certificateResult.reason instanceof Error ? certificateResult.reason.message : "กรุณาลองใหม่"}`);
+        } else if (submissionsResult.status === "rejected") {
+          setMessage(`อ่านข้อมูลผู้ส่งงานไม่สำเร็จ: ${submissionsResult.reason instanceof Error ? submissionsResult.reason.message : "กรุณาลองใหม่"}`);
+        }
 
         // Create every missing certificate immediately. Work in small batches to
         // stay below Apps Script's concurrent execution quota for large rounds.
@@ -82,13 +90,23 @@ export default function CertificatesAdminPage() {
         if (missing.length) {
           setIssuingAutomatically(true);
           setMessage(`พบผู้ส่งครบ ${missing.length} คน กำลังสร้างเกียรติบัตรอัตโนมัติ...`);
+          const newlyIssued: CertificateRecord[] = [];
           for (let index = 0; index < missing.length && !cancelled; index += 3) {
-            await Promise.allSettled(missing.slice(index, index + 3).map((fullName) => issueCertificate(project.id, fullName)));
+            const batch = await Promise.allSettled(missing.slice(index, index + 3).map((fullName) => issueCertificate(project.id, fullName)));
+            batch.forEach((result) => { if (result.status === "fulfilled") newlyIssued.push(result.value); });
           }
           if (!cancelled) {
-            const refreshed = await getCertificates(project.id);
-            setRecords(refreshed);
-            setMessage("สร้างและอัปเดตรายการเกียรติบัตรอัตโนมัติแล้ว");
+            // Issuance is idempotent, so these results also recover existing
+            // records when the initial list request temporarily fails.
+            setRecords((current) => {
+              const merged = new Map([...current, ...newlyIssued].map((item) => [item.id, item]));
+              return Array.from(merged.values()).sort((a, b) => (b.issuedAt || 0) - (a.issuedAt || 0));
+            });
+            try {
+              const refreshed = await getCertificates(project.id);
+              if (refreshed.length) setRecords(refreshed);
+            } catch { /* keep the recovered issuance results visible */ }
+            setMessage(newlyIssued.length === missing.length ? "สร้างและอัปเดตรายการเกียรติบัตรอัตโนมัติแล้ว" : `พบผู้มีสิทธิ์ ${missing.length} คน อัปเดตรายการได้ ${newlyIssued.length} คน`);
             setIssuingAutomatically(false);
           }
         }

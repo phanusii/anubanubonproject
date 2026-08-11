@@ -46,41 +46,45 @@ async function callService(payload: Record<string, unknown>): Promise<Record<str
   return json;
 }
 
+async function getAdminIdToken(): Promise<string> {
+  // Firebase can restore the persisted session a fraction after the page mounts.
+  // Waiting here prevents admin reads from being mistaken for an empty registry.
+  await auth.authStateReady();
+  const idToken = await auth.currentUser?.getIdToken();
+  if (!idToken) throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลอีกครั้ง");
+  return idToken;
+}
+
 export async function issueCertificate(projectId: string, fullName: string): Promise<CertificateRecord> {
   const result = await callService({ action: "issue", projectId, fullName: fullName.trim() });
   return result.certificate as CertificateRecord;
 }
 
 export async function retryCertificate(projectId: string, fullName: string, renumber = false): Promise<CertificateRecord> {
-  const idToken = await auth.currentUser?.getIdToken();
-  if (!idToken) throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลอีกครั้ง");
+  const idToken = await getAdminIdToken();
   const result = await callService({ action: "retry", projectId, fullName: fullName.trim(), renumber, idToken });
   return result.certificate as CertificateRecord;
 }
 
 export async function createCertificatePreview(projectId: string): Promise<string> {
-  const idToken = await auth.currentUser?.getIdToken();
-  if (!idToken) throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลอีกครั้ง");
+  const idToken = await getAdminIdToken();
   const result = await callService({ action: "preview", projectId, idToken });
   return String(result.url || "");
 }
 
 export async function inspectCertificateTemplate(projectId: string, slideTemplateId: string): Promise<CertificateSlideField[]> {
-  const idToken = await auth.currentUser?.getIdToken();
-  if (!idToken) throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลอีกครั้ง");
+  const idToken = await getAdminIdToken();
   const result = await callService({ action: "inspectTemplate", projectId, slideTemplateId, idToken });
   return (result.fields || []) as CertificateSlideField[];
 }
 
 export async function revokeCertificate(id: string): Promise<void> {
-  const idToken = await auth.currentUser?.getIdToken();
-  if (!idToken) throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลอีกครั้ง");
+  const idToken = await getAdminIdToken();
   await callService({ action: "revoke", certificateId: id, idToken });
 }
 
 export async function getCertificates(projectId: string): Promise<CertificateRecord[]> {
-  const idToken = await auth.currentUser?.getIdToken();
-  if (!idToken) throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลอีกครั้ง");
+  const idToken = await getAdminIdToken();
   const result = await callService({ action: "list", projectId, idToken });
   return (result.certificates || []) as CertificateRecord[];
 }
