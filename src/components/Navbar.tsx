@@ -65,7 +65,7 @@ export default function Navbar() {
   const currentHead = (hash || "#gallery").split("/")[0];
 
   return (
-    <nav className="sticky top-0 z-50 glass-panel border-b border-white/80 shadow-xs bg-white/85">
+    <nav className="liquid-navbar sticky top-0 z-50 glass-panel border-b border-white/80 shadow-xs bg-white/85">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20">
           {/* Logo & Brand */}

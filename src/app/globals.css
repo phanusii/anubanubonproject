@@ -1,20 +1,58 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f8fafc;
+  --background: #f5f7ff;
   --foreground: #0f172a;
-  --card-bg: rgba(255, 255, 255, 0.82);
-  --card-border: rgba(255, 255, 255, 0.9);
+  --card-bg: rgba(255, 255, 255, 0.76);
+  --card-border: rgba(255, 255, 255, 0.78);
+  --liquid-blue: #0a84ff;
+  --liquid-cyan: #64d2ff;
+  --liquid-purple: #bf5af2;
+  --liquid-mint: #63e6be;
+  --liquid-shadow: 0 18px 55px rgba(52, 84, 160, 0.10), 0 2px 10px rgba(20, 30, 60, 0.05);
 }
 
 body {
-  background: linear-gradient(135deg, #f0f7ff 0%, #faf5ff 50%, #f0fdf4 100%);
+  background:
+    radial-gradient(circle at 7% 4%, rgba(100, 210, 255, 0.23), transparent 27rem),
+    radial-gradient(circle at 94% 18%, rgba(191, 90, 242, 0.14), transparent 30rem),
+    radial-gradient(circle at 72% 90%, rgba(99, 230, 190, 0.17), transparent 30rem),
+    linear-gradient(145deg, #f8fbff 0%, #f7f4ff 48%, #f3fbf8 100%);
   background-attachment: fixed;
   color: #0f172a;
   font-family: 'Prompt', 'Kanit', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
   min-height: 100vh;
   overflow-x: hidden;
 }
+
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 999px;
+  filter: blur(10px);
+  opacity: 0.7;
+}
+
+body::before {
+  width: 19rem;
+  height: 19rem;
+  left: -8rem;
+  top: 34%;
+  background: linear-gradient(145deg, rgba(10,132,255,.16), rgba(100,210,255,.05));
+}
+
+body::after {
+  width: 22rem;
+  height: 22rem;
+  right: -10rem;
+  bottom: 4%;
+  background: linear-gradient(145deg, rgba(191,90,242,.12), rgba(99,230,190,.08));
+}
+
+::selection { background: rgba(10, 132, 255, 0.2); color: #082f66; }
 
 html {
   max-width: 100%;
@@ -32,21 +70,73 @@ img, video, canvas, iframe {
 
 /* iOS Glassmorphism Panel */
 .glass-panel {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  box-shadow: 0 10px 30px -5px rgba(0, 122, 255, 0.08), 0 4px 12px rgba(0, 0, 0, 0.03);
+  background: linear-gradient(145deg, rgba(255,255,255,.88), rgba(255,255,255,.66));
+  backdrop-filter: blur(28px) saturate(145%);
+  -webkit-backdrop-filter: blur(28px) saturate(145%);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--liquid-shadow), inset 0 1px 0 rgba(255,255,255,.9);
 }
 
 /* iOS Glass Card Hover */
 .glass-card {
-  background: rgba(255, 255, 255, 0.9);
+  background: linear-gradient(155deg, rgba(255,255,255,.92), rgba(255,255,255,.70));
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 8px 25px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--liquid-shadow), inset 0 1px 0 rgba(255,255,255,.96);
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Apply the liquid surface consistently to page cards that use Tailwind's
+   plain white surface. Keeps all public/admin pages visually coherent. */
+main section.bg-white,
+main article.bg-white,
+main div.bg-white.rounded-3xl,
+aside.bg-white {
+  background: linear-gradient(145deg, rgba(255,255,255,.91), rgba(255,255,255,.73)) !important;
+  border-color: rgba(255,255,255,.85) !important;
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+  box-shadow: var(--liquid-shadow), inset 0 1px 0 rgba(255,255,255,.94);
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  transition: transform .2s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease, border-color .2s ease, background-color .2s ease, color .2s ease;
+}
+
+button:not(:disabled):active,
+a:active { transform: scale(.975); }
+
+input:not([type="checkbox"]):not([type="radio"]),
+textarea,
+select {
+  border-color: rgba(148,163,184,.24) !important;
+  background-color: rgba(248,250,252,.72) !important;
+  box-shadow: inset 0 1px 2px rgba(15,23,42,.03), 0 1px 0 rgba(255,255,255,.85);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
+textarea:focus,
+select:focus {
+  border-color: rgba(10,132,255,.64) !important;
+  background-color: rgba(255,255,255,.94) !important;
+  box-shadow: 0 0 0 4px rgba(10,132,255,.12), 0 8px 24px rgba(10,132,255,.08) !important;
+}
+
+table thead { background: rgba(248,250,252,.48); }
+table tbody tr { transition: background-color .18s ease; }
+table tbody tr:hover { background: rgba(239,246,255,.5); }
+
+.liquid-navbar {
+  background: rgba(250,252,255,.76) !important;
+  backdrop-filter: blur(30px) saturate(165%) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(165%) !important;
+  border-color: rgba(255,255,255,.86) !important;
+  box-shadow: 0 10px 35px rgba(50,70,120,.08), inset 0 -1px 0 rgba(255,255,255,.7) !important;
 }
 
 .glass-card:hover {
@@ -133,4 +223,8 @@ select:focus {
   button, a, input, select, textarea { touch-action: manipulation; }
   .glass-panel { backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
   table { font-size: 0.75rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
