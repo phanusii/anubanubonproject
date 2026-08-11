@@ -570,6 +570,12 @@ function installCertificateScheduler_() {
   ScriptApp.newTrigger("processScheduledCertificates_").timeBased().everyMinutes(1).create();
 }
 
+/** Run once from the editor; the admin save action also keeps this trigger current. */
+function installCertificateScheduler() {
+  installCertificateScheduler_();
+  return "Certificate scheduler is ready";
+}
+
 function saveCertificateRegistry_(registry) {
   certificateRegistryFile_().setContent(JSON.stringify(registry));
 }
