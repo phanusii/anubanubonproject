@@ -13,6 +13,7 @@ import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings, Pro
 import { Search, Sparkles, FolderKanban, Layers } from "lucide-react";
 
 const PAGE_SIZE = 60;
+const ITEMS_PER_PAGE = 20;
 
 /** Normalize a teacher name for matching (ignore spaces / leading "ครู"). */
 const normName = (s: string) => (s || "").replace(/\s+/g, "").replace(/^ครู/, "").trim();
@@ -37,6 +38,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   const [cursor, setCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Search & Filter state
   const [search, setSearch] = useState("");
@@ -109,6 +111,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
     setSubmissions([]);
     setCursor(null);
     setHasMore(false);
+    setCurrentPage(1);
     fetchFirstPage(pid);
   };
 
@@ -170,6 +173,25 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
       return matchesSearch && matchesGrade && matchesSubject && matchesLegacyProjectFilter && notHidden && belongsToExistingProject && matchesProject;
     });
   }, [submissions, search, selectedGrade, selectedSubject, hiddenIds, selectedProjectId, projects, settings]);
+
+  const loadedPageCount = Math.max(1, Math.ceil(filteredSubmissions.length / ITEMS_PER_PAGE));
+  const pageButtonCount = loadedPageCount + (hasMore ? 1 : 0);
+  const pagedSubmissions = useMemo(
+    () => filteredSubmissions.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE),
+    [filteredSubmissions, currentPage],
+  );
+
+  const goToPage = async (page: number) => {
+    if (page < 1 || isLoadingMore) return;
+    if (page <= loadedPageCount) {
+      setCurrentPage(page);
+      return;
+    }
+    if (hasMore && page === loadedPageCount + 1) {
+      await handleLoadMore();
+      setCurrentPage(page);
+    }
+  };
 
   const isSpecificFilterActive = settings?.activeProjectFilterMode === 'specific' && settings.activeProjectFilterName;
 
@@ -248,7 +270,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
                 type="text"
                 placeholder="ค้นหาชื่อครู, ชื่อผลงาน, กลุ่มสาระ..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
                 className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition-all"
               />
             </div>
@@ -269,7 +291,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
             <select
               aria-label="กรองตามสายชั้น"
               value={selectedGrade}
-              onChange={(e) => setSelectedGrade(e.target.value)}
+              onChange={(e) => { setSelectedGrade(e.target.value); setCurrentPage(1); }}
               className="w-full lg:w-auto lg:max-w-[190px] px-3.5 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
             >
               <option value="ทั้งหมด">ทุกสายชั้น (อ.1 - ป.6)</option>
@@ -284,7 +306,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
             <select
               aria-label="กรองตามกลุ่มสาระ"
               value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
+              onChange={(e) => { setSelectedSubject(e.target.value); setCurrentPage(1); }}
               className="w-full lg:w-auto lg:max-w-[210px] px-3.5 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
             >
               <option value="ทั้งหมด">ทุกกลุ่มสาระการเรียนรู้</option>
@@ -308,7 +330,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
           </div>
         ) : (
           <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {filteredSubmissions.map((sub) => (
+            {pagedSubmissions.map((sub) => (
               <MasonryCard
                 key={sub.id}
                 submission={sub}
@@ -319,21 +341,18 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
           </div>
         )}
 
-        {/* Load More (cursor-based pagination) */}
-        {hasMore && (
-          <div className="flex flex-col items-center gap-2 pt-2">
-            <button
-              onClick={handleLoadMore}
-              disabled={isLoadingMore}
-              className="px-8 py-3.5 rounded-2xl ios-gradient-blue text-white font-extrabold text-sm shadow-md shadow-blue-500/25 disabled:opacity-60 disabled:cursor-not-allowed hover:scale-[1.02] transition-all"
-            >
-              {isLoadingMore ? "กำลังโหลด..." : "โหลดผลงานเพิ่มเติม"}
-            </button>
-            <p className="text-[11px] text-slate-400 font-medium">
-              กำลังค้นหาจากผลงาน {submissions.length} รายการที่โหลดแล้ว — กดเพื่อโหลดเพิ่ม
-            </p>
-          </div>
-        )}
+        {/* 20 works per page. The next cursor batch is fetched only when needed. */}
+        {filteredSubmissions.length > ITEMS_PER_PAGE || hasMore ? (
+          <nav aria-label="หน้าคลังผลงาน" className="flex flex-wrap items-center justify-center gap-2 pt-3">
+            <button type="button" onClick={() => void goToPage(currentPage - 1)} disabled={currentPage === 1 || isLoadingMore} className="h-10 px-4 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-600 disabled:opacity-40">ก่อนหน้า</button>
+            {Array.from({ length: pageButtonCount }, (_, index) => index + 1).map((page) => (
+              <button key={page} type="button" onClick={() => void goToPage(page)} disabled={isLoadingMore} aria-current={page === currentPage ? "page" : undefined} className={`w-10 h-10 rounded-xl text-sm font-extrabold transition-colors ${page === currentPage ? "bg-blue-600 text-white shadow-sm" : "border border-slate-200 bg-white text-slate-700 hover:bg-blue-50"}`}>
+                {isLoadingMore && page > loadedPageCount ? "…" : page}
+              </button>
+            ))}
+            <button type="button" onClick={() => void goToPage(currentPage + 1)} disabled={currentPage >= pageButtonCount || isLoadingMore} className="h-10 px-4 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-600 disabled:opacity-40">ถัดไป</button>
+          </nav>
+        ) : null}
       </main>
 
 

@@ -112,7 +112,11 @@ export default function AdminStatsPage() {
       if (item.complete) row.complete += 1;
       groups.set(label, row);
     }
-    return [...groups.values()].sort((a, b) => b.total - a.total);
+    return [...groups.values()].sort((a, b) => {
+      if (a.label === "ไม่ระบุ") return 1;
+      if (b.label === "ไม่ระบุ") return -1;
+      return b.total - a.total || a.label.localeCompare(b.label, "th");
+    });
   }, [progress, subjectByTeacher]);
 
   const displayedTeacherGroups = useMemo(() => {
@@ -124,9 +128,11 @@ export default function AdminStatsPage() {
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)?.push(item);
     }
-    return [...groups.entries()].sort(([a], [b]) =>
-      incompleteGroupBy === "grade" ? gradeOrder(a) - gradeOrder(b) : a.localeCompare(b, "th")
-    );
+    return [...groups.entries()].sort(([a], [b]) => {
+      if (a === "ไม่ระบุ") return 1;
+      if (b === "ไม่ระบุ") return -1;
+      return incompleteGroupBy === "grade" ? gradeOrder(a) - gradeOrder(b) : a.localeCompare(b, "th");
+    });
   }, [incompleteGroupBy, progress, subjectByTeacher, teacherListStatus]);
 
   const copyIncompleteGroup = async (group: string, items: TeacherProgress[]) => {
