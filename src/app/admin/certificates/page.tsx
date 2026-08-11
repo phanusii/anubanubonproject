@@ -87,12 +87,16 @@ export default function CertificatesAdminPage() {
         const missing = project.certificate?.enabled
           ? eligible.filter((fullName) => !issuedKeys.has(fullName.trim().toLowerCase().replace(/\s+/g, " ")))
           : [];
-        if (missing.length) {
+        // The endpoint is idempotent. Checking issued recipients as well lets
+        // server-side template/storage upgrades replace obsolete PDFs (such as
+        // the former QR-code version) while ordinary page loads reuse the file.
+        const recipientsToCheck = project.certificate?.enabled ? eligible : [];
+        if (recipientsToCheck.length) {
           setIssuingAutomatically(true);
-          setMessage(`พบผู้ส่งครบ ${missing.length} คน กำลังสร้างเกียรติบัตรอัตโนมัติ...`);
+          if (missing.length) setMessage(`พบผู้ส่งครบ ${missing.length} คน กำลังสร้างเกียรติบัตรอัตโนมัติ...`);
           const newlyIssued: CertificateRecord[] = [];
-          for (let index = 0; index < missing.length && !cancelled; index += 3) {
-            const batch = await Promise.allSettled(missing.slice(index, index + 3).map((fullName) => issueCertificate(project.id, fullName)));
+          for (let index = 0; index < recipientsToCheck.length && !cancelled; index += 3) {
+            const batch = await Promise.allSettled(recipientsToCheck.slice(index, index + 3).map((fullName) => issueCertificate(project.id, fullName)));
             batch.forEach((result) => { if (result.status === "fulfilled") newlyIssued.push(result.value); });
           }
           if (!cancelled) {
@@ -106,7 +110,7 @@ export default function CertificatesAdminPage() {
               const refreshed = await getCertificates(project.id);
               if (refreshed.length) setRecords(refreshed);
             } catch { /* keep the recovered issuance results visible */ }
-            setMessage(newlyIssued.length === missing.length ? "สร้างและอัปเดตรายการเกียรติบัตรอัตโนมัติแล้ว" : `พบผู้มีสิทธิ์ ${missing.length} คน อัปเดตรายการได้ ${newlyIssued.length} คน`);
+            setMessage(newlyIssued.length === recipientsToCheck.length ? "ตรวจและอัปเดตรายการเกียรติบัตรอัตโนมัติแล้ว" : `พบผู้มีสิทธิ์ ${recipientsToCheck.length} คน อัปเดตรายการได้ ${newlyIssued.length} คน`);
             setIssuingAutomatically(false);
           }
         }

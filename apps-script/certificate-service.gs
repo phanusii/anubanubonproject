@@ -84,7 +84,7 @@ function issueCertificate_(projectId, fullName, forceRetry, renumber) {
     var sameSubmissions = existing && JSON.stringify(existing.submissionIds || []) === JSON.stringify(completion.submissionIds || []);
     var sameSnapshot = existing && JSON.stringify(existing.snapshot || {}) === JSON.stringify(snapshot);
     var sameTemplate = existing && Number(existing.templateVersion || 1) === Number(config.templateVersion || 1);
-    var sameStorage = existing && Number(existing.storageVersion || 0) >= 3;
+    var sameStorage = existing && Number(existing.storageVersion || 0) >= 4;
     // Reuse the current PDF only when nothing that affects the certificate has
     // changed. A replacement/latest submission gets a new id, so completing or
     // updating work automatically regenerates the PDF while preserving its number.
@@ -109,7 +109,7 @@ function issueCertificate_(projectId, fullName, forceRetry, renumber) {
       var generated = renderCertificate_(project, config, snapshot, number, config.issueDateText || "");
       pending.pdfFileId = generated.id;
       pending.pdfUrl = generated.url;
-      pending.storageVersion = 3;
+      pending.storageVersion = 4;
       pending.status = "issued";
       pending.issuedAt = Date.now();
       trashReplacedCertificate_(existing && existing.pdfFileId, generated.id);
@@ -188,17 +188,6 @@ function renderCertificate_(project, config, snapshot, certificateNumber, dateTe
     Object.keys(replacements).forEach(function (token) {
       presentation.replaceAllText(token, String(replacements[token]));
     });
-    var publicSiteUrl = PropertiesService.getScriptProperties().getProperty("PUBLIC_SITE_URL");
-    if (publicSiteUrl) {
-      var verifyUrl = publicSiteUrl.replace(/\/$/, "") + "/certificate?number=" + encodeURIComponent(certificateNumber);
-      try {
-        var qr = UrlFetchApp.fetch("https://quickchart.io/qr?size=180&text=" + encodeURIComponent(verifyUrl)).getBlob();
-        var firstSlide = presentation.getSlides()[0];
-        var pageWidth = presentation.getPageWidth();
-        var pageHeight = presentation.getPageHeight();
-        firstSlide.insertImage(qr, pageWidth * 0.88, pageHeight * 0.80, pageWidth * 0.09, pageWidth * 0.09);
-      } catch (_) {}
-    }
     presentation.saveAndClose();
 
     var exportResponse = UrlFetchApp.fetch("https://www.googleapis.com/drive/v3/files/" + workingFile.getId() + "/export?mimeType=application%2Fpdf", { headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() } });
