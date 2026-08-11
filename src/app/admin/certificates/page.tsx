@@ -106,12 +106,47 @@ export default function CertificatesAdminPage() {
     const slideId = extractSlidesId(config.slideTemplateId || config.slideTemplateUrl || "");
     if (!slideId) { setMessage("กรุณาวางลิงก์ Google Slides ที่ถูกต้อง"); return; }
     setBusy(true);
-    const previousSlideId = extractSlidesId(project.certificate?.slideTemplateId || project.certificate?.slideTemplateUrl || "");
-    const nextConfig = { ...config, slideTemplateId: slideId, slideTemplateUrl: `https://docs.google.com/presentation/d/${slideId}/edit`, templateType: "google-slides" as const, templateVersion: previousSlideId === slideId ? config.templateVersion : config.templateVersion + 1 };
-    const updated = { ...project, certificate: nextConfig };
-    await saveProject(updated);
-    setProjects((items) => items.map((item) => item.id === updated.id ? updated : item));
-    setMessage(nextConfig.enabled ? "บันทึกแล้ว ระบบกำลังตรวจและสร้างเกียรติบัตรให้ผู้ส่งครบอัตโนมัติ" : "บันทึกการตั้งค่าเกียรติบัตรแล้ว"); setBusy(false);
+    try {
+      const normalizedConfig = { ...config, slideTemplateId: slideId, slideTemplateUrl: `https://docs.google.com/presentation/d/${slideId}/edit`, templateType: "google-slides" as const };
+      const previousComparable = { ...(project.certificate || {}) } as Partial<CertificateSettings>;
+      const nextComparable = { ...normalizedConfig } as Partial<CertificateSettings>;
+      delete previousComparable.templateVersion;
+      delete nextComparable.templateVersion;
+      const settingsChanged = JSON.stringify(previousComparable) !== JSON.stringify(nextComparable);
+      const nextConfig = {
+        ...normalizedConfig,
+        templateVersion: settingsChanged
+          ? Number(project.certificate?.templateVersion || config.templateVersion || 1) + 1
+          : Number(project.certificate?.templateVersion || config.templateVersion || 1),
+      };
+      const updated = { ...project, certificate: nextConfig };
+      await saveProject(updated);
+      setProjects((items) => items.map((item) => item.id === updated.id ? updated : item));
+
+      const recipients = Array.from(new Set(records
+        .filter((record) => record.status !== "revoked")
+        .map((record) => record.recipientName.trim())
+        .filter(Boolean)));
+      if (settingsChanged && nextConfig.enabled && recipients.length) {
+        setMessage(`บันทึกแล้ว กำลังแก้เกียรติบัตรเดิม ${recipients.length} คนตามการตั้งค่าใหม่...`);
+        const refreshedRecords: CertificateRecord[] = [];
+        for (let index = 0; index < recipients.length; index += 3) {
+          const batch = await Promise.allSettled(recipients.slice(index, index + 3).map((fullName) => retryCertificate(project.id, fullName)));
+          batch.forEach((result) => { if (result.status === "fulfilled") refreshedRecords.push(result.value); });
+          setMessage(`กำลังอัปเดตเกียรติบัตร ${Math.min(index + 3, recipients.length)}/${recipients.length} คน...`);
+        }
+        const latestRecords = await getCertificates(project.id);
+        setRecords(latestRecords);
+        const failedCount = recipients.length - refreshedRecords.length;
+        setMessage(failedCount ? `อัปเดตสำเร็จ ${refreshedRecords.length} คน และมี ${failedCount} คนที่ต้องลองใหม่` : "อัปเดตเกียรติบัตรของครูทุกคนตามการตั้งค่าใหม่แล้ว");
+      } else {
+        setMessage(nextConfig.enabled ? "บันทึกแล้ว ระบบกำลังตรวจและสร้างเกียรติบัตรให้ผู้ส่งครบอัตโนมัติ" : "บันทึกการตั้งค่าเกียรติบัตรแล้ว");
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "บันทึกหรืออัปเดตเกียรติบัตรไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const preview = async () => {
