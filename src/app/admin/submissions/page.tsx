@@ -194,7 +194,7 @@ export default function AdminSubmissionsPage() {
                 <select
                   value={selectedProjectId}
                   onChange={(e) => setSelectedProjectId(e.target.value)}
-                  className="px-3.5 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none max-w-[280px]"
+                  className="w-full sm:w-auto px-3.5 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none sm:max-w-[280px]"
                 >
                   <option value="all">ทุกรอบในประเภทที่เลือก</option>
                   {projectsForKind.map((project) => (
@@ -401,7 +401,7 @@ export default function AdminSubmissionsPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-slate-800">ตำแหน่ง</label>
                   <input
@@ -422,7 +422,7 @@ export default function AdminSubmissionsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-slate-800">ครูประจำสายชั้น</label>
                   <select

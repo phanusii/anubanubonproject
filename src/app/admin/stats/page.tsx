@@ -156,7 +156,7 @@ export default function AdminStatsPage() {
           <section className="p-6 rounded-3xl bg-white border border-slate-100 shadow-xs">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               <div><h1 className="text-2xl font-extrabold text-slate-900">สถิติการส่งงานแบบละเอียด</h1><p className="text-xs font-semibold text-slate-500">ติดตามความครบถ้วนรายคน สายชั้น และกลุ่มสาระ</p></div>
-              <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-bold min-w-[260px]">
+              <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="w-full lg:w-auto px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-bold lg:min-w-[260px]">
                 {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
             </div>
@@ -197,7 +197,7 @@ export default function AdminStatsPage() {
               </div>
               <div className="max-h-[640px] overflow-y-auto">
                 {displayedTeacherGroups.map(([group, items]) => <div key={group}>
-                  <div className="sticky top-0 z-10 px-4 py-2.5 bg-blue-50/95 backdrop-blur border-y border-blue-100 flex items-center justify-between">
+                  <div className="sticky top-0 z-10 px-3 sm:px-4 py-2.5 bg-blue-50/95 backdrop-blur border-y border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <h3 className="text-xs font-extrabold text-blue-800">{incompleteGroupBy === "grade" ? gradeLabel(group) : group}</h3>
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-0.5 rounded-full bg-white text-[11px] font-bold text-blue-700">{items.length} คน</span>

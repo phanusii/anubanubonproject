@@ -73,9 +73,9 @@ export default function RevisionModal({ fileId, title, fileURL, onClose }: Revis
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg max-h-[85vh] glass-panel rounded-3xl shadow-2xl border border-white flex flex-col overflow-hidden bg-white">
+      <div className="relative w-full max-w-lg max-h-[94dvh] glass-panel rounded-2xl sm:rounded-3xl shadow-2xl border border-white flex flex-col overflow-hidden bg-white">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-white/80">
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-slate-100 bg-white/80">
           <div className="flex items-center gap-2 min-w-0">
             <span className="w-9 h-9 rounded-2xl bg-violet-100 text-violet-600 flex items-center justify-center shrink-0">
               <History className="w-5 h-5" />
@@ -159,7 +159,7 @@ export default function RevisionModal({ fileId, title, fileURL, onClose }: Revis
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-slate-100 flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] text-slate-400 font-medium">Google Drive เก็บประวัติให้อัตโนมัติ</p>
           {fileURL && (
             <a

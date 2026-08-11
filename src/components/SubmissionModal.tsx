@@ -24,9 +24,9 @@ export default function SubmissionModal({ submission, onClose }: SubmissionModal
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/30 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="relative w-full max-w-5xl max-h-[90vh] glass-panel rounded-3xl shadow-2xl border border-white flex flex-col overflow-hidden bg-white">
+      <div className="relative w-full max-w-5xl max-h-[94dvh] glass-panel rounded-2xl sm:rounded-3xl shadow-2xl border border-white flex flex-col overflow-hidden bg-white">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-white/80">
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-slate-100 bg-white/80">
           <div className="flex items-center gap-2 max-w-xl truncate">
             {isDrive && (
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 flex items-center gap-1 shrink-0">
@@ -62,12 +62,12 @@ export default function SubmissionModal({ submission, onClose }: SubmissionModal
         {/* Content Body Grid */}
         <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-12 gap-0">
           {/* File / Drive Preview (Left Col - Light Clean Background) */}
-          <div className="md:col-span-7 bg-slate-100/90 border-r border-slate-200/60 p-4 flex flex-col items-center justify-center min-h-[350px]">
+          <div className="md:col-span-7 bg-slate-100/90 md:border-r border-b md:border-b-0 border-slate-200/60 p-2 sm:p-4 flex flex-col items-center justify-center min-h-[240px] sm:min-h-[350px]">
             {isDrive && driveId ? (
-              <div className="w-full h-full min-h-[450px] flex flex-col items-center justify-center">
+              <div className="w-full h-full min-h-[260px] sm:min-h-[450px] flex flex-col items-center justify-center">
                 <iframe
                   src={getGoogleDrivePreviewUrl(driveId)}
-                  className="w-full h-[450px] rounded-2xl border border-slate-200/80 bg-white shadow-sm"
+                  className="w-full h-[55dvh] sm:h-[450px] rounded-2xl border border-slate-200/80 bg-white shadow-sm"
                   title="Google Drive Preview"
                 />
                 <a
@@ -85,7 +85,7 @@ export default function SubmissionModal({ submission, onClose }: SubmissionModal
                 {/* Native scrollable PDF viewer (page navigation, zoom, scroll) */}
                 <iframe
                   src={submission.fileURL}
-                  className="w-full h-[72vh] min-h-[420px] rounded-2xl border border-slate-200/80 bg-white shadow-sm"
+                  className="w-full h-[55dvh] sm:h-[72vh] min-h-[260px] sm:min-h-[420px] rounded-2xl border border-slate-200/80 bg-white shadow-sm"
                   title="PDF Preview"
                 />
                 <a
@@ -150,7 +150,7 @@ export default function SubmissionModal({ submission, onClose }: SubmissionModal
               </div>
             </div>
 
-            <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400 font-semibold">
+            <div className="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400 font-semibold">
               <div className="flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-slate-400" />
                 <span>วันที่ส่ง: {submission.uploadDate}</span>

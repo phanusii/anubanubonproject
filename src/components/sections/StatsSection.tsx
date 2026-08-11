@@ -214,7 +214,7 @@ export default function StatsSection() {
             <select
               value={selectedProjectId}
               onChange={(e) => selectProject(e.target.value)}
-              className="flex-1 min-w-[220px] px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none shadow-2xs"
+              className="w-full sm:flex-1 sm:min-w-[220px] px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none shadow-2xs"
             >
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>

@@ -223,7 +223,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
                 value={selectedProjectId}
                 onChange={(e) => selectProject(e.target.value)}
                 disabled={projects.length === 0}
-                className="flex-1 min-w-[220px] px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none shadow-2xs"
+                className="w-full sm:flex-1 sm:min-w-[220px] px-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none shadow-2xs"
               >
                 {projects.length === 0 && <option value="">กำลังโหลดรอบ...</option>}
                 {projects.map((p) => (
@@ -242,7 +242,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         <div className="glass-panel p-3 sm:p-4 rounded-3xl border border-white shadow-sm bg-white">
           <div className="flex flex-col lg:flex-row lg:items-center gap-3">
             {/* Search bar (takes the remaining width) */}
-            <div className="relative flex-1 min-w-[160px]">
+            <div className="relative w-full sm:flex-1 sm:min-w-[160px]">
               <Search className="w-4 h-4 absolute left-4 top-3.5 text-slate-400" />
               <input
                 type="text"
@@ -270,7 +270,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
               aria-label="กรองตามสายชั้น"
               value={selectedGrade}
               onChange={(e) => setSelectedGrade(e.target.value)}
-              className="shrink-0 w-auto max-w-[190px] px-3.5 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
+              className="w-full lg:w-auto lg:max-w-[190px] px-3.5 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
             >
               <option value="ทั้งหมด">ทุกสายชั้น (อ.1 - ป.6)</option>
               {sortGrades(gradeLevels).map((gl) => (
@@ -285,7 +285,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
               aria-label="กรองตามกลุ่มสาระ"
               value={selectedSubject}
               onChange={(e) => setSelectedSubject(e.target.value)}
-              className="shrink-0 w-auto max-w-[210px] px-3.5 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
+              className="w-full lg:w-auto lg:max-w-[210px] px-3.5 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
             >
               <option value="ทั้งหมด">ทุกกลุ่มสาระการเรียนรู้</option>
               {subjectGroups.map((sg) => (
@@ -307,7 +307,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {filteredSubmissions.map((sub) => (
               <MasonryCard
                 key={sub.id}

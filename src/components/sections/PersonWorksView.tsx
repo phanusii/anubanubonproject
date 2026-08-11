@@ -236,13 +236,13 @@ function WorkPreviewCard({ work, index, latestSender }: { work: Submission; inde
         {isDrive && driveId ? (
           <iframe
             src={getGoogleDrivePreviewUrl(driveId)}
-            className="w-full h-[70vh] min-h-[420px] rounded-2xl border border-slate-200 bg-white"
+            className="w-full h-[55dvh] sm:h-[70vh] min-h-[260px] sm:min-h-[420px] rounded-2xl border border-slate-200 bg-white"
             title={`ผลงานชิ้นที่ ${index + 1}`}
           />
         ) : isPdf ? (
           <iframe
             src={work.fileURL}
-            className="w-full h-[70vh] min-h-[420px] rounded-2xl border border-slate-200 bg-white"
+            className="w-full h-[55dvh] sm:h-[70vh] min-h-[260px] sm:min-h-[420px] rounded-2xl border border-slate-200 bg-white"
             title={`ผลงานชิ้นที่ ${index + 1}`}
           />
         ) : (

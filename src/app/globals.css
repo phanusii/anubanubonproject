@@ -13,6 +13,21 @@ body {
   color: #0f172a;
   font-family: 'Prompt', 'Kanit', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
   min-height: 100vh;
+  overflow-x: hidden;
+}
+
+html {
+  max-width: 100%;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+*, *::before, *::after {
+  min-width: 0;
+}
+
+img, video, canvas, iframe {
+  max-width: 100%;
 }
 
 /* iOS Glassmorphism Panel */
@@ -109,4 +124,13 @@ select:focus {
 .skeleton-loading {
   animation: skeleton-pulse 1.5s ease-in-out infinite;
   background-color: rgba(203, 213, 225, 0.5);
+}
+
+/* Mobile ergonomics shared by public and admin pages. */
+@media (max-width: 640px) {
+  body { background-attachment: scroll; }
+  input, select, textarea { font-size: 16px !important; }
+  button, a, input, select, textarea { touch-action: manipulation; }
+  .glass-panel { backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  table { font-size: 0.75rem; }
 }

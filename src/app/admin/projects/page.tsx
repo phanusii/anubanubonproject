@@ -263,7 +263,7 @@ export default function AdminProjectsPage() {
 
               <div className="space-y-2">
                 <label className="block text-xs font-bold text-slate-800">ประเภทกิจกรรม (มีผลต่อคำบนเว็บ)</label>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {([
                     { key: "training", title: "การอบรม", sub: 'ใช้คำว่า "ส่งงาน"' },
                     { key: "project", title: "โครงการ", sub: 'ใช้คำว่า "ส่งผลงาน"' },
