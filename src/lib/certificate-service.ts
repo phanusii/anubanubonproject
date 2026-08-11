@@ -1,4 +1,4 @@
-import { CertificateRecord, CertificateSlideField, Project, Submission } from "./types";
+import { CertificateBatchJob, CertificateCandidate, CertificateRecord, CertificateSlideField, Project, Submission } from "./types";
 import { auth } from "./firebase";
 
 // The Apps Script web-app URL is public by design. Keep a checked-in fallback
@@ -87,6 +87,35 @@ export async function getCertificates(projectId: string): Promise<CertificateRec
   const idToken = await getAdminIdToken();
   const result = await callService({ action: "list", projectId, idToken });
   return (result.certificates || []) as CertificateRecord[];
+}
+
+export async function getCertificateCandidates(projectId: string): Promise<CertificateCandidate[]> {
+  const idToken = await getAdminIdToken();
+  const result = await callService({ action: "certificateCandidates", projectId, idToken });
+  return (result.candidates || []) as CertificateCandidate[];
+}
+
+export async function startCertificateBatch(projectId: string): Promise<CertificateBatchJob> {
+  const idToken = await getAdminIdToken();
+  const result = await callService({ action: "startCertificateBatch", projectId, idToken });
+  return result.job as CertificateBatchJob;
+}
+
+export async function runCertificateBatch(projectId: string): Promise<CertificateBatchJob | null> {
+  const idToken = await getAdminIdToken();
+  const result = await callService({ action: "runCertificateBatch", projectId, idToken });
+  return (result.job as CertificateBatchJob | null) || null;
+}
+
+export async function getCertificateBatchStatus(projectId: string): Promise<CertificateBatchJob | null> {
+  const idToken = await getAdminIdToken();
+  const result = await callService({ action: "certificateStatus", projectId, idToken });
+  return (result.job as CertificateBatchJob | null) || null;
+}
+
+export async function installCertificateScheduler(): Promise<void> {
+  const idToken = await getAdminIdToken();
+  await callService({ action: "installCertificateScheduler", idToken });
 }
 
 export async function findCertificateByNumber(certificateNumber: string): Promise<CertificateRecord | null> {

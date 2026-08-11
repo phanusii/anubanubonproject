@@ -31,6 +31,27 @@ function doPost(e) {
       assertAdmin_(input.idToken);
       return json_({ ok: true, certificates: listCertificateRecords_(input.projectId) });
     }
+    if (input.action === "certificateCandidates") {
+      assertAdmin_(input.idToken);
+      return json_({ ok: true, candidates: certificateCandidates_(input.projectId, true) });
+    }
+    if (input.action === "startCertificateBatch") {
+      assertAdmin_(input.idToken);
+      return json_({ ok: true, job: startCertificateBatch_(input.projectId, "manual") });
+    }
+    if (input.action === "runCertificateBatch") {
+      assertAdmin_(input.idToken);
+      return json_({ ok: true, job: processCertificateBatch_(input.projectId) });
+    }
+    if (input.action === "certificateStatus") {
+      assertAdmin_(input.idToken);
+      return json_({ ok: true, job: getCertificateJob_(input.projectId) });
+    }
+    if (input.action === "installCertificateScheduler") {
+      assertAdmin_(input.idToken);
+      installCertificateScheduler_();
+      return json_({ ok: true });
+    }
     if (input.action === "lookup") {
       var found = findCertificateRecord_(input.certificateNumber);
       return json_({ ok: true, certificate: found && found.status === "issued" ? found : null });
@@ -50,30 +71,35 @@ function doPost(e) {
   }
 }
 
-function issueCertificate_(projectId, fullName, forceRetry, renumber) {
+function issueCertificate_(projectId, fullName, forceRetry, renumber, context) {
   projectId = String(projectId || "").trim();
   fullName = normalizeName_(fullName);
   if (!projectId || !fullName) throw new Error("ข้อมูลรอบหรือชื่อผู้รับไม่ครบ");
 
   var lock = LockService.getScriptLock();
-  lock.waitLock(30000);
+  var ownsLock = !context;
+  if (ownsLock) lock.waitLock(30000);
   try {
-    var project = getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
+    var project = context && context.project ? context.project : getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
     var config = project.certificate || {};
     if (!config.enabled) throw new Error("รอบนี้ยังไม่เปิดออกเกียรติบัตร");
     if (!config.slideTemplateId) throw new Error("ยังไม่ได้ตั้งค่า Google Slides แม่แบบเกียรติบัตร");
 
-    var submissions = querySubmissions_(projectId).filter(function (item) {
-      return normalizeName_(item.fullName) === fullName;
+    var cutoffAt = certificateCutoffMs_(config);
+    if (!forceRetry && (!cutoffAt || Date.now() < cutoffAt)) throw new Error("ยังไม่ถึงวัน–เวลาสรุปผล");
+    var submissions = (context && context.submissions ? context.submissions : querySubmissions_(projectId)).filter(function (item) {
+      return normalizeName_(item.fullName) === fullName && (forceRetry || !cutoffAt || Number(item.createdAt || 0) <= cutoffAt);
     });
     var completion = completion_(project, submissions);
-    if (!completion.complete) {
-      throw new Error("ส่งงานยังไม่ครบ (" + completion.submitted + "/" + completion.required + ")");
-    }
+    var qualificationType = completion.complete ? "complete" : completion.submitted > 0 ? "partial" : "none";
+    var eligible = qualificationType === "complete" ? config.issueForComplete !== false : qualificationType === "partial" ? Boolean(config.issueForPartial) : false;
+    if (!eligible) throw new Error(qualificationType === "none" ? "ยังไม่เคยส่งงาน" : "ไม่อยู่ในกลุ่มที่กำหนดให้ออกเกียรติบัตร");
 
     var recipientKey = normalizeName_(fullName).toLowerCase();
     var documentId = certificateId_(projectId, recipientKey);
     var existing = getCertificateRecord_(documentId);
+    // Once issued, both admin and teacher pages always reuse this exact Drive PDF.
+    if (existing && existing.status === "issued" && !forceRetry) return withId_(documentId, existing);
     var latest = completion.latest;
     var snapshot = {
       fullName: latest.fullName || fullName,
@@ -101,7 +127,12 @@ function issueCertificate_(projectId, fullName, forceRetry, renumber) {
       projectId: projectId, recipientKey: recipientKey, recipientName: snapshot.fullName,
       certificateNumber: number, budgetYear: String(config.budgetYear || project.budgetYear || project.academicYear || ""),
       issuedAt: Date.now(), templateVersion: Number(config.templateVersion || 1),
-      submissionIds: completion.submissionIds, status: "pending", snapshot: snapshot
+      submissionIds: completion.submissionIds, status: "pending", snapshot: snapshot,
+      qualificationType: qualificationType,
+      finalizedAt: Date.now(),
+      batchType: context && context.batchType === "manual" ? "manual" : "scheduled",
+      submissionCountAtIssue: completion.submitted,
+      cutoffAt: context && context.cutoffAt ? Number(context.cutoffAt) : cutoffAt
     };
     setCertificateRecord_(documentId, pending);
 
@@ -122,7 +153,7 @@ function issueCertificate_(projectId, fullName, forceRetry, renumber) {
       throw renderError;
     }
   } finally {
-    lock.releaseLock();
+    if (ownsLock) lock.releaseLock();
   }
 }
 
@@ -415,10 +446,128 @@ function loadCertificateRegistry_() {
     var value = JSON.parse(file.getBlob().getDataAsString("UTF-8"));
     value.records = value.records || {};
     value.counters = value.counters || {};
+    value.jobs = value.jobs || {};
     return value;
   } catch (_) {
-    return { records: {}, counters: {} };
+    return { records: {}, counters: {}, jobs: {} };
   }
+}
+
+function certificateCutoffMs_(config) {
+  var value = config && config.certificateFinalizeAt;
+  if (!value) return 0;
+  var parsed = new Date(value).getTime();
+  return isNaN(parsed) ? 0 : parsed;
+}
+
+function submissionsByRecipient_(submissions) {
+  var groups = {};
+  (submissions || []).forEach(function (item) {
+    var key = normalizeName_(item.fullName).toLowerCase();
+    if (!key) return;
+    groups[key] = groups[key] || [];
+    groups[key].push(item);
+  });
+  return groups;
+}
+
+function certificateCandidates_(projectId, useCurrent) {
+  var project = getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
+  var config = project.certificate || {};
+  var issued = {};
+  listCertificateRecords_(projectId).forEach(function (record) {
+    if (record.status === "issued") issued[normalizeName_(record.recipientName).toLowerCase()] = true;
+  });
+  var cutoffAt = certificateCutoffMs_(config);
+  var groups = submissionsByRecipient_(querySubmissions_(projectId).filter(function (item) { return useCurrent || !cutoffAt || Number(item.createdAt || 0) <= cutoffAt; }));
+  return Object.keys(groups).sort().map(function (key) {
+    var progress = completion_(project, groups[key]);
+    var type = progress.complete ? "complete" : progress.submitted > 0 ? "partial" : "none";
+    var allowed = type === "complete" ? config.issueForComplete !== false : type === "partial" ? Boolean(config.issueForPartial) : false;
+    return { fullName: progress.latest.fullName || key, qualificationType: type, submitted: progress.submitted, required: progress.required, eligible: allowed && !issued[key], reason: issued[key] ? "ออกแล้ว" : allowed ? "" : "ไม่ตรงเกณฑ์" };
+  });
+}
+
+function startCertificateBatch_(projectId, batchType) {
+  var project = getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
+  var config = project.certificate || {};
+  if (!config.enabled) throw new Error("รอบนี้ยังไม่เปิดระบบเกียรติบัตร");
+  var cutoffAt = certificateCutoffMs_(config);
+  if (!cutoffAt) throw new Error("ยังไม่ได้ตั้งวัน–เวลาสรุปผล");
+  var isManual = batchType === "manual";
+  if (isManual) cutoffAt = Date.now();
+  var candidates = certificateCandidates_(projectId, isManual).filter(function (item) { return item.eligible; });
+  var registry = loadCertificateRegistry_();
+  registry.jobs[projectId] = { projectId: projectId, batchType: batchType || "manual", cutoffAt: cutoffAt, status: candidates.length ? "running" : "completed", names: candidates.map(function (item) { return item.fullName; }), cursor: 0, total: candidates.length, processed: 0, issued: 0, failed: 0, updatedAt: Date.now() };
+  saveCertificateRegistry_(registry);
+  return publicCertificateJob_(registry.jobs[projectId]);
+}
+
+function getCertificateJob_(projectId) {
+  var job = loadCertificateRegistry_().jobs[projectId];
+  return job ? publicCertificateJob_(job) : null;
+}
+
+function publicCertificateJob_(job) {
+  if (!job) return null;
+  return { projectId: job.projectId, batchType: job.batchType, cutoffAt: job.cutoffAt, status: job.status, total: job.total || 0, processed: job.processed || 0, issued: job.issued || 0, failed: job.failed || 0, updatedAt: job.updatedAt || 0, error: job.error || "" };
+}
+
+function processCertificateBatch_(projectId) {
+  var batchLock = LockService.getScriptLock();
+  if (!batchLock.tryLock(1000)) return getCertificateJob_(projectId);
+  try {
+  var registry = loadCertificateRegistry_();
+  var job = registry.jobs[projectId];
+  if (!job || job.status !== "running") return job ? publicCertificateJob_(job) : null;
+  var project = getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
+  var all = querySubmissions_(projectId).filter(function (item) { return !job.cutoffAt || Number(item.createdAt || 0) <= Number(job.cutoffAt); });
+  var groups = submissionsByRecipient_(all);
+  var limit = Math.min(job.names.length, Number(job.cursor || 0) + 6);
+  for (; job.cursor < limit; job.cursor++) {
+    var fullName = job.names[job.cursor];
+    try {
+      issueCertificate_(projectId, fullName, false, false, { project: project, submissions: groups[normalizeName_(fullName).toLowerCase()] || [], batchType: job.batchType, cutoffAt: job.cutoffAt });
+      job.issued++;
+    } catch (error) {
+      job.failed++;
+      job.error = String(error && error.message ? error.message : error);
+    }
+    job.processed++;
+  }
+  job.status = job.cursor >= job.names.length ? "completed" : "running";
+  job.updatedAt = Date.now();
+  registry = loadCertificateRegistry_();
+  registry.jobs[projectId] = job;
+  saveCertificateRegistry_(registry);
+  return publicCertificateJob_(job);
+  } finally {
+    batchLock.releaseLock();
+  }
+}
+
+function listProjects_() {
+  var result = firestoreRequest_("documents/projects?pageSize=200", "get");
+  return (result.documents || []).map(function (doc) { var item = decodeMap_(doc.fields || {}); item.id = doc.name.split("/").pop(); return item; });
+}
+
+function processScheduledCertificates_() {
+  var now = Date.now();
+  listProjects_().forEach(function (project) {
+    var config = project.certificate || {};
+    var cutoffAt = certificateCutoffMs_(config);
+    if (!config.enabled || !cutoffAt || cutoffAt > now) return;
+    var current = getCertificateJob_(project.id);
+    if (!current) current = startCertificateBatch_(project.id, "scheduled");
+    if (current && current.status === "running") processCertificateBatch_(project.id);
+  });
+}
+
+function installCertificateScheduler_() {
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (trigger.getHandlerFunction() === "processScheduledCertificates_") ScriptApp.deleteTrigger(trigger);
+  });
+  ScriptApp.newTrigger("processScheduledCertificates_").timeBased().everyMinutes(1).create();
 }
 
 function saveCertificateRegistry_(registry) {

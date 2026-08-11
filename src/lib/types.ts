@@ -42,6 +42,10 @@ export interface CertificateTextField {
 
 export interface CertificateSettings {
   enabled: boolean;
+  /** ISO date-time used as the certificate eligibility cutoff (Asia/Bangkok in UI). */
+  certificateFinalizeAt?: string;
+  issueForComplete?: boolean;
+  issueForPartial?: boolean;
   title?: string;
   description?: string;
   issueDateText?: string;
@@ -87,12 +91,39 @@ export interface CertificateRecord {
   pdfUrl?: string;
   status: "pending" | "issued" | "failed" | "revoked";
   error?: string;
+  qualificationType?: "complete" | "partial";
+  finalizedAt?: number;
+  batchType?: "scheduled" | "manual";
+  submissionCountAtIssue?: number;
+  cutoffAt?: number;
   snapshot: {
     fullName: string;
     position: string;
     gradeLevel: string;
     subjectGroup: string;
   };
+}
+
+export interface CertificateCandidate {
+  fullName: string;
+  qualificationType: "complete" | "partial" | "none";
+  submitted: number;
+  required: number;
+  eligible: boolean;
+  reason?: string;
+}
+
+export interface CertificateBatchJob {
+  projectId: string;
+  batchType: "scheduled" | "manual";
+  cutoffAt: number;
+  status: "waiting" | "running" | "completed" | "failed";
+  total: number;
+  processed: number;
+  issued: number;
+  failed: number;
+  updatedAt: number;
+  error?: string;
 }
 
 export interface TrainingSettings {

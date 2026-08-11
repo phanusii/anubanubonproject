@@ -15,7 +15,7 @@ import { findSimilarTeachers, getTeachers, normalizeTeacherName, updateTeacherSu
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
 import { gradeLabel, submitVerb } from "@/lib/format";
 import { TrainingSettings, GradeLevelOption, SubjectGroupOption, Submission, Project } from "@/lib/types";
-import { certificateProgress, issueCertificate, latestSubmissionPerSlot, slotIdAt } from "@/lib/certificate-service";
+import { latestSubmissionPerSlot, slotIdAt } from "@/lib/certificate-service";
 import { Send, CheckCircle2, AlertCircle, Sparkles, User, FileText, HelpCircle, HardDrive, Link as LinkIcon, Upload, Check, PlusCircle } from "lucide-react";
 import confetti from "canvas-confetti";
 
@@ -219,10 +219,6 @@ export default function SubmitSection() {
     }
     setUserExistingSubmissions(existingList);
 
-    if (activeProject?.certificate?.enabled && certificateProgress(existingList, activeProject).complete) {
-      issueCertificate(activeProject.id, nameVal.trim()).catch(() => undefined);
-    }
-
     if (existingList.length > 0) {
       const last = existingList[0];
       if (!position) setPosition(last.position);
@@ -391,12 +387,6 @@ export default function SubmitSection() {
 
       setIsUploading(false);
       setIsSuccess(true);
-
-      if (activeProject?.certificate?.enabled && certificateProgress(nextSubmissions, activeProject).complete) {
-        void issueCertificate(activeProject.id, fullName.trim()).catch((certificateError) => {
-          console.warn("Automatic certificate generation queued for retry:", certificateError);
-        });
-      }
 
       try {
         confetti({
