@@ -123,15 +123,19 @@ export default function CertificatesAdminPage() {
       await saveProject(updated);
       setProjects((items) => items.map((item) => item.id === updated.id ? updated : item));
 
-      const recipients = Array.from(new Set(records
-        .filter((record) => record.status !== "revoked")
-        .map((record) => record.recipientName.trim())
-        .filter(Boolean)));
+      // Use both sources. The remote registry may temporarily be empty/stale,
+      // while completed submissions already prove that a teacher is eligible.
+      const recipients = Array.from(new Set([
+        ...eligibleNames,
+        ...records
+          .filter((record) => record.status !== "revoked")
+          .map((record) => record.recipientName),
+      ].map((fullName) => fullName.trim()).filter(Boolean)));
       if (settingsChanged && nextConfig.enabled && recipients.length) {
         setMessage(`บันทึกแล้ว กำลังแก้เกียรติบัตรเดิม ${recipients.length} คนตามการตั้งค่าใหม่...`);
         const refreshedRecords: CertificateRecord[] = [];
         for (let index = 0; index < recipients.length; index += 3) {
-          const batch = await Promise.allSettled(recipients.slice(index, index + 3).map((fullName) => retryCertificate(project.id, fullName)));
+          const batch = await Promise.allSettled(recipients.slice(index, index + 3).map((fullName) => retryCertificate(project.id, fullName, true)));
           batch.forEach((result) => { if (result.status === "fulfilled") refreshedRecords.push(result.value); });
           setMessage(`กำลังอัปเดตเกียรติบัตร ${Math.min(index + 3, recipients.length)}/${recipients.length} คน...`);
         }

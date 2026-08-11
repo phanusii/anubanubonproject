@@ -51,10 +51,10 @@ export async function issueCertificate(projectId: string, fullName: string): Pro
   return result.certificate as CertificateRecord;
 }
 
-export async function retryCertificate(projectId: string, fullName: string): Promise<CertificateRecord> {
+export async function retryCertificate(projectId: string, fullName: string, renumber = false): Promise<CertificateRecord> {
   const idToken = await auth.currentUser?.getIdToken();
   if (!idToken) throw new Error("กรุณาเข้าสู่ระบบผู้ดูแลอีกครั้ง");
-  const result = await callService({ action: "retry", projectId, fullName: fullName.trim(), idToken });
+  const result = await callService({ action: "retry", projectId, fullName: fullName.trim(), renumber, idToken });
   return result.certificate as CertificateRecord;
 }
 

@@ -16,7 +16,7 @@ function doPost(e) {
     var input = JSON.parse((e && e.postData && e.postData.contents) || "{}");
     if (input.action === "issue" || input.action === "retry") {
       if (input.action === "retry") assertAdmin_(input.idToken);
-      return json_({ ok: true, certificate: issueCertificate_(input.projectId, input.fullName, input.action === "retry") });
+      return json_({ ok: true, certificate: issueCertificate_(input.projectId, input.fullName, input.action === "retry", Boolean(input.renumber)) });
     }
     if (input.action === "preview") {
       assertAdmin_(input.idToken);
@@ -50,7 +50,7 @@ function doPost(e) {
   }
 }
 
-function issueCertificate_(projectId, fullName, forceRetry) {
+function issueCertificate_(projectId, fullName, forceRetry, renumber) {
   projectId = String(projectId || "").trim();
   fullName = normalizeName_(fullName);
   if (!projectId || !fullName) throw new Error("ข้อมูลรอบหรือชื่อผู้รับไม่ครบ");
@@ -93,7 +93,7 @@ function issueCertificate_(projectId, fullName, forceRetry) {
     if (existing && existing.status === "pending" && !forceRetry && sameSubmissions && sameSnapshot && sameTemplate) {
       return withId_(documentId, existing);
     }
-    var number = existing && existing.certificateNumber
+    var number = existing && existing.certificateNumber && !renumber
       ? toThaiDigits_(existing.certificateNumber)
       : reserveCertificateNumber_(projectId, config);
     var pending = {
