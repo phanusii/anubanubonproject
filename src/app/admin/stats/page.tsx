@@ -38,7 +38,7 @@ export default function AdminStatsPage() {
     Promise.all([
       getTeachers(),
       getProjects(),
-      getSubmissions({ limitNum: 500, ignoreProjectFilter: true }),
+      getSubmissions({ limitNum: 2000, ignoreProjectFilter: true }),
     ]).then(([teacherData, projectData, submissionData]) => {
       setTeachers(teacherData);
       setProjects(projectData);

@@ -10,6 +10,12 @@ This Apps Script polls Firestore once per minute and sends new submissions to Te
 
 The first installation records the current newest submission, so old submissions are not sent. A confirmation message is sent after installation.
 
+For a high-volume round (for example, 300 teachers), also add `telegram-queue.gs`
+to the live Apps Script project and run `installTelegramNotifierV2` once. It
+replaces the old trigger, queries only records newer than its cursor, processes
+up to 200 records per minute without dropping older records, and sends one
+grouped Telegram summary instead of flooding the chat.
+
 ## Certificate service
 
 1. Add `certificate-service.gs` to the existing Drive upload Apps Script project. If that project already has `doPost`, keep it and route certificate actions to `handleCertificateAction_` as shown in the deployed merged source.

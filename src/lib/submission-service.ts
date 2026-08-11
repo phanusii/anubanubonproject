@@ -90,7 +90,9 @@ const CACHE_TTL_MS = 120000;
 // Upper bound on how many newest submissions we fetch in one read. Bounds Firestore
 // read cost/latency instead of downloading the entire collection. Client-side search
 // and filtering run over this most-recent window.
-const FETCH_CAP = 500;
+// Admin/statistics safety window. One 300-person round with three works is 900
+// documents; 2,000 leaves room for replacements and another active round.
+const FETCH_CAP = 2000;
 
 // No built-in sample submissions — the app shows only real data from Firestore.
 const INITIAL_MOCK_SUBMISSIONS: Submission[] = [];
@@ -309,6 +311,29 @@ export async function getUserSubmissionsByName(fullName: string): Promise<Submis
   return allSubs.filter((s) => s.fullName.trim().toLowerCase() === trimmedName);
 }
 
+/**
+ * Load only one teacher's submissions in one round. This is the hot path used by
+ * the public submit form; keeping it narrowly indexed prevents 300 clients from
+ * downloading every submission in the round.
+ */
+export async function getUserProjectSubmissions(fullName: string, projectId: string): Promise<Submission[]> {
+  const name = fullName.trim();
+  if (!name || !projectId) return [];
+  try {
+    const snapshot = await getDocs(query(
+      collection(db, "submissions"),
+      where("projectId", "==", projectId),
+      where("fullName", "==", name)
+    ));
+    return snapshot.docs
+      .map((item) => ({ id: item.id, ...(item.data() as Omit<Submission, "id">) }))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  } catch (err) {
+    console.warn("getUserProjectSubmissions error:", err);
+    throw new Error("โหลดประวัติการส่งงานไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+  }
+}
+
 /** Load every submission for an exact displayed sender name without the global 500-item cap. */
 export async function getPersonSubmissions(fullName: string): Promise<Submission[]> {
   try {
@@ -395,19 +420,33 @@ async function blobToBase64(blob: Blob): Promise<string> {
 
 /** POST JSON to the Apps Script endpoint as text/plain (keeps it a simple, preflight-free request). */
 async function postDriveJson(payload: object, timeoutMs: number): Promise<Record<string, unknown> | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(DRIVE_UPLOAD_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    return await res.json().catch(() => null);
-  } finally {
-    clearTimeout(timeout);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(DRIVE_UPLOAD_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.ok !== false) return data;
+      const retryable = res.status === 429 || res.status >= 500 || /too many|quota|rate|busy/i.test(String(data?.error || ""));
+      if (!retryable) return data;
+      lastError = new Error(String(data?.error || `HTTP ${res.status}`));
+    } catch (err) {
+      lastError = err;
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (attempt < 4) {
+      const waitMs = Math.min(16000, 1000 * (2 ** attempt)) + Math.floor(Math.random() * 750);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
   }
+  throw lastError instanceof Error ? lastError : new Error("บริการอัปโหลดไม่ตอบสนอง กรุณาลองใหม่อีกครั้ง");
 }
 
 /**
@@ -436,7 +475,7 @@ async function uploadSingleShotToGoogleDrive(
   const base64 = dataUrl.includes(",") ? dataUrl.slice(dataUrl.indexOf(",") + 1) : dataUrl;
   if (onProgress) onProgress(15);
 
-  const payload = JSON.stringify({
+  const payload = {
     filename: file.name,
     mimeType: file.type || "application/octet-stream",
     data: base64,
@@ -448,7 +487,7 @@ async function uploadSingleShotToGoogleDrive(
     gradeLevel: meta?.gradeLevel || "",
     submitterName: meta?.submitterName || "",
     workLabel: meta?.workLabel || "",
-  });
+  };
 
   // fetch gives no upload progress, so we animate the bar while the single request is in flight.
   let pct = 20;
@@ -457,27 +496,16 @@ async function uploadSingleShotToGoogleDrive(
     if (onProgress) onProgress(pct);
   }, 800);
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 300000);
-
   try {
-    const res = await fetch(DRIVE_UPLOAD_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: payload,
-      signal: controller.signal,
-    });
-    const json = await res.json().catch(() => null);
+    const json = await postDriveJson(payload, 300000);
     clearInterval(timer);
-    clearTimeout(timeout);
     if (json && json.ok && json.url) {
       if (onProgress) onProgress(100);
-      return { url: json.url, id: json.id, name: json.name };
+      return { url: String(json.url), id: String(json.id), name: String(json.name) };
     }
     throw new Error("อัปโหลดขึ้น Google Drive ไม่สำเร็จ" + (json?.error ? `: ${json.error}` : ""));
   } catch (err) {
     clearInterval(timer);
-    clearTimeout(timeout);
     const msg = err instanceof Error ? err.message : "";
     if (msg.includes("Google Drive")) throw err;
     if (msg.includes("abort")) throw new Error("อัปโหลดใช้เวลานานเกินไป — ลองใหม่ หรือใช้วิธีวางลิงก์ Google Drive");
@@ -601,20 +629,30 @@ export async function createSubmission(submissionData: Omit<Submission, "id" | "
   };
 
   try {
-    const docRef = await addDoc(collection(db, "submissions"), newSub);
+    let docRef: Awaited<ReturnType<typeof addDoc>> | null = null;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 5 && !docRef; attempt++) {
+      try {
+        docRef = await addDoc(collection(db, "submissions"), newSub);
+      } catch (err) {
+        lastError = err;
+        if (attempt < 4) {
+          await new Promise((resolve) => setTimeout(resolve, Math.min(8000, 500 * (2 ** attempt)) + Math.random() * 400));
+        }
+      }
+    }
+    if (!docRef) throw lastError;
     const fullSub = { id: docRef.id, ...newSub };
     const subs = getLocalSubmissions();
     subs.unshift(fullSub);
     saveLocalSubmissions(subs);
     return fullSub;
   } catch (err) {
-    console.warn("Firestore save submission failed, using local storage:", err);
-    const localId = `sub-local-${Date.now()}`;
-    const fullSub: Submission = { id: localId, ...newSub };
-    const subs = getLocalSubmissions();
-    subs.unshift(fullSub);
-    saveLocalSubmissions(subs);
-    return fullSub;
+    console.error("Firestore save submission failed:", err);
+    // Never report a browser-only record as a successful school submission.
+    // The uploaded Drive file remains available, and the teacher can retry the
+    // metadata save without silently losing the official Firestore record.
+    throw new Error("บันทึกข้อมูลการส่งงานไม่สำเร็จ กรุณากดส่งอีกครั้ง");
   }
 }
 
@@ -622,8 +660,35 @@ export async function createSubmission(submissionData: Omit<Submission, "id" | "
  * Replace / Update an existing submission file and metadata (Automatically deletes old file from Firebase Storage!)
  */
 export async function replaceSubmission(oldId: string, submissionData: Omit<Submission, "id" | "uploadDate" | "createdAt">): Promise<Submission> {
-  await deleteSubmission(oldId);
-  return await createSubmission(submissionData);
+  const now = new Date();
+  const updated: Omit<Submission, "id"> = {
+    ...submissionData,
+    uploadDate: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
+    createdAt: now.getTime(),
+  };
+  let saved = false;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 5 && !saved; attempt++) {
+    try {
+      await updateDoc(doc(db, "submissions", oldId), updated);
+      saved = true;
+    } catch (err) {
+      lastError = err;
+      if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, Math.min(8000, 500 * (2 ** attempt)) + Math.random() * 400));
+    }
+  }
+  if (!saved) {
+    console.error("Firestore replace submission failed:", lastError);
+    throw new Error("บันทึกการแก้ไขงานไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+  }
+  const fullSub: Submission = { id: oldId, ...updated };
+  const local = getLocalSubmissions().filter((item) => item.id !== oldId);
+  local.unshift(fullSub);
+  saveLocalSubmissions(local);
+  memorySubmissionsCache = null;
+  projectSubmissionsCache.clear();
+  galleryPageCache.clear();
+  return fullSub;
 }
 
 /**

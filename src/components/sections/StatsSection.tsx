@@ -71,7 +71,7 @@ export default function StatsSection() {
         const [ts, projs, data] = await Promise.all([
           getTeachers(),
           getProjects(),
-          getSubmissions({ limitNum: 500, ignoreProjectFilter: true }),
+          getSubmissions({ limitNum: 2000, ignoreProjectFilter: true }),
         ]);
         setTeachers(ts);
         setAllSubs(data);

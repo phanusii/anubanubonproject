@@ -8,7 +8,7 @@ import { certificateProgress, issueCertificate, latestSubmissionPerSlot, slotIdA
 import { getActiveProject, getProjects } from "@/lib/projects-service";
 import { DEFAULT_GRADE_LEVELS, getPersonSubmissions } from "@/lib/submission-service";
 import { getGradeLevels } from "@/lib/masters-service";
-import { getInstantTeachers, getTeachers, TeacherItem } from "@/lib/teachers-service";
+import { getTeachers, TeacherItem } from "@/lib/teachers-service";
 import { CertificateRecord, GradeLevelOption, Project } from "@/lib/types";
 
 type MissingWork = { index: number; title: string };
@@ -18,8 +18,8 @@ export default function CertificatePage() {
   const [name, setName] = useState("");
   const [gradeLevel, setGradeLevel] = useState(() => DEFAULT_GRADE_LEVELS[0]?.name || "");
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
-  const [teachers, setTeachers] = useState<TeacherItem[]>(() => getInstantTeachers());
-  const [loadingLists, setLoadingLists] = useState(false);
+  const [teachers, setTeachers] = useState<TeacherItem[]>([]);
+  const [loadingLists, setLoadingLists] = useState(true);
   const [results, setResults] = useState<RoundResult[]>([]);
   const [activeProjectId, setActiveProjectId] = useState("");
   const [searched, setSearched] = useState(false);
@@ -28,11 +28,14 @@ export default function CertificatePage() {
 
   useEffect(() => {
     // Cached lists are already usable above; this refresh never blocks grade selection.
-    Promise.all([getGradeLevels(), getTeachers()])
-      .then(([levels, teacherItems]) => {
+    getGradeLevels()
+      .then(async (levels) => {
         setGradeLevels(levels);
-        setTeachers(teacherItems);
-        if (levels[0]) setGradeLevel((current) => current || levels[0].name);
+        const initialGrade = levels[0]?.name || "";
+        if (initialGrade) {
+          setGradeLevel(initialGrade);
+          setTeachers(await getTeachers(initialGrade));
+        }
       })
       .catch(() => setError("โหลดรายชื่อครูไม่สำเร็จ กรุณาลองใหม่"))
       .finally(() => setLoadingLists(false));
@@ -52,8 +55,11 @@ export default function CertificatePage() {
 
   const resetResult = () => { setSearched(false); setResults([]); setError(""); };
 
-  const changeGrade = (value: string) => {
-    setGradeLevel(value); setName(""); resetResult();
+  const changeGrade = async (value: string) => {
+    setGradeLevel(value); setName(""); resetResult(); setLoadingLists(true);
+    try { setTeachers(await getTeachers(value)); }
+    catch { setError("โหลดรายชื่อครูไม่สำเร็จ กรุณาลองใหม่"); }
+    finally { setLoadingLists(false); }
   };
 
   const search = async (selectedName: string) => {
@@ -95,7 +101,7 @@ export default function CertificatePage() {
       <Award className="w-14 h-14 mx-auto" /><h1 className="text-3xl font-extrabold">เกียรติบัตร</h1><p className="text-sm font-semibold text-amber-50">เลือกสายชั้นและรายชื่อครูเพื่อตรวจสอบเกียรติบัตร</p>
     </section>
     <section className="bg-white rounded-3xl border border-slate-100 p-5 grid sm:grid-cols-2 gap-4 shadow-sm">
-      <label className="space-y-1.5"><span className="text-xs font-extrabold text-slate-600">1. เลือกสายชั้น</span><select value={gradeLevel} onChange={(e) => changeGrade(e.target.value)} disabled={loadingLists} className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white font-bold outline-none focus:ring-2 focus:ring-amber-400"><option value="">เลือกสายชั้น</option>{gradeLevels.map((level) => <option key={level.id} value={level.name}>{level.name}</option>)}</select></label>
+      <label className="space-y-1.5"><span className="text-xs font-extrabold text-slate-600">1. เลือกสายชั้น</span><select value={gradeLevel} onChange={(e) => void changeGrade(e.target.value)} disabled={loadingLists} className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white font-bold outline-none focus:ring-2 focus:ring-amber-400"><option value="">เลือกสายชั้น</option>{gradeLevels.map((level) => <option key={level.id} value={level.name}>{level.name}</option>)}</select></label>
       <label className="space-y-1.5"><span className="text-xs font-extrabold text-slate-600">2. เลือกรายชื่อครู</span><select value={name} onChange={(e) => { const value = e.target.value; setName(value); resetResult(); if (value) void search(value); }} disabled={!gradeLevel || loadingLists || loading} className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white font-bold outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-60"><option value="">{teachersInGrade.length ? "เลือกรายชื่อครู" : "ไม่พบรายชื่อในสายชั้นนี้"}</option>{teachersInGrade.map((teacher) => <option key={teacher.id} value={teacher.fullName}>{teacher.fullName}</option>)}</select></label>
       {loading && <div className="sm:col-span-2 rounded-2xl bg-amber-50 p-3 flex items-center justify-center gap-2 text-sm font-extrabold text-amber-700"><LoaderCircle className="w-5 h-5 animate-spin" />กำลังตรวจสอบทุกรอบ...</div>}
     </section>

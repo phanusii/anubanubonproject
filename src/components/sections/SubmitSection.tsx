@@ -4,11 +4,10 @@ import { useState, useEffect, useMemo } from "react";
 import FileUploadPreview from "@/components/FileUploadPreview";
 import {
   getTrainingSettings,
-  getUserSubmissionsByName,
+  getUserProjectSubmissions,
   uploadFileToGoogleDrive,
   createSubmission,
-  replaceSubmission,
-  getProjectSubmissions
+  replaceSubmission
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
@@ -26,7 +25,6 @@ export default function SubmitSection() {
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>([]);
   const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>([]);
   const [teacherList, setTeacherList] = useState<TeacherItem[]>([]);
-  const [projectKnownPeople, setProjectKnownPeople] = useState<TeacherItem[]>([]);
 
   // Selected Grade Level First
   const [gradeLevel, setGradeLevel] = useState("");
@@ -74,12 +72,11 @@ export default function SubmitSection() {
 
   useEffect(() => {
     async function initData() {
-      const [s, proj, gls, sgs, ts] = await Promise.all([
+      const [s, proj, gls, sgs] = await Promise.all([
         getTrainingSettings(),
         getActiveProject(),
         getGradeLevels(),
         getSubjectGroups(),
-        getTeachers(),
       ]);
 
       setSettings(s);
@@ -87,19 +84,12 @@ export default function SubmitSection() {
       setGradeLevels(gls);
       const defaultGrade = gls.length > 0 ? gls[0].name : "ป.1";
       setGradeLevel(defaultGrade);
+      const ts = await getTeachers(defaultGrade);
 
       setSubjectGroups(sgs);
       if (sgs.length > 0) setSubjectGroup(sgs[0].name);
 
       setTeacherList(ts);
-      if (proj) getProjectSubmissions(proj.id).then((submissions) => {
-        const peopleByName = new Map<string, TeacherItem>();
-        submissions.forEach((item) => {
-          const key = normalizeTeacherName(item.fullName);
-          if (key && !peopleByName.has(key)) peopleByName.set(key, { id: `submission-${item.id}`, fullName: item.fullName, position: item.position, gradeLevel: item.gradeLevel, subjectGroup: item.subjectGroup });
-        });
-        setProjectKnownPeople(Array.from(peopleByName.values()));
-      }).catch(() => undefined);
       setSchool(s.schoolName || "โรงเรียนอนุบาลอุบลราชธานี");
 
       // A missing-work button on the certificate page opens this form with the
@@ -110,7 +100,7 @@ export default function SubmitSection() {
       if (requestedName && proj) {
         const normalized = normalizeTeacherName(requestedName);
         const teacher = ts.find((item) => normalizeTeacherName(item.fullName) === normalized);
-        const personSubmissions = (await getUserSubmissionsByName(requestedName)).filter((item) => item.projectId === proj.id);
+        const personSubmissions = await getUserProjectSubmissions(requestedName, proj.id);
         const latestProfile = [...personSubmissions].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
         setFullName(teacher?.fullName || latestProfile?.fullName || requestedName);
         setConfirmedExistingName(normalized);
@@ -133,12 +123,12 @@ export default function SubmitSection() {
   const teachersInCurrentGrade = teacherList.filter((t) => t.gradeLevel === gradeLevel);
   const knownPeople = useMemo(() => {
     const result = new Map<string, TeacherItem>();
-    [...teacherList, ...projectKnownPeople].forEach((person) => {
+    teacherList.forEach((person) => {
       const key = normalizeTeacherName(person.fullName);
       if (key && !result.has(key)) result.set(key, person);
     });
     return Array.from(result.values());
-  }, [teacherList, projectKnownPeople]);
+  }, [teacherList]);
   const similarPeople = useMemo(() => findSimilarTeachers(fullName, knownPeople), [fullName, knownPeople]);
   const exactExistingPerson = similarPeople.find((person) => normalizeTeacherName(person.fullName) === normalizeTeacherName(fullName));
 
@@ -155,7 +145,7 @@ export default function SubmitSection() {
     return `ชิ้นที่ ${slotIdx + 1}: ผลงานการเรียนรู้/สื่อการสอน`;
   };
 
-  const handleGradeLevelChange = (newGrade: string) => {
+  const handleGradeLevelChange = async (newGrade: string) => {
     setGradeLevel(newGrade);
     setSelectedTeacherId("");
     setIsCustomName(false);
@@ -163,7 +153,8 @@ export default function SubmitSection() {
     setTeacherPhotoUrl("");
     setConfirmedExistingName("");
 
-    const matchedTeachers = teacherList.filter((t) => t.gradeLevel === newGrade);
+    const matchedTeachers = await getTeachers(newGrade);
+    setTeacherList(matchedTeachers);
     if (matchedTeachers.length === 0) {
       setIsCustomName(true);
     }
@@ -213,19 +204,27 @@ export default function SubmitSection() {
     if (!nameVal.trim()) return;
     setIsCheckingLimit(true);
 
-    const allUserSubs = await getUserSubmissionsByName(nameVal.trim());
-    // Slots are per-round: only count the user's submissions in the active round.
-    const existingList = activeProject
-      ? allUserSubs.filter((s) => s.projectId === activeProject.id)
-      : allUserSubs;
+    if (!activeProject) {
+      setErrorMessage("ยังไม่มีรอบการอบรมหรือโครงการที่เปิดรับงาน");
+      setIsCheckingLimit(false);
+      return;
+    }
+    let existingList: Submission[] = [];
+    try {
+      existingList = await getUserProjectSubmissions(nameVal.trim(), activeProject.id);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "โหลดประวัติการส่งงานไม่สำเร็จ");
+      setIsCheckingLimit(false);
+      return;
+    }
     setUserExistingSubmissions(existingList);
 
     if (activeProject?.certificate?.enabled && certificateProgress(existingList, activeProject).complete) {
       issueCertificate(activeProject.id, nameVal.trim()).catch(() => undefined);
     }
 
-    if (allUserSubs.length > 0) {
-      const last = allUserSubs[0];
+    if (existingList.length > 0) {
+      const last = existingList[0];
       if (!position) setPosition(last.position);
       if (last.school) setSchool(last.school);
       if (last.province && !province) setProvince(last.province);
@@ -387,19 +386,16 @@ export default function SubmitSection() {
       // Keep the roster's subject group aligned with the teacher's latest
       // submission. This is best-effort and never blocks a successful upload.
       if (selectedTeacherId && subjectGroup) {
-        await updateTeacherSubject(selectedTeacherId, subjectGroup);
+        void updateTeacherSubject(selectedTeacherId, subjectGroup);
       }
 
       setIsUploading(false);
       setIsSuccess(true);
 
       if (activeProject?.certificate?.enabled && certificateProgress(nextSubmissions, activeProject).complete) {
-        try {
-          const issued = await issueCertificate(activeProject.id, fullName.trim());
-          void issued;
-        } catch (certificateError) {
-          console.warn("Automatic certificate generation failed:", certificateError);
-        }
+        void issueCertificate(activeProject.id, fullName.trim()).catch((certificateError) => {
+          console.warn("Automatic certificate generation queued for retry:", certificateError);
+        });
       }
 
       try {
@@ -504,7 +500,7 @@ export default function SubmitSection() {
                   </label>
                   <select
                     value={gradeLevel}
-                    onChange={(e) => handleGradeLevelChange(e.target.value)}
+                onChange={(e) => void handleGradeLevelChange(e.target.value)}
                     className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-bold text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
                   >
                     {gradeLevels.map((gl) => (

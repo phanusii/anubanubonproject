@@ -7,7 +7,7 @@ import { generatePdfThumbnail } from "@/lib/pdf-thumbnail";
 
 // Large files upload in chunks (resumable) so the ceiling is high; only truly huge
 // files need the Google Drive link fallback.
-const DIRECT_UPLOAD_MAX_MB = 300;
+const DIRECT_UPLOAD_MAX_MB = 30;
 
 /**
  * Shrink a raster image before upload: cap the longest side and re-encode as JPEG.

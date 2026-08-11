@@ -10,7 +10,7 @@
 const FIREBASE_PROJECT_ID = "anubanubonproject";
 const FIREBASE_API_KEY = "AIzaSyDJxugqBnlmVeyHBM4Bx4yzmkjGv9PVeyQ";
 const SETTINGS_DOCUMENT = "settings/training";
-const CURSOR_PROPERTY = "TELEGRAM_LAST_SUBMISSION_TIME";
+const CURSOR_PROPERTY = "TELEGRAM_LAST_SUBMISSION_MS";
 const TEST_CURSOR_PROPERTY = "TELEGRAM_LAST_TEST_REQUEST";
 
 function installTelegramNotifier() {
@@ -35,19 +35,22 @@ function notifyNewSubmissions() {
 
   const properties = PropertiesService.getScriptProperties();
   notifyTelegramTest_(settings, chatId, properties);
-  const lastTime = properties.getProperty(CURSOR_PROPERTY) || "";
-  const documents = listSubmissions_();
+  const lastTime = Number(properties.getProperty(CURSOR_PROPERTY) || 0);
+  if (!lastTime) {
+    initializeTelegramCursor_();
+    return;
+  }
+  const documents = listNewSubmissions_(lastTime);
   if (!documents.length) return;
 
-  const unseen = documents
-    .filter((document) => document.createTime > lastTime)
-    .sort((a, b) => a.createTime.localeCompare(b.createTime));
-
-  unseen.forEach((document) => {
-    const data = firestoreFields_(document.fields || {});
-    sendTelegram_(formatSubmissionMessage_(data), chatId);
-    properties.setProperty(CURSOR_PROPERTY, document.createTime);
-  });
+  // One summary per minute avoids Telegram's per-chat/group flood limits. The
+  // cursor moves only after Telegram accepts the summary, so failures retry.
+  sendTelegram_(formatSubmissionSummary_(documents), chatId);
+  const newest = documents.reduce((value, document) => {
+    const createdAt = Number(firestoreFields_(document.fields || {}).createdAt || 0);
+    return Math.max(value, createdAt);
+  }, lastTime);
+  properties.setProperty(CURSOR_PROPERTY, String(newest));
 }
 
 function notifyTelegramTest_(settings, chatId, properties) {
@@ -61,19 +64,45 @@ function notifyTelegramTest_(settings, chatId, properties) {
 }
 
 function initializeTelegramCursor_() {
-  const documents = listSubmissions_();
-  const latest = documents.reduce(
-    (value, document) => document.createTime > value ? document.createTime : value,
-    ""
-  );
-  PropertiesService.getScriptProperties().setProperty(CURSOR_PROPERTY, latest);
+  const documents = runSubmissionQuery_({
+    from: [{ collectionId: "submissions" }],
+    orderBy: [{ field: { fieldPath: "createdAt" }, direction: "DESCENDING" }],
+    limit: 1,
+  });
+  const latest = documents.length
+    ? Number(firestoreFields_(documents[0].fields || {}).createdAt || Date.now())
+    : Date.now();
+  PropertiesService.getScriptProperties().setProperty(CURSOR_PROPERTY, String(latest));
 }
 
-function listSubmissions_() {
-  const url = firestoreUrl_("submissions?pageSize=100&orderBy=createdAt%20desc");
-  const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  assertSuccess_(response, "โหลดผลงาน");
-  return JSON.parse(response.getContentText()).documents || [];
+function listNewSubmissions_(lastTime) {
+  return runSubmissionQuery_({
+    from: [{ collectionId: "submissions" }],
+    where: {
+      fieldFilter: {
+        field: { fieldPath: "createdAt" },
+        op: "GREATER_THAN",
+        value: { integerValue: String(lastTime) },
+      },
+    },
+    orderBy: [{ field: { fieldPath: "createdAt" }, direction: "ASCENDING" }],
+    limit: 200,
+  });
+}
+
+function runSubmissionQuery_(structuredQuery) {
+  const url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents:runQuery?key=" + encodeURIComponent(FIREBASE_API_KEY);
+  const response = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify({ structuredQuery: structuredQuery }),
+    muteHttpExceptions: true,
+  });
+  assertSuccess_(response, "โหลดผลงานใหม่");
+  return (JSON.parse(response.getContentText()) || [])
+    .map((row) => row.document)
+    .filter(Boolean);
 }
 
 function getDocument_(path) {
@@ -116,6 +145,27 @@ function formatSubmissionMessage_(data) {
     "📁 " + (data.projectName || "ไม่ระบุรอบ"),
   ];
   if (data.fileURL) lines.push("🔗 " + data.fileURL);
+  return lines.join("\n");
+}
+
+function formatSubmissionSummary_(documents) {
+  const items = documents.map((document) => firestoreFields_(document.fields || {}));
+  const grades = {};
+  items.forEach((item) => {
+    const grade = String(item.gradeLevel || "ไม่ระบุ");
+    grades[grade] = (grades[grade] || 0) + 1;
+  });
+  const lines = [
+    "📥 มีการส่งงานใหม่ " + items.length + " รายการ",
+    "",
+    ...Object.keys(grades).sort().map((grade) => "• " + grade + " จำนวน " + grades[grade] + " รายการ"),
+    "",
+    "รายการล่าสุด:",
+  ];
+  items.slice(-15).reverse().forEach((item) => {
+    lines.push("• " + (item.fullName || "ไม่ระบุชื่อ") + " — " + (item.projectTitle || "ไม่ระบุชิ้นงาน"));
+  });
+  if (items.length > 15) lines.push("…และอีก " + (items.length - 15) + " รายการ");
   return lines.join("\n");
 }
 

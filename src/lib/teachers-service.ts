@@ -1,5 +1,5 @@
 import { db } from "./firebase";
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, updateDoc } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, updateDoc, query, where } from "firebase/firestore";
 
 export interface TeacherItem {
   id: string;
@@ -25,6 +25,7 @@ const DEFAULT_TEACHERS: TeacherItem[] = [
 ];
 
 let memoryTeachersCache: TeacherItem[] | null = null;
+const gradeTeachersCache = new Map<string, TeacherItem[]>();
 
 /** Normalize a displayed Thai name for duplicate checks without changing what is stored. */
 export function normalizeTeacherName(value: string): string {
@@ -81,6 +82,7 @@ function getLocalTeachers(): TeacherItem[] {
 
 function saveLocalTeachers(items: TeacherItem[]) {
   memoryTeachersCache = items;
+  gradeTeachersCache.clear();
   if (typeof window !== "undefined") {
     localStorage.setItem("app_teachers", JSON.stringify(items));
   }
@@ -144,10 +146,25 @@ export async function updateTeacherPhoto(id: string, photoUrl: string, photoFile
  * Get all teachers with optional grade level filter
  */
 export async function getTeachers(gradeLevel?: string): Promise<TeacherItem[]> {
+  const requestedGrade = gradeLevel && gradeLevel !== "ทั้งหมด" ? gradeLevel : "";
   if (memoryTeachersCache) {
-    return gradeLevel && gradeLevel !== "ทั้งหมด"
-      ? memoryTeachersCache.filter((teacher) => teacher.gradeLevel === gradeLevel)
+    return requestedGrade
+      ? memoryTeachersCache.filter((teacher) => teacher.gradeLevel === requestedGrade)
       : [...memoryTeachersCache];
+  }
+  if (requestedGrade && gradeTeachersCache.has(requestedGrade)) {
+    return [...(gradeTeachersCache.get(requestedGrade) || [])];
+  }
+  if (requestedGrade) {
+    try {
+      const snapshot = await getDocs(query(collection(db, "teachers"), where("gradeLevel", "==", requestedGrade)));
+      const rows = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TeacherItem, "id">) }));
+      gradeTeachersCache.set(requestedGrade, rows);
+      return rows;
+    } catch (err) {
+      console.warn("Firestore grade teachers query failed, using local cache:", err);
+      return getLocalTeachers().filter((teacher) => teacher.gradeLevel === requestedGrade);
+    }
   }
   let list: TeacherItem[] = memoryTeachersCache ? [...memoryTeachersCache] : [];
   try {
