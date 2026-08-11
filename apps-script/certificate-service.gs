@@ -84,7 +84,7 @@ function issueCertificate_(projectId, fullName, forceRetry, renumber) {
     var sameSubmissions = existing && JSON.stringify(existing.submissionIds || []) === JSON.stringify(completion.submissionIds || []);
     var sameSnapshot = existing && JSON.stringify(existing.snapshot || {}) === JSON.stringify(snapshot);
     var sameTemplate = existing && Number(existing.templateVersion || 1) === Number(config.templateVersion || 1);
-    var sameStorage = existing && Number(existing.storageVersion || 0) >= 2;
+    var sameStorage = existing && Number(existing.storageVersion || 0) >= 3;
     // Reuse the current PDF only when nothing that affects the certificate has
     // changed. A replacement/latest submission gets a new id, so completing or
     // updating work automatically regenerates the PDF while preserving its number.
@@ -109,7 +109,7 @@ function issueCertificate_(projectId, fullName, forceRetry, renumber) {
       var generated = renderCertificate_(project, config, snapshot, number, config.issueDateText || "");
       pending.pdfFileId = generated.id;
       pending.pdfUrl = generated.url;
-      pending.storageVersion = 2;
+      pending.storageVersion = 3;
       pending.status = "issued";
       pending.issuedAt = Date.now();
       trashReplacedCertificate_(existing && existing.pdfFileId, generated.id);
@@ -213,13 +213,20 @@ function renderCertificate_(project, config, snapshot, certificateNumber, dateTe
   }
 }
 
-/** Store certificates as <certificate root>/<project name>/<grade level>/. */
+/** Store certificates as <Drive root>/<project name>/เกียรติบัตร/<grade level>/. */
 function certificateDestinationFolder_(project, snapshot) {
-  var folderId = PropertiesService.getScriptProperties().getProperty("CERTIFICATE_FOLDER_ID");
-  var root = folderId ? DriveApp.getFolderById(folderId) : DriveApp.getRootFolder();
+  var root = certificateStorageRoot_();
   var projectName = safeDriveFolderName_(project && project.name, "ไม่ระบุโครงการ");
   var gradeLevel = safeDriveFolderName_(snapshot && snapshot.gradeLevel, "ไม่ระบุสายชั้น");
-  return getOrCreateDriveFolder_(getOrCreateDriveFolder_(root, projectName), gradeLevel);
+  var projectFolder = getOrCreateDriveFolder_(root, projectName);
+  var certificateFolder = getOrCreateDriveFolder_(projectFolder, "เกียรติบัตร");
+  return getOrCreateDriveFolder_(certificateFolder, gradeLevel);
+}
+
+function certificateStorageRoot_() {
+  if (typeof FOLDER_ID !== "undefined" && FOLDER_ID) return DriveApp.getFolderById(FOLDER_ID);
+  var folderId = PropertiesService.getScriptProperties().getProperty("CERTIFICATE_FOLDER_ID");
+  return folderId ? DriveApp.getFolderById(folderId) : DriveApp.getRootFolder();
 }
 
 function getOrCreateDriveFolder_(parent, name) {
@@ -270,8 +277,7 @@ function permanentlyDeleteDriveFile_(fileId) {
  * remain untouched.
  */
 function cleanupObsoleteCertificatePdfs_() {
-  var folderId = PropertiesService.getScriptProperties().getProperty("CERTIFICATE_FOLDER_ID");
-  if (!folderId) throw new Error("ยังไม่ได้ตั้งค่า CERTIFICATE_FOLDER_ID");
+  var root = certificateStorageRoot_();
   var registry = loadCertificateRegistry_();
   var keep = {};
   Object.keys(registry.records || {}).forEach(function (id) {
@@ -280,7 +286,7 @@ function cleanupObsoleteCertificatePdfs_() {
   });
 
   var folderIds = [];
-  collectCertificateFolderIds_(DriveApp.getFolderById(folderId), folderIds);
+  collectCertificateFolderIds_(root, folderIds);
   var candidates = [];
   folderIds.forEach(function (parentId) {
     var token = "";

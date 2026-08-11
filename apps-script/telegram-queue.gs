@@ -24,6 +24,48 @@ function runCertificateStorageCleanupV2() {
   return result;
 }
 
+/** Reorganize legacy project folders into separate work/certificate sections. */
+function runOrganizeDriveStructureV3() {
+  if (typeof FOLDER_ID === "undefined" || !FOLDER_ID) throw new Error("ไม่พบ FOLDER_ID");
+  var root = DriveApp.getFolderById(FOLDER_ID);
+  var projects = root.getFolders();
+  var movedFolders = 0;
+  var movedCertificates = 0;
+  while (projects.hasNext()) {
+    var projectFolder = projects.next();
+    var projectName = projectFolder.getName();
+    if (projectName === "ผลงาน" || projectName === "เกียรติบัตร") continue;
+    var workRoot = getOrCreateDriveFolder_(projectFolder, "ผลงาน");
+    var certificateRoot = getOrCreateDriveFolder_(projectFolder, "เกียรติบัตร");
+    var legacyGrades = projectFolder.getFolders();
+    while (legacyGrades.hasNext()) {
+      var legacyGrade = legacyGrades.next();
+      var gradeName = legacyGrade.getName();
+      if (gradeName === "ผลงาน" || gradeName === "เกียรติบัตร") continue;
+      var workGrade = getOrCreateDriveFolder_(workRoot, gradeName);
+      var certificateGrade = getOrCreateDriveFolder_(certificateRoot, gradeName);
+      var files = legacyGrade.getFiles();
+      while (files.hasNext()) {
+        var file = files.next();
+        if (file.getMimeType() === MimeType.PDF && isGeneratedCertificatePdfName_(file.getName())) {
+          file.moveTo(certificateGrade);
+          movedCertificates += 1;
+        } else {
+          file.moveTo(workGrade);
+        }
+      }
+      var teacherFolders = legacyGrade.getFolders();
+      while (teacherFolders.hasNext()) {
+        teacherFolders.next().moveTo(workGrade);
+        movedFolders += 1;
+      }
+      try { legacyGrade.setTrashed(true); } catch (_) {}
+    }
+  }
+  refreshCertificatesFromSettingsV2_();
+  return { movedTeacherFolders: movedFolders, movedCertificates: movedCertificates };
+}
+
 function notifyNewSubmissionsV2() {
   var properties = PropertiesService.getScriptProperties();
   refreshCertificatesFromSettingsV2_();
@@ -89,7 +131,7 @@ function refreshCertificatesFromSettingsV2_() {
         var expected = toThaiDigits_(prefix + String(start + index) + "/" + year);
         var numberOrTemplateStale = String(entry.record.certificateNumber || "") !== expected ||
           Number(entry.record.templateVersion || 1) !== Number(config.templateVersion || 1);
-        var storageStale = Number(entry.record.storageVersion || 0) < 2;
+        var storageStale = Number(entry.record.storageVersion || 0) < 3;
         var stale = numberOrTemplateStale || storageStale;
         if (!stale) return false;
         try {
@@ -105,7 +147,7 @@ function refreshCertificatesFromSettingsV2_() {
           entry.record.certificateNumber = expected;
           entry.record.budgetYear = year;
           entry.record.templateVersion = Number(config.templateVersion || 1);
-          entry.record.storageVersion = 2;
+          entry.record.storageVersion = 3;
           entry.record.status = "issued";
           entry.record.updatedAt = Date.now();
           delete entry.record.error;
