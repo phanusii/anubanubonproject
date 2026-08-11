@@ -230,23 +230,6 @@ export default function CertificatesAdminPage() {
     finally { setBusy(false); }
   };
 
-  const downloadFresh = async (record: CertificateRecord) => {
-    if (!project) return;
-    const downloadWindow = window.open("", "_blank");
-    setBusy(true); setMessage(`กำลังสร้างเกียรติบัตรล่าสุดของ ${record.recipientName}...`);
-    try {
-      const next = await retryCertificate(project.id, record.recipientName);
-      setRecords((items) => items.map((item) => item.id === next.id ? next : item));
-      setMessage("สร้างไฟล์ล่าสุดแล้ว กำลังเปิดเกียรติบัตร");
-      if (next.pdfUrl && downloadWindow) downloadWindow.location.href = next.pdfUrl;
-      else if (next.pdfUrl) setMessage("สร้างไฟล์ล่าสุดแล้ว กรุณาอนุญาตหน้าต่างป๊อปอัปแล้วกดดาวน์โหลดอีกครั้ง");
-    } catch (error) {
-      downloadWindow?.close();
-      setMessage(error instanceof Error ? error.message : "สร้างไฟล์ล่าสุดไม่สำเร็จ");
-    }
-    finally { setBusy(false); }
-  };
-
   const issueFor = async (fullName: string) => {
     if (!project) return;
     setBusy(true); setMessage(`กำลังออกเกียรติบัตรให้ ${fullName}...`);
@@ -287,6 +270,6 @@ export default function CertificatesAdminPage() {
       {message && <p className="text-sm font-bold text-blue-700">{message}</p>}
     </section>
     <section className="bg-white rounded-3xl p-6 border border-slate-100 space-y-4">{issuingAutomatically && <div className="rounded-2xl bg-blue-50 border border-blue-200 p-4 flex items-center gap-3 text-blue-700"><Loader2 className="w-5 h-5 animate-spin shrink-0" /><div><p className="font-extrabold">กำลังสร้างเกียรติบัตรอัตโนมัติ</p><p className="text-xs font-semibold">รายการจะปรากฏด้านล่างทันทีเมื่อสร้างเสร็จ</p></div></div>}<div className="grid sm:grid-cols-4 gap-3"><div className="rounded-2xl bg-blue-50 p-4"><p className="text-xs text-slate-500">มีสิทธิ์</p><p className="text-2xl font-extrabold">{eligibleNames.length}</p></div><div className="rounded-2xl bg-emerald-50 p-4"><p className="text-xs text-slate-500">ออกแล้ว</p><p className="text-2xl font-extrabold">{records.filter((r) => r.status === "issued").length}</p></div><div className="rounded-2xl bg-amber-50 p-4"><p className="text-xs text-slate-500">รอดำเนินการ</p><p className="text-2xl font-extrabold">{records.filter((r) => r.status === "pending").length}</p></div><div className="rounded-2xl bg-red-50 p-4"><p className="text-xs text-slate-500">ผิดพลาด</p><p className="text-2xl font-extrabold">{records.filter((r) => r.status === "failed").length}</p></div></div><div><h2 className="font-extrabold mb-2">ผู้มีสิทธิ์ที่ยังไม่มีเกียรติบัตร</h2><div className="flex flex-wrap gap-2">{eligibleNames.filter((name) => !records.some((r) => r.recipientName === name && r.status === "issued")).map((name) => <button key={name} onClick={() => issueFor(name)} disabled={busy || issuingAutomatically} className="px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-bold disabled:opacity-50">{issuingAutomatically ? "กำลังออกให้ " : "ออกให้ "}{name}</button>)}</div></div></section>
-    <section className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-100 space-y-4"><div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3"><h2 className="font-extrabold text-slate-900">รายการเกียรติบัตร ({records.length})</h2><button onClick={exportCsv} disabled={!records.length} className="text-sm font-bold flex gap-2 items-center disabled:opacity-40"><Download className="w-4 h-4" />ดาวน์โหลด CSV</button></div><div className="overflow-x-auto -mx-1"><table className="w-full min-w-[720px] text-sm"><thead><tr className="text-left text-slate-500 border-b"><th className="py-3">เลขที่</th><th>ผู้รับ</th><th>ตำแหน่ง</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>{records.map((r) => <tr key={r.id} className="border-b"><td className="py-3 font-bold">{r.certificateNumber}</td><td>{r.recipientName}</td><td>{r.snapshot?.position}</td><td>{r.status}</td><td><div className="flex gap-2 whitespace-nowrap">{r.pdfUrl && <button onClick={() => downloadFresh(r)} disabled={busy} className="text-blue-600 font-bold disabled:opacity-40">สร้างล่าสุดและดาวน์โหลด</button>}<button onClick={() => reissue(r)} disabled={busy} className="text-amber-600 font-bold disabled:opacity-40">ออกใหม่</button>{r.status !== "revoked" && <button onClick={() => revoke(r)} disabled={busy} className="text-red-600 font-bold disabled:opacity-40">ยกเลิก</button>}</div></td></tr>)}</tbody></table></div></section>
+    <section className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-100 space-y-4"><div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div><h2 className="font-extrabold text-slate-900">รายการเกียรติบัตร ({records.length})</h2><p className="text-xs text-slate-500 mt-1">ปุ่มดาวน์โหลดจะเปิดไฟล์เดิมที่ออกไว้ ทั้งหน้าแอดมินและหน้าครูใช้ไฟล์เดียวกัน</p></div><button onClick={exportCsv} disabled={!records.length} className="text-sm font-bold flex gap-2 items-center disabled:opacity-40"><Download className="w-4 h-4" />ดาวน์โหลด CSV</button></div><div className="overflow-x-auto -mx-1"><table className="w-full min-w-[720px] text-sm"><thead><tr className="text-left text-slate-500 border-b"><th className="py-3">เลขที่</th><th>ผู้รับ</th><th>ตำแหน่ง</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>{records.map((r) => <tr key={r.id} className="border-b"><td className="py-3 font-bold">{r.certificateNumber}</td><td>{r.recipientName}</td><td>{r.snapshot?.position}</td><td>{r.status}</td><td><div className="flex gap-2 whitespace-nowrap">{r.pdfUrl && <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="text-blue-600 font-bold">ดาวน์โหลด</a>}<button onClick={() => reissue(r)} disabled={busy} className="text-amber-600 font-bold disabled:opacity-40">ออกใหม่</button>{r.status !== "revoked" && <button onClick={() => revoke(r)} disabled={busy} className="text-red-600 font-bold disabled:opacity-40">ยกเลิก</button>}</div></td></tr>)}</tbody></table></div></section>
   </main></div><Footer /></div>;
 }
