@@ -38,6 +38,8 @@ async function callService(payload: Record<string, unknown>): Promise<Record<str
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify(payload),
+    // Let automatic issuance finish even if the teacher leaves the success page.
+    keepalive: payload.action === "issue",
   });
   const json = await response.json().catch(() => null);
   if (!response.ok || !json?.ok) throw new Error(json?.error || "เชื่อมต่อระบบเกียรติบัตรไม่สำเร็จ");

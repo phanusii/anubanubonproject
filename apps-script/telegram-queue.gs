@@ -13,12 +13,12 @@ function installTelegramNotifierV2() {
 }
 
 function notifyNewSubmissionsV2() {
-  var settings = getDocument_(SETTINGS_DOCUMENT);
-  if (!settings.telegramNotificationsEnabled) return;
-  var chatId = String(settings.telegramChatId || "").trim();
-  if (!chatId) return;
   var properties = PropertiesService.getScriptProperties();
-  notifyTelegramTest_(settings, chatId, properties);
+  var settings = getDocument_(SETTINGS_DOCUMENT);
+  var chatId = String(settings.telegramChatId || "").trim();
+  if (settings.telegramNotificationsEnabled && chatId) {
+    notifyTelegramTest_(settings, chatId, properties);
+  }
   var lastTime = Number(properties.getProperty("TELEGRAM_LAST_SUBMISSION_MS") || 0);
   if (!lastTime) {
     initializeTelegramCursorV2_();
@@ -26,12 +26,45 @@ function notifyNewSubmissionsV2() {
   }
   var documents = listNewSubmissionsV2_(lastTime);
   if (!documents.length) return;
-  sendTelegram_(formatSubmissionSummaryV2_(documents), chatId);
+  // Issue certificates server-side as soon as the final required submission is
+  // observed. This remains reliable even when the teacher closes the browser
+  // immediately after uploading; issueCertificate_ is idempotent and verifies
+  // completion from Firestore again before reserving a number.
+  autoIssueCompletedCertificatesV2_(documents);
   var newest = documents.reduce(function(value, document) {
     var createdAt = Number(firestoreFields_(document.fields || {}).createdAt || 0);
     return Math.max(value, createdAt);
   }, lastTime);
   properties.setProperty("TELEGRAM_LAST_SUBMISSION_MS", String(newest));
+
+  // Telegram can be disabled without disabling automatic certificates.
+  if (!settings.telegramNotificationsEnabled) return;
+  if (!chatId) return;
+  sendTelegram_(formatSubmissionSummaryV2_(documents), chatId);
+}
+
+function autoIssueCompletedCertificatesV2_(documents) {
+  var recipients = {};
+  documents.forEach(function(document) {
+    var item = firestoreFields_(document.fields || {});
+    var projectId = String(item.projectId || "").trim();
+    var fullName = String(item.fullName || "").trim();
+    if (projectId && fullName) recipients[projectId + "\n" + fullName] = {
+      projectId: projectId,
+      fullName: fullName
+    };
+  });
+
+  Object.keys(recipients).forEach(function(key) {
+    var recipient = recipients[key];
+    try {
+      issueCertificate_(recipient.projectId, recipient.fullName, false);
+    } catch (error) {
+      // Incomplete submissions and temporary Slides/Drive errors are retried by
+      // the existing browser fallback or the next submission notification.
+      console.log("Automatic certificate skipped for " + recipient.fullName + ": " + error.message);
+    }
+  });
 }
 
 function initializeTelegramCursorV2_() {
