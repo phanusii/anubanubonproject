@@ -59,6 +59,16 @@ function certificatePreviewUrl(record: CertificateRecord): string {
     : "";
 }
 
+function formatFinalizeAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("th-TH", {
+    dateStyle: "long",
+    timeStyle: "short",
+    timeZone: "Asia/Bangkok",
+  }).format(date);
+}
+
 export default function CertificatePage() {
   const [name, setName] = useState("");
   const [gradeLevel, setGradeLevel] = useState(
@@ -162,7 +172,7 @@ export default function CertificatePage() {
           certificateLoading:
             cutoffPassed && eligible && Boolean(round.certificate?.enabled),
           waitingUntil:
-            !cutoffPassed && finalizeAt && status.submitted > 0
+            !cutoffPassed && finalizeAt && round.certificate?.enabled
               ? finalizeAt
               : undefined,
         };
@@ -419,8 +429,12 @@ export default function CertificatePage() {
                         รอสรุปผลการส่งงาน
                       </h4>
                       <p className="mt-1 text-sm font-semibold text-blue-700">
-                        ระบบจะตัดยอดตามวัน–เวลาที่ผู้ดูแลกำหนด
-                        แล้วจึงแสดงเกียรติบัตรที่มีสิทธิ์
+                        ระบบจะสรุปผลและออกเกียรติบัตรวันที่{" "}
+                        <strong>{formatFinalizeAt(result.waitingUntil)} น.</strong>
+                      </p>
+                      <p className="mt-2 text-xs font-bold text-blue-600">
+                        ขณะนี้ส่งแล้ว {result.submitted}/{result.required} ชิ้นงาน
+                        เกียรติบัตรจะแสดงอัตโนมัติหลังระบบประมวลผลเสร็จ
                       </p>
                     </div>
                   ) : result.missing.length ? (
