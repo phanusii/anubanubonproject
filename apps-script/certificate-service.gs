@@ -15,7 +15,7 @@ function doPost(e) {
   try {
     var input = JSON.parse((e && e.postData && e.postData.contents) || "{}");
     if (input.action === "issue" || input.action === "retry") {
-      if (input.action === "retry") assertAdmin_(input.idToken);
+      assertAdmin_(input.idToken);
       return json_({ ok: true, certificate: issueCertificate_(input.projectId, input.fullName, input.action === "retry", Boolean(input.renumber)) });
     }
     if (input.action === "preview") {
@@ -37,7 +37,7 @@ function doPost(e) {
     }
     if (input.action === "startCertificateBatch") {
       assertAdmin_(input.idToken);
-      return json_({ ok: true, job: startCertificateBatch_(input.projectId, "manual") });
+      return json_({ ok: true, job: startCertificateBatch_(input.projectId, input.fullNames || []) });
     }
     if (input.action === "runCertificateBatch") {
       assertAdmin_(input.idToken);
@@ -47,10 +47,23 @@ function doPost(e) {
       assertAdmin_(input.idToken);
       return json_({ ok: true, job: getCertificateJob_(input.projectId) });
     }
-    if (input.action === "installCertificateScheduler") {
+    if (input.action === "removeCertificateScheduler") {
+      assertAdmin_(input.idToken); removeCertificateScheduler_(); return json_({ ok: true });
+    }
+    if (input.action === "recipientLookup") {
+      var recipient = getCertificateRecord_(certificateId_(String(input.projectId || ""), normalizeName_(input.fullName).toLowerCase()));
+      return json_({ ok: true, certificate: recipient && recipient.status === "issued" ? recipient : null });
+    }
+    if (input.action === "reissueEdited") {
       assertAdmin_(input.idToken);
-      installCertificateScheduler_();
-      return json_({ ok: true });
+      return json_({ ok: true, certificate: reissueEditedCertificate_(input.projectId, input.certificateId, input.changes || {}, adminEmailFromToken_(input.idToken)) });
+    }
+    if (input.action === "previewEdited") {
+      assertAdmin_(input.idToken);
+      return json_({ ok: true, url: createEditedPreview_(input.projectId, input.changes || {}) });
+    }
+    if (input.action === "requestCorrection") {
+      saveCorrectionRequest_(input); return json_({ ok: true });
     }
     if (input.action === "lookup") {
       var found = findCertificateRecord_(input.certificateNumber);
@@ -85,15 +98,12 @@ function issueCertificate_(projectId, fullName, forceRetry, renumber, context) {
     if (!config.enabled) throw new Error("รอบนี้ยังไม่เปิดออกเกียรติบัตร");
     if (!config.slideTemplateId) throw new Error("ยังไม่ได้ตั้งค่า Google Slides แม่แบบเกียรติบัตร");
 
-    var cutoffAt = certificateCutoffMs_(config);
-    if (!forceRetry && (!cutoffAt || Date.now() < cutoffAt)) throw new Error("ยังไม่ถึงวัน–เวลาสรุปผล");
     var submissions = (context && context.submissions ? context.submissions : querySubmissions_(projectId)).filter(function (item) {
-      return normalizeName_(item.fullName) === fullName && (forceRetry || !cutoffAt || Number(item.createdAt || 0) <= cutoffAt);
+      return normalizeName_(item.fullName) === fullName;
     });
     var completion = completion_(project, submissions);
-    var qualificationType = completion.complete ? "complete" : completion.submitted > 0 ? "partial" : "none";
-    var eligible = qualificationType === "complete" ? config.issueForComplete !== false : qualificationType === "partial" ? Boolean(config.issueForPartial) : false;
-    if (!eligible) throw new Error(qualificationType === "none" ? "ยังไม่เคยส่งงาน" : "ไม่อยู่ในกลุ่มที่กำหนดให้ออกเกียรติบัตร");
+    if (!completion.complete) throw new Error("ส่งงานยังไม่ครบ (" + completion.submitted + "/" + completion.required + ")");
+    var qualificationType = "complete";
 
     var recipientKey = normalizeName_(fullName).toLowerCase();
     var documentId = certificateId_(projectId, recipientKey);
@@ -130,9 +140,11 @@ function issueCertificate_(projectId, fullName, forceRetry, renumber, context) {
       submissionIds: completion.submissionIds, status: "pending", snapshot: snapshot,
       qualificationType: qualificationType,
       finalizedAt: Date.now(),
-      batchType: context && context.batchType === "manual" ? "manual" : "scheduled",
+      batchType: "manual",
       submissionCountAtIssue: completion.submitted,
-      cutoffAt: context && context.cutoffAt ? Number(context.cutoffAt) : cutoffAt
+      batchId: context && context.batchId || "",
+      batchNumber: context && Number(context.batchNumber || 0) || 0,
+      revisionNumber: existing ? Number(existing.revisionNumber || 1) : 1
     };
     setCertificateRecord_(documentId, pending);
 
@@ -437,7 +449,7 @@ function certificateRegistryFile_() {
   if (!folderId) throw new Error("Missing CERTIFICATE_FOLDER_ID");
   var folder = DriveApp.getFolderById(folderId);
   var files = folder.getFilesByName("certificate-registry.json");
-  return files.hasNext() ? files.next() : folder.createFile("certificate-registry.json", JSON.stringify({ records: {}, counters: {} }), "application/json");
+  return files.hasNext() ? files.next() : folder.createFile("certificate-registry.json", JSON.stringify({ records: {}, counters: {}, jobs: {}, batches: {}, batchCounters: {}, corrections: [] }), "application/json");
 }
 
 function loadCertificateRegistry_() {
@@ -447,9 +459,12 @@ function loadCertificateRegistry_() {
     value.records = value.records || {};
     value.counters = value.counters || {};
     value.jobs = value.jobs || {};
+    value.batches = value.batches || {};
+    value.batchCounters = value.batchCounters || {};
+    value.corrections = value.corrections || [];
     return value;
   } catch (_) {
-    return { records: {}, counters: {}, jobs: {} };
+    return { records: {}, counters: {}, jobs: {}, batches: {}, batchCounters: {}, corrections: [] };
   }
 }
 
@@ -473,32 +488,35 @@ function submissionsByRecipient_(submissions) {
 
 function certificateCandidates_(projectId, useCurrent) {
   var project = getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
-  var config = project.certificate || {};
   var issued = {};
   listCertificateRecords_(projectId).forEach(function (record) {
-    if (record.status === "issued") issued[normalizeName_(record.recipientName).toLowerCase()] = true;
+    if (record.status === "issued") issued[String(record.recipientKey || normalizeName_(record.recipientName)).toLowerCase()] = true;
   });
-  var cutoffAt = certificateCutoffMs_(config);
-  var groups = submissionsByRecipient_(querySubmissions_(projectId).filter(function (item) { return useCurrent || !cutoffAt || Number(item.createdAt || 0) <= cutoffAt; }));
+  var groups = submissionsByRecipient_(querySubmissions_(projectId));
   return Object.keys(groups).sort().map(function (key) {
     var progress = completion_(project, groups[key]);
     var type = progress.complete ? "complete" : progress.submitted > 0 ? "partial" : "none";
-    var allowed = type === "complete" ? config.issueForComplete !== false : type === "partial" ? Boolean(config.issueForPartial) : false;
-    return { fullName: progress.latest.fullName || key, qualificationType: type, submitted: progress.submitted, required: progress.required, eligible: allowed && !issued[key], reason: issued[key] ? "ออกแล้ว" : allowed ? "" : "ไม่ตรงเกณฑ์" };
+    var latest = progress.latest || {};
+    return { fullName: latest.fullName || key, qualificationType: type, submitted: progress.submitted, required: progress.required, eligible: progress.complete && !issued[key], reason: issued[key] ? "ออกแล้ว" : progress.complete ? "" : "ยังส่งไม่ครบ", position: latest.position || "", gradeLevel: latest.gradeLevel || "", subjectGroup: latest.subjectGroup || "", missingTitles: completionMissingTitles_(project, groups[key]) };
   });
 }
 
-function startCertificateBatch_(projectId, batchType) {
+function startCertificateBatch_(projectId, selectedNames) {
   var project = getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
   var config = project.certificate || {};
   if (!config.enabled) throw new Error("รอบนี้ยังไม่เปิดระบบเกียรติบัตร");
-  var cutoffAt = certificateCutoffMs_(config);
-  if (!cutoffAt) throw new Error("ยังไม่ได้ตั้งวัน–เวลาสรุปผล");
-  var isManual = batchType === "manual";
-  if (isManual) cutoffAt = Date.now();
-  var candidates = certificateCandidates_(projectId, isManual).filter(function (item) { return item.eligible; });
+  var wanted = {};
+  (selectedNames || []).forEach(function (name) { wanted[normalizeName_(name).toLowerCase()] = true; });
+  var candidates = certificateCandidates_(projectId, true).filter(function (item) { return item.eligible && wanted[normalizeName_(item.fullName).toLowerCase()]; });
+  if (!candidates.length) throw new Error("ไม่พบรายชื่อที่ส่งครบและยังไม่มีเกียรติบัตร");
   var registry = loadCertificateRegistry_();
-  registry.jobs[projectId] = { projectId: projectId, batchType: batchType || "manual", cutoffAt: cutoffAt, status: candidates.length ? "running" : "completed", names: candidates.map(function (item) { return item.fullName; }), cursor: 0, total: candidates.length, processed: 0, issued: 0, failed: 0, updatedAt: Date.now() };
+  registry.batchCounters = registry.batchCounters || {};
+  var batchNumber = Number(registry.batchCounters[projectId] || 0) + 1;
+  registry.batchCounters[projectId] = batchNumber;
+  var batchId = projectId + "-batch-" + batchNumber + "-" + Date.now();
+  registry.jobs[projectId] = { projectId: projectId, batchType: "manual", batchId: batchId, batchNumber: batchNumber, cutoffAt: Date.now(), status: "running", names: candidates.map(function (item) { return item.fullName; }), cursor: 0, total: candidates.length, processed: 0, issued: 0, failed: 0, updatedAt: Date.now(), createdAt: Date.now() };
+  registry.batches = registry.batches || {};
+  registry.batches[batchId] = registry.jobs[projectId];
   saveCertificateRegistry_(registry);
   return publicCertificateJob_(registry.jobs[projectId]);
 }
@@ -510,7 +528,7 @@ function getCertificateJob_(projectId) {
 
 function publicCertificateJob_(job) {
   if (!job) return null;
-  return { projectId: job.projectId, batchType: job.batchType, cutoffAt: job.cutoffAt, status: job.status, total: job.total || 0, processed: job.processed || 0, issued: job.issued || 0, failed: job.failed || 0, updatedAt: job.updatedAt || 0, error: job.error || "" };
+  return { projectId: job.projectId, batchType: job.batchType, batchId: job.batchId, batchNumber: job.batchNumber, names: job.names || [], cutoffAt: job.cutoffAt, status: job.status, total: job.total || 0, processed: job.processed || 0, issued: job.issued || 0, failed: job.failed || 0, updatedAt: job.updatedAt || 0, error: job.error || "" };
 }
 
 function processCertificateBatch_(projectId) {
@@ -521,13 +539,13 @@ function processCertificateBatch_(projectId) {
   var job = registry.jobs[projectId];
   if (!job || job.status !== "running") return job ? publicCertificateJob_(job) : null;
   var project = getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
-  var all = querySubmissions_(projectId).filter(function (item) { return !job.cutoffAt || Number(item.createdAt || 0) <= Number(job.cutoffAt); });
+  var all = querySubmissions_(projectId);
   var groups = submissionsByRecipient_(all);
   var limit = Math.min(job.names.length, Number(job.cursor || 0) + 6);
   for (; job.cursor < limit; job.cursor++) {
     var fullName = job.names[job.cursor];
     try {
-      issueCertificate_(projectId, fullName, false, false, { project: project, submissions: groups[normalizeName_(fullName).toLowerCase()] || [], batchType: job.batchType, cutoffAt: job.cutoffAt });
+      issueCertificate_(projectId, fullName, false, false, { project: project, submissions: groups[normalizeName_(fullName).toLowerCase()] || [], batchId: job.batchId, batchNumber: job.batchNumber });
       job.issued++;
     } catch (error) {
       job.failed++;
@@ -539,6 +557,8 @@ function processCertificateBatch_(projectId) {
   job.updatedAt = Date.now();
   registry = loadCertificateRegistry_();
   registry.jobs[projectId] = job;
+  registry.batches = registry.batches || {};
+  registry.batches[job.batchId] = job;
   saveCertificateRegistry_(registry);
   return publicCertificateJob_(job);
   } finally {
@@ -570,10 +590,73 @@ function installCertificateScheduler_() {
   ScriptApp.newTrigger("processScheduledCertificates_").timeBased().everyMinutes(1).create();
 }
 
-/** Run once from the editor; the admin save action also keeps this trigger current. */
-function installCertificateScheduler() {
-  installCertificateScheduler_();
-  return "Certificate scheduler is ready";
+function removeCertificateScheduler_() {
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (trigger.getHandlerFunction() === "processScheduledCertificates_") ScriptApp.deleteTrigger(trigger);
+  });
+}
+
+function completionMissingTitles_(project, submissions) {
+  var titles = project.workSlotTitles || [], found = {};
+  var titleToSlot = {}; titles.forEach(function (title, index) { titleToSlot[String(title)] = "slot-" + (index + 1); });
+  (submissions || []).forEach(function (item) { var slot = item.workSlotId || titleToSlot[String(item.projectTitle || "")]; if (slot) found[slot] = true; });
+  return titles.filter(function (_, index) { return !found["slot-" + (index + 1)]; });
+}
+
+function createEditedPreview_(projectId, changes) {
+  var project = getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
+  var config = project.certificate || {};
+  var generated = renderCertificate_(project, config, { fullName: normalizeName_(changes.fullName) || "ตัวอย่างชื่อ", position: "", gradeLevel: "", subjectGroup: "" }, toThaiDigits_(changes.certificateNumber || "1/2569"), "");
+  return generated.url;
+}
+
+function reissueEditedCertificate_(projectId, certificateId, changes, adminEmail) {
+  var lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try {
+    var existing = getCertificateRecord_(certificateId);
+    if (!existing || existing.projectId !== projectId) throw new Error("ไม่พบเกียรติบัตร");
+    var number = toThaiDigits_(String(changes.certificateNumber || existing.certificateNumber || "").trim());
+    if (!number) throw new Error("กรุณาระบุเลขที่เกียรติบัตร");
+    var duplicate = listCertificateRecords_(projectId).filter(function (item) { return item.id !== certificateId && item.status !== "revoked" && item.certificateNumber === number; })[0];
+    if (duplicate) throw new Error("เลขที่เกียรติบัตรนี้ถูกใช้แล้ว");
+    var project = getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
+    var config = project.certificate || {};
+    var snapshot = { fullName: normalizeName_(changes.fullName) || existing.recipientName, position: String(changes.position || ""), gradeLevel: String(changes.gradeLevel || ""), subjectGroup: String(changes.subjectGroup || "") };
+    var generated = renderCertificate_(project, config, snapshot, number, "");
+    var revision = { revisionNumber: Number(existing.revisionNumber || 1), reissuedAt: Date.now(), reissuedBy: adminEmail, reason: String(changes.reason || "แก้ไขข้อมูล"), certificateNumber: existing.certificateNumber, pdfFileId: existing.pdfFileId || "", snapshot: existing.snapshot || {} };
+    existing.revisions = existing.revisions || []; existing.revisions.push(revision);
+    existing.previousPdfFileId = existing.pdfFileId || "";
+    existing.recipientName = snapshot.fullName; existing.snapshot = snapshot; existing.certificateNumber = number;
+    existing.pdfFileId = generated.id; existing.pdfUrl = generated.url; existing.status = "issued";
+    existing.revisionNumber = Number(existing.revisionNumber || 1) + 1; existing.reissuedAt = Date.now(); existing.reissuedBy = adminEmail; existing.reissueReason = String(changes.reason || "แก้ไขข้อมูล");
+    setCertificateRecord_(certificateId, existing);
+    // If the administrator manually chooses a higher running number, continue
+    // after it so a later batch can never reserve the same number.
+    var arabicNumber = thaiDigitsToArabic_(number).match(/(\d+)/);
+    if (arabicNumber) {
+      var registry = loadCertificateRegistry_();
+      registry.counters[projectId] = Math.max(Number(registry.counters[projectId] || 0), Number(arabicNumber[1]) + 1);
+      saveCertificateRegistry_(registry);
+    }
+    trashReplacedCertificate_(revision.pdfFileId, generated.id);
+    return withId_(certificateId, existing);
+  } finally { lock.releaseLock(); }
+}
+
+function thaiDigitsToArabic_(value) {
+  return String(value || "").replace(/[๐-๙]/g, function (digit) { return String("๐๑๒๓๔๕๖๗๘๙".indexOf(digit)); });
+}
+
+function saveCorrectionRequest_(input) {
+  var projectId = String(input.projectId || "").trim(), fullName = normalizeName_(input.fullName), requestedValue = String(input.requestedValue || "").trim(), note = String(input.note || "").trim();
+  if (!projectId || !fullName || !requestedValue) throw new Error("กรุณากรอกข้อมูลที่ต้องการแก้ไข");
+  var registry = loadCertificateRegistry_(); registry.corrections = registry.corrections || [];
+  registry.corrections.push({ id: Utilities.getUuid(), projectId: projectId, fullName: fullName, requestedValue: requestedValue.slice(0, 300), note: note.slice(0, 1000), status: "pending", createdAt: Date.now() });
+  saveCertificateRegistry_(registry);
+}
+
+function adminEmailFromToken_(idToken) {
+  assertAdmin_(idToken); return "phanu9818@anubanubon.ac.th";
 }
 
 function saveCertificateRegistry_(registry) {

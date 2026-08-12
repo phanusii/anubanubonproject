@@ -13,8 +13,9 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import {
   certificateProgress,
-  issueCertificate,
+  findCertificateForRecipient,
   latestSubmissionPerSlot,
+  requestCertificateCorrection,
   slotIdAt,
 } from "@/lib/certificate-service";
 import { getActiveProject, getProjects } from "@/lib/projects-service";
@@ -35,7 +36,6 @@ type RoundResult = {
   required: number;
   certificateLoading?: boolean;
   certificateError?: string;
-  waitingUntil?: string;
 };
 
 function friendlyCertificateError(message: string): string {
@@ -59,16 +59,6 @@ function certificatePreviewUrl(record: CertificateRecord): string {
     : "";
 }
 
-function formatFinalizeAt(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("th-TH", {
-    dateStyle: "long",
-    timeStyle: "short",
-    timeZone: "Asia/Bangkok",
-  }).format(date);
-}
-
 export default function CertificatePage() {
   const [name, setName] = useState("");
   const [gradeLevel, setGradeLevel] = useState(
@@ -83,6 +73,10 @@ export default function CertificatePage() {
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [correctionProjectId, setCorrectionProjectId] = useState("");
+  const [correctionValue, setCorrectionValue] = useState("");
+  const [correctionNote, setCorrectionNote] = useState("");
+  const [correctionMessage, setCorrectionMessage] = useState("");
 
   useEffect(() => {
     // Cached lists are already usable above; this refresh never blocks grade selection.
@@ -154,38 +148,24 @@ export default function CertificatePage() {
         const missingItems = round.workSlotTitles
           .map((title, index) => ({ title, index }))
           .filter(({ index }) => !latest.has(slotIdAt(index)));
-        const finalizeAt = round.certificate?.certificateFinalizeAt;
-        const cutoffPassed = Boolean(
-          finalizeAt && Date.now() >= new Date(finalizeAt).getTime(),
-        );
-        const eligible =
-          status.submitted > 0 &&
-          (status.complete
-            ? round.certificate?.issueForComplete !== false
-            : Boolean(round.certificate?.issueForPartial));
         return {
           project: round,
           record: null,
           missing: status.complete ? [] : missingItems,
           submitted: status.submitted,
           required: status.required,
-          certificateLoading:
-            cutoffPassed && eligible && Boolean(round.certificate?.enabled),
-          waitingUntil:
-            !cutoffPassed && finalizeAt && round.certificate?.enabled
-              ? finalizeAt
-              : undefined,
+          certificateLoading: Boolean(round.certificate?.enabled),
         };
       });
       setResults(roundResults);
       setSearched(true);
       setLoading(false);
 
-      // The service enforces the cutoff and returns the single shared Drive PDF.
+      // Searching is read-only: it only fetches an existing admin-approved PDF.
       roundResults
         .filter((item) => item.certificateLoading)
         .forEach((item) => {
-          issueCertificate(item.project.id, fullName)
+          findCertificateForRecipient(item.project.id, fullName)
             .then((certificate) =>
               setResults((current) =>
                 current.map((row) =>
@@ -225,6 +205,25 @@ export default function CertificatePage() {
 
   const submitLink = (item: MissingWork) =>
     `/?certificateName=${encodeURIComponent(name.trim())}&slot=${item.index + 1}#submit`;
+
+  const sendCorrection = async () => {
+    if (!correctionProjectId || !correctionNote.trim()) return;
+    setLoading(true);
+    try {
+      await requestCertificateCorrection(
+        correctionProjectId,
+        name.trim(),
+        correctionValue.trim(),
+        correctionNote.trim(),
+      );
+      setCorrectionMessage("ส่งคำขอให้ผู้ดูแลแล้ว");
+      setCorrectionProjectId("");
+    } catch (cause) {
+      setCorrectionMessage(cause instanceof Error ? cause.message : "ส่งคำขอไม่สำเร็จ");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -371,6 +370,9 @@ export default function CertificatePage() {
                             ดาวน์โหลดเกียรติบัตร
                           </a>
                         )}
+                        <button type="button" onClick={() => { setCorrectionProjectId(result.project.id); setCorrectionValue(result.record?.recipientName || name); setCorrectionNote(""); }} className="px-4 py-2.5 rounded-xl border border-emerald-300 text-sm font-extrabold text-emerald-800">
+                          แจ้งข้อมูลไม่ถูกต้อง
+                        </button>
                       </div>
                       {certificatePreviewUrl(result.record) && (
                         <div className="rounded-2xl overflow-hidden border border-slate-200 bg-white">
@@ -400,7 +402,7 @@ export default function CertificatePage() {
                       <div>
                         <p className="font-extrabold">ส่งงานครบแล้ว</p>
                         <p className="font-medium">
-                          กำลังจัดเตรียมเกียรติบัตร กรุณารอสักครู่
+                          กำลังตรวจสอบสถานะการอนุมัติ
                         </p>
                       </div>
                     </div>
@@ -422,20 +424,6 @@ export default function CertificatePage() {
                           ลองใหม่
                         </button>
                       </div>
-                    </div>
-                  ) : result.waitingUntil ? (
-                    <div className="rounded-2xl bg-blue-50 border border-blue-200 p-4">
-                      <h4 className="font-extrabold text-blue-900">
-                        รอสรุปผลการส่งงาน
-                      </h4>
-                      <p className="mt-1 text-sm font-semibold text-blue-700">
-                        ระบบจะสรุปผลและออกเกียรติบัตรวันที่{" "}
-                        <strong>{formatFinalizeAt(result.waitingUntil)} น.</strong>
-                      </p>
-                      <p className="mt-2 text-xs font-bold text-blue-600">
-                        ขณะนี้ส่งแล้ว {result.submitted}/{result.required} ชิ้นงาน
-                        เกียรติบัตรจะแสดงอัตโนมัติหลังระบบประมวลผลเสร็จ
-                      </p>
                     </div>
                   ) : result.missing.length ? (
                     <div className="space-y-3">
@@ -479,6 +467,11 @@ export default function CertificatePage() {
                         </div>
                       ))}
                     </div>
+                  ) : result.project.certificate?.enabled ? (
+                    <div className="rounded-2xl bg-blue-50 border border-blue-200 p-4">
+                      <h4 className="font-extrabold text-blue-900">ส่งงานครบแล้ว</h4>
+                      <p className="mt-1 text-sm font-semibold text-blue-700">กำลังรอผู้ดูแลอนุมัติเกียรติบัตร เมื่ออนุมัติแล้วไฟล์จะปรากฏในหน้านี้</p>
+                    </div>
                   ) : (
                     <p className="rounded-2xl bg-white border border-slate-200 p-4 text-sm font-bold text-slate-600">
                       ส่งงานครบแล้ว แต่รอบนี้ยังไม่ได้เปิดใช้งานเกียรติบัตร
@@ -489,7 +482,18 @@ export default function CertificatePage() {
             ))}
           </section>
         )}
+        {correctionMessage && <p className="rounded-2xl bg-blue-50 p-4 text-sm font-bold text-blue-700">{correctionMessage}</p>}
       </main>
+      {correctionProjectId && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/50 backdrop-blur-sm p-4 grid place-items-center">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4">
+            <div><h2 className="text-xl font-extrabold">แจ้งข้อมูลเกียรติบัตรไม่ถูกต้อง</h2><p className="text-sm text-slate-500">ผู้ดูแลจะตรวจสอบและออกฉบับแก้ไขให้</p></div>
+            <label className="text-xs font-bold text-slate-600">ชื่อที่ควรแสดง<input value={correctionValue} onChange={(e) => setCorrectionValue(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm" /></label>
+            <label className="text-xs font-bold text-slate-600">รายละเอียดที่ต้องแก้ *<textarea value={correctionNote} onChange={(e) => setCorrectionNote(e.target.value)} rows={4} className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm" /></label>
+            <div className="grid grid-cols-2 gap-2"><button onClick={() => setCorrectionProjectId("")} className="rounded-xl border py-3 font-extrabold">ยกเลิก</button><button onClick={sendCorrection} disabled={!correctionNote.trim() || loading} className="rounded-xl bg-blue-600 text-white py-3 font-extrabold disabled:opacity-40">ส่งคำขอ</button></div>
+          </div>
+        </div>
+      )}
       <Footer />
     </div>
   );

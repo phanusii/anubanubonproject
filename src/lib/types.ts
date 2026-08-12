@@ -96,12 +96,30 @@ export interface CertificateRecord {
   batchType?: "scheduled" | "manual";
   submissionCountAtIssue?: number;
   cutoffAt?: number;
+  batchId?: string;
+  batchNumber?: number;
+  revisionNumber?: number;
+  reissuedAt?: number;
+  reissuedBy?: string;
+  reissueReason?: string;
+  previousPdfFileId?: string;
+  revisions?: CertificateRevision[];
   snapshot: {
     fullName: string;
     position: string;
     gradeLevel: string;
     subjectGroup: string;
   };
+}
+
+export interface CertificateRevision {
+  revisionNumber: number;
+  reissuedAt: number;
+  reissuedBy: string;
+  reason: string;
+  certificateNumber: string;
+  pdfFileId?: string;
+  snapshot: CertificateRecord["snapshot"];
 }
 
 export interface CertificateCandidate {
@@ -111,6 +129,10 @@ export interface CertificateCandidate {
   required: number;
   eligible: boolean;
   reason?: string;
+  position?: string;
+  gradeLevel?: string;
+  subjectGroup?: string;
+  missingTitles?: string[];
 }
 
 export interface CertificateBatchJob {
@@ -124,6 +146,9 @@ export interface CertificateBatchJob {
   failed: number;
   updatedAt: number;
   error?: string;
+  batchId?: string;
+  batchNumber?: number;
+  names?: string[];
 }
 
 export interface TrainingSettings {

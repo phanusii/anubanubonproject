@@ -95,9 +95,9 @@ export async function getCertificateCandidates(projectId: string): Promise<Certi
   return (result.candidates || []) as CertificateCandidate[];
 }
 
-export async function startCertificateBatch(projectId: string): Promise<CertificateBatchJob> {
+export async function startCertificateBatch(projectId: string, fullNames: string[]): Promise<CertificateBatchJob> {
   const idToken = await getAdminIdToken();
-  const result = await callService({ action: "startCertificateBatch", projectId, idToken });
+  const result = await callService({ action: "startCertificateBatch", projectId, fullNames, idToken });
   return result.job as CertificateBatchJob;
 }
 
@@ -116,6 +116,32 @@ export async function getCertificateBatchStatus(projectId: string): Promise<Cert
 export async function installCertificateScheduler(): Promise<void> {
   const idToken = await getAdminIdToken();
   await callService({ action: "installCertificateScheduler", idToken });
+}
+
+export async function removeCertificateScheduler(): Promise<void> {
+  const idToken = await getAdminIdToken();
+  await callService({ action: "removeCertificateScheduler", idToken });
+}
+
+export async function findCertificateForRecipient(projectId: string, fullName: string): Promise<CertificateRecord | null> {
+  const result = await callService({ action: "recipientLookup", projectId, fullName: fullName.trim() });
+  return (result.certificate as CertificateRecord | null) || null;
+}
+
+export async function reissueEditedCertificate(projectId: string, certificateId: string, changes: { fullName: string; position: string; gradeLevel: string; subjectGroup: string; certificateNumber: string; reason: string }): Promise<CertificateRecord> {
+  const idToken = await getAdminIdToken();
+  const result = await callService({ action: "reissueEdited", projectId, certificateId, changes, idToken });
+  return result.certificate as CertificateRecord;
+}
+
+export async function previewEditedCertificate(projectId: string, changes: { fullName: string; certificateNumber: string }): Promise<string> {
+  const idToken = await getAdminIdToken();
+  const result = await callService({ action: "previewEdited", projectId, changes, idToken });
+  return String(result.url || "");
+}
+
+export async function requestCertificateCorrection(projectId: string, fullName: string, requestedValue: string, note: string): Promise<void> {
+  await callService({ action: "requestCorrection", projectId, fullName: fullName.trim(), requestedValue: requestedValue.trim(), note: note.trim() });
 }
 
 export async function findCertificateByNumber(certificateNumber: string): Promise<CertificateRecord | null> {

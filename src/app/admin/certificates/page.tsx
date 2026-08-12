@@ -7,7 +7,9 @@ import {
   Download,
   ExternalLink,
   Eye,
+  Filter,
   Loader2,
+  Pencil,
   ScanText,
   Save,
 } from "lucide-react";
@@ -15,15 +17,15 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getProjects, saveProject } from "@/lib/projects-service";
-import { getProjectSubmissions } from "@/lib/submission-service";
 import {
   createCertificatePreview,
   getCertificateBatchStatus,
   getCertificateCandidates,
   getCertificates,
   inspectCertificateTemplate,
-  installCertificateScheduler,
-  retryCertificate,
+  previewEditedCertificate,
+  reissueEditedCertificate,
+  removeCertificateScheduler,
   revokeCertificate,
   runCertificateBatch,
   startCertificateBatch,
@@ -112,6 +114,21 @@ export default function CertificatesAdminPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [slideFields, setSlideFields] = useState<CertificateSlideField[]>([]);
+  const [tab, setTab] = useState<"waiting" | "incomplete" | "issued">("waiting");
+  const [search, setSearch] = useState("");
+  const [gradeFilter, setGradeFilter] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState("");
+  const [selectedNames, setSelectedNames] = useState<string[]>([]);
+  const [editing, setEditing] = useState<CertificateRecord | null>(null);
+  const [editForm, setEditForm] = useState({
+    recipientName: "",
+    position: "",
+    gradeLevel: "",
+    subjectGroup: "",
+    certificateNumber: "",
+    changeNumber: false,
+    reason: "",
+  });
 
   useEffect(() => {
     getProjects(true).then((items) => {
@@ -134,9 +151,9 @@ export default function CertificatesAdminPage() {
     void Promise.allSettled([
       getCertificates(project.id),
       getCertificateBatchStatus(project.id),
-      getProjectSubmissions(project.id, true),
+      getCertificateCandidates(project.id),
     ])
-      .then(([certificateResult, jobResult]) => {
+      .then(([certificateResult, jobResult, candidateResult]) => {
         if (cancelled) return;
         const certificateItems =
           certificateResult.status === "fulfilled"
@@ -144,6 +161,7 @@ export default function CertificatesAdminPage() {
             : [];
         setRecords(certificateItems);
         setJob(jobResult.status === "fulfilled" ? jobResult.value : null);
+        setCandidates(candidateResult.status === "fulfilled" ? candidateResult.value : []);
 
         if (certificateResult.status === "rejected") {
           setMessage(
@@ -162,11 +180,13 @@ export default function CertificatesAdminPage() {
       void Promise.all([
         getCertificates(project.id),
         getCertificateBatchStatus(project.id),
+        getCertificateCandidates(project.id),
       ])
-        .then(([items, currentJob]) => {
+        .then(([items, currentJob, currentCandidates]) => {
           if (!cancelled) {
             setRecords(items);
             setJob(currentJob);
+            setCandidates(currentCandidates);
           }
         })
         .catch(() => undefined);
@@ -186,18 +206,13 @@ export default function CertificatesAdminPage() {
       setMessage("กรุณาวางลิงก์ Google Slides ที่ถูกต้อง");
       return;
     }
-    if (!config.certificateFinalizeAt) {
-      setMessage("กรุณากำหนดวันและเวลาสรุปผล");
-      return;
-    }
-    if (!config.issueForComplete && !config.issueForPartial) {
-      setMessage("กรุณาเลือกผู้มีสิทธิ์อย่างน้อยหนึ่งกลุ่ม");
-      return;
-    }
     setBusy(true);
     try {
       const normalizedConfig = {
         ...config,
+        certificateFinalizeAt: undefined,
+        issueForComplete: true,
+        issueForPartial: false,
         slideTemplateId: slideId,
         slideTemplateUrl: `https://docs.google.com/presentation/d/${slideId}/edit`,
         templateType: "google-slides" as const,
@@ -228,14 +243,14 @@ export default function CertificatesAdminPage() {
       };
       const updated = { ...project, certificate: nextConfig };
       await saveProject(updated);
-      await installCertificateScheduler();
+      await removeCertificateScheduler();
       setProjects((items) =>
         items.map((item) => (item.id === updated.id ? updated : item)),
       );
 
       setMessage(
         nextConfig.enabled
-          ? "บันทึกแล้ว ระบบจะตัดยอดตามเวลาที่กำหนด เกียรติบัตรเดิมจะไม่เปลี่ยน"
+          ? "บันทึกแล้ว ผู้ส่งครบจะเข้ารอให้แอดมินเลือกอนุมัติ"
           : "บันทึกการตั้งค่าเกียรติบัตรแล้ว",
       );
     } catch (error) {
@@ -350,19 +365,56 @@ export default function CertificatesAdminPage() {
     );
   };
 
-  const reissue = async (record: CertificateRecord) => {
-    if (!project) return;
+  const openEditor = (record: CertificateRecord) => {
+    setEditing(record);
+    setEditForm({
+      recipientName: record.recipientName,
+      position: record.snapshot?.position || "",
+      gradeLevel: record.snapshot?.gradeLevel || "",
+      subjectGroup: record.snapshot?.subjectGroup || "",
+      certificateNumber: record.certificateNumber,
+      changeNumber: false,
+      reason: "",
+    });
+  };
+
+  const editedPayload = () => ({
+    fullName: editForm.recipientName.trim(),
+    position: editForm.position.trim(),
+    gradeLevel: editForm.gradeLevel.trim(),
+    subjectGroup: editForm.subjectGroup.trim(),
+    certificateNumber: (editForm.changeNumber
+      ? editForm.certificateNumber.trim()
+      : editing?.certificateNumber) || "",
+    reason: editForm.reason.trim(),
+  });
+
+  const previewEdit = async () => {
+    if (!project || !editing) return;
     setBusy(true);
-    setMessage("กำลังออกเกียรติบัตรใหม่...");
     try {
-      const next = await retryCertificate(project.id, record.recipientName);
-      setRecords((items) => [
-        next,
-        ...items.filter((item) => item.id !== next.id),
-      ]);
-      setMessage("ออกเกียรติบัตรใหม่แล้ว โดยคงเลขที่เดิม");
+      const url = await previewEditedCertificate(project.id, editedPayload());
+      window.open(url, "_blank", "noopener,noreferrer");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ออกใหม่ไม่สำเร็จ");
+      setMessage(error instanceof Error ? error.message : "สร้างตัวอย่างไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!project || !editing || !editForm.reason.trim()) {
+      setMessage("กรุณาระบุเหตุผลในการแก้ไข");
+      return;
+    }
+    setBusy(true);
+    try {
+      const next = await reissueEditedCertificate(project.id, editing.id, editedPayload());
+      setRecords((items) => items.map((item) => (item.id === next.id ? next : item)));
+      setEditing(null);
+      setMessage("สร้างฉบับแก้ไขสำเร็จและเปลี่ยนลิงก์แล้ว");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ออกฉบับแก้ไขไม่สำเร็จ ฉบับเดิมยังใช้งานได้");
     } finally {
       setBusy(false);
     }
@@ -393,13 +445,15 @@ export default function CertificatesAdminPage() {
       return;
     setBusy(true);
     try {
-      let current = await startCertificateBatch(project.id);
+      if (!selectedNames.length) return;
+      let current = await startCertificateBatch(project.id, selectedNames);
       setJob(current);
       while (current.status === "running")
         current = (await runCertificateBatch(project.id)) || current;
       setJob(current);
       setRecords(await getCertificates(project.id));
-      setCandidates([]);
+      setCandidates(await getCertificateCandidates(project.id));
+      setSelectedNames([]);
       setMessage(
         `ประมวลผลเสร็จ ออกแล้ว ${current.issued} ผิดพลาด ${current.failed}`,
       );
@@ -431,25 +485,38 @@ export default function CertificatesAdminPage() {
   const issuedCount = records.filter(
     (record) => record.status === "issued",
   ).length;
-  const pendingCount = records.filter(
-    (record) => record.status === "pending",
-  ).length;
-  const failedCount = records.filter(
-    (record) => record.status === "failed",
-  ).length;
-  const newEligible = candidates.filter((item) => item.eligible);
-  const alreadyIssued = candidates.filter((item) => item.reason === "ออกแล้ว");
-  const notEligible = candidates.filter(
-    (item) => !item.eligible && item.reason !== "ออกแล้ว",
+  const normalizedSearch = search.trim().toLocaleLowerCase("th");
+  const matchesFilters = (item: {
+    fullName?: string;
+    recipientName?: string;
+    gradeLevel?: string;
+    subjectGroup?: string;
+    snapshot?: CertificateRecord["snapshot"];
+  }) => {
+    const name = item.fullName || item.recipientName || "";
+    const grade = item.gradeLevel || item.snapshot?.gradeLevel || "";
+    const subject = item.subjectGroup || item.snapshot?.subjectGroup || "";
+    return (
+      (!normalizedSearch || name.toLocaleLowerCase("th").includes(normalizedSearch)) &&
+      (!gradeFilter || grade === gradeFilter) &&
+      (!subjectFilter || subject === subjectFilter)
+    );
+  };
+  const waiting = candidates.filter((item) => item.eligible && matchesFilters(item));
+  const incomplete = candidates.filter(
+    (item) => !item.eligible && item.reason !== "ออกแล้ว" && matchesFilters(item),
   );
-  const jobLabel =
-    job?.status === "running"
-      ? "กำลังออกเกียรติบัตร"
-      : job?.status === "completed"
-        ? "สรุปเสร็จแล้ว"
-        : job?.status === "failed"
-          ? "พบข้อผิดพลาด"
-          : "รอถึงเวลาสรุป";
+  const issuedRecords = records.filter(
+    (item) => item.status === "issued" && matchesFilters(item),
+  );
+  const gradeOptions = Array.from(
+    new Set(candidates.map((item) => item.gradeLevel).filter((value): value is string => Boolean(value))),
+  ).sort();
+  const subjectOptions = Array.from(
+    new Set(candidates.map((item) => item.subjectGroup).filter((value): value is string => Boolean(value))),
+  ).sort((a, b) => (a === "ไม่ระบุ" ? 1 : b === "ไม่ระบุ" ? -1 : a.localeCompare(b, "th")));
+  const visibleNames = waiting.map((item) => item.fullName);
+  const allVisibleSelected = visibleNames.length > 0 && visibleNames.every((name) => selectedNames.includes(name));
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -619,7 +686,7 @@ export default function CertificatesAdminPage() {
                     </div>
                     <label className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-50 border border-emerald-100">
                       <span className="text-sm font-extrabold">
-                        เปิดระบบสรุปและออกเกียรติบัตร
+                        เปิดระบบเกียรติบัตร
                       </span>
                       <input
                         type="checkbox"
@@ -630,61 +697,6 @@ export default function CertificatesAdminPage() {
                         className="w-5 h-5 accent-emerald-600"
                       />
                     </label>
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 space-y-3">
-                      <StepTitle
-                        number={4}
-                        title="วัน–เวลาสรุปผล"
-                        done={Boolean(config.certificateFinalizeAt)}
-                      />
-                      <input
-                        type="datetime-local"
-                        value={config.certificateFinalizeAt || ""}
-                        onChange={(e) =>
-                          setConfig({
-                            ...config,
-                            certificateFinalizeAt: e.target.value,
-                          })
-                        }
-                        className="w-full px-3 py-2.5 rounded-xl border bg-white font-bold"
-                      />
-                      {project?.closeDate &&
-                        config.certificateFinalizeAt &&
-                        new Date(config.certificateFinalizeAt) <
-                          new Date(project.closeDate) && (
-                          <p className="text-xs font-extrabold text-rose-600">
-                            คำเตือน: เวลาสรุปอยู่ก่อนเวลาปิดรับงาน
-                          </p>
-                        )}
-                      <label className="flex items-center gap-2 text-sm font-bold">
-                        <input
-                          type="checkbox"
-                          checked={config.issueForComplete !== false}
-                          onChange={(e) =>
-                            setConfig({
-                              ...config,
-                              issueForComplete: e.target.checked,
-                            })
-                          }
-                        />{" "}
-                        ผู้ส่งครบทุกชิ้น
-                      </label>
-                      <label className="flex items-center gap-2 text-sm font-bold">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(config.issueForPartial)}
-                          onChange={(e) =>
-                            setConfig({
-                              ...config,
-                              issueForPartial: e.target.checked,
-                            })
-                          }
-                        />{" "}
-                        ผู้ส่งอย่างน้อย 1 ชิ้นแต่ยังไม่ครบ
-                      </label>
-                      <p className="text-xs text-slate-500">
-                        ผู้ที่ไม่เคยส่งงานจะไม่ได้รับเกียรติบัตร
-                      </p>
-                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <button
                         onClick={preview}
@@ -794,248 +806,120 @@ export default function CertificatesAdminPage() {
               <p className="text-sm font-bold text-blue-700">{message}</p>
             )}
           </section>
-          <section className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-100 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+          <section className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-100 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <p className="text-xs font-extrabold text-blue-600">
-                  สถานะการออกเกียรติบัตร
-                </p>
-                <h2 className="text-xl font-extrabold mt-1">
-                  รอบสรุปอัตโนมัติ
-                </h2>
-                <p className="text-sm text-slate-500 mt-1">
-                  ระบบจะตรวจและออกให้ตามเงื่อนไขที่เลือกเมื่อถึงเวลาตัดยอด
-                </p>
-              </div>
-              <span
-                className={`px-4 py-2 rounded-full text-xs font-extrabold ${job?.status === "completed" ? "bg-emerald-100 text-emerald-700" : job?.status === "running" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}
-              >
-                {jobLabel}
-              </span>
-            </div>
-            <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div>
-                <p className="text-xs font-bold text-slate-500">กำหนดตัดยอด</p>
-                <p className="font-extrabold text-slate-900">
-                  {config?.certificateFinalizeAt
-                    ? new Intl.DateTimeFormat("th-TH", {
-                        dateStyle: "long",
-                        timeStyle: "short",
-                        timeZone: "Asia/Bangkok",
-                      }).format(new Date(config.certificateFinalizeAt)) + " น."
-                    : "ยังไม่ได้กำหนด"}
-                </p>
-              </div>
-              <p className="text-xs font-semibold text-slate-500">
-                เกียรติบัตรเดิมจะไม่ถูกสร้างซ้ำ
-              </p>
-            </div>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4">
-                <p className="text-xs font-bold text-emerald-700">
-                  ออกแล้วทั้งหมด
-                </p>
-                <p className="text-3xl font-black text-emerald-900 mt-1">
-                  {issuedCount}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-blue-50 border border-blue-100 p-4">
-                <p className="text-xs font-bold text-blue-700">รอบนี้ทั้งหมด</p>
-                <p className="text-3xl font-black text-blue-900 mt-1">
-                  {job?.total || 0}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-amber-50 border border-amber-100 p-4">
-                <p className="text-xs font-bold text-amber-700">
-                  กำลังดำเนินการ
-                </p>
-                <p className="text-3xl font-black text-amber-900 mt-1">
-                  {pendingCount}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-rose-50 border border-rose-100 p-4">
-                <p className="text-xs font-bold text-rose-700">ผิดพลาด</p>
-                <p className="text-3xl font-black text-rose-900 mt-1">
-                  {failedCount}
-                </p>
-              </div>
-            </div>
-            <div className="border-t border-slate-100 pt-5 space-y-4">
-              <div>
-                <h3 className="font-extrabold text-slate-900">
-                  ต้องการตรวจรอบเพิ่มเติม?
-                </h3>
-                <p className="text-sm text-slate-500">
-                  ใช้สำหรับครูที่ส่งงานภายหลังรอบสรุป
-                  ระบบจะแสดงรายชื่อให้ตรวจก่อนออกบัตร
+                <h2 className="text-xl font-extrabold text-slate-900">อนุมัติเกียรติบัตรโดยแอดมิน</h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  เลือกเฉพาะผู้ส่งครบ แล้วออกเกียรติบัตรเป็นรอบตามต้องการ
                 </p>
               </div>
               <button
                 onClick={scanCandidates}
                 disabled={busy}
-                className="w-full sm:w-auto px-5 py-3 rounded-2xl bg-blue-600 text-white text-sm font-extrabold disabled:opacity-50 shadow-sm"
+                className="px-4 py-2.5 rounded-2xl bg-blue-600 text-white text-sm font-extrabold disabled:opacity-40"
               >
-                1. ตรวจรายชื่อรอบเพิ่มเติม
+                อัปเดตรายชื่อ
               </button>
-              {candidates.length > 0 && (
-                <div className="rounded-3xl border border-blue-200 bg-blue-50/60 p-4 sm:p-5 space-y-4">
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="rounded-2xl bg-white p-3 text-center">
-                      <p className="text-2xl font-black text-emerald-600">
-                        {newEligible.length}
-                      </p>
-                      <p className="text-[11px] font-bold text-slate-500">
-                        ออกเพิ่มได้
-                      </p>
-                    </div>
-                    <div className="rounded-2xl bg-white p-3 text-center">
-                      <p className="text-2xl font-black text-blue-600">
-                        {alreadyIssued.length}
-                      </p>
-                      <p className="text-[11px] font-bold text-slate-500">
-                        มีบัตรแล้ว
-                      </p>
-                    </div>
-                    <div className="rounded-2xl bg-white p-3 text-center">
-                      <p className="text-2xl font-black text-slate-500">
-                        {notEligible.length}
-                      </p>
-                      <p className="text-[11px] font-bold text-slate-500">
-                        ยังไม่ตรงเกณฑ์
-                      </p>
-                    </div>
-                  </div>
-                  {newEligible.length > 0 ? (
-                    <div className="grid md:grid-cols-2 gap-3">
-                      {(["complete", "partial"] as const).map((type) => {
-                        const rows = newEligible.filter(
-                          (item) => item.qualificationType === type,
-                        );
-                        return (
-                          <div
-                            key={type}
-                            className="rounded-2xl bg-white border border-slate-200 p-4"
-                          >
-                            <h4 className="font-extrabold text-sm">
-                              {type === "complete"
-                                ? `ส่งครบ (${rows.length})`
-                                : `ส่งบางส่วน (${rows.length})`}
-                            </h4>
-                            <div className="mt-2 max-h-48 overflow-auto space-y-1.5">
-                              {rows.length ? (
-                                rows.map((item) => (
-                                  <p
-                                    key={item.fullName}
-                                    className="text-xs font-semibold text-slate-700"
-                                  >
-                                    • {item.fullName}{" "}
-                                    <span className="text-slate-400">
-                                      {item.submitted}/{item.required}
-                                    </span>
-                                  </p>
-                                ))
-                              ) : (
-                                <p className="text-xs text-slate-400">
-                                  ไม่มีรายชื่อ
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="rounded-2xl bg-white p-4 text-center text-sm font-extrabold text-slate-600">
-                      ตรวจแล้ว ไม่พบผู้ที่ต้องออกเกียรติบัตรเพิ่ม
-                    </p>
-                  )}
-                  {newEligible.length > 0 && (
-                    <button
-                      onClick={confirmBatch}
-                      disabled={busy}
-                      className="w-full px-5 py-3.5 rounded-2xl bg-emerald-600 text-white text-sm font-extrabold disabled:opacity-50"
-                    >
-                      2. ยืนยันออกเพิ่ม {newEligible.length} คน
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
-          </section>
-          <section className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-100 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h2 className="font-extrabold text-slate-900">
-                  รายการเกียรติบัตร ({records.length})
-                </h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  ปุ่มดาวน์โหลดจะเปิดไฟล์เดิมที่ออกไว้
-                  ทั้งหน้าแอดมินและหน้าครูใช้ไฟล์เดียวกัน
-                </p>
+            <div className="grid grid-cols-3 rounded-2xl bg-slate-100 p-1 gap-1">
+              {([
+                ["waiting", `รออนุมัติ ${waiting.length}`],
+                ["incomplete", `ยังส่งไม่ครบ ${incomplete.length}`],
+                ["issued", `ออกแล้ว ${issuedCount}`],
+              ] as const).map(([value, label]) => (
+                <button key={value} onClick={() => setTab(value)} className={`rounded-xl px-2 py-3 text-xs sm:text-sm font-extrabold ${tab === value ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="grid sm:grid-cols-3 gap-2 rounded-2xl border bg-slate-50 p-3">
+              <label className="relative sm:col-span-1">
+                <Filter className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหาชื่อ" className="w-full rounded-xl border bg-white py-2.5 pl-9 pr-3 text-sm" />
+              </label>
+              <select value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)} className="rounded-xl border bg-white px-3 py-2.5 text-sm font-bold">
+                <option value="">ทุกสายชั้น</option>
+                {gradeOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+              <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)} className="rounded-xl border bg-white px-3 py-2.5 text-sm font-bold">
+                <option value="">ทุกกลุ่มสาระ</option>
+                {subjectOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </div>
+            {job?.status === "running" && (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                <p className="font-extrabold text-blue-800">กำลังออกเกียรติบัตรรอบที่ {job.batchNumber || "ใหม่"}</p>
+                <p className="text-sm text-blue-700">สำเร็จ {job.issued} · รอดำเนินการ {Math.max(0, job.total - job.processed)} · ผิดพลาด {job.failed}</p>
               </div>
-              <button
-                onClick={exportCsv}
-                disabled={!records.length}
-                className="text-sm font-bold flex gap-2 items-center disabled:opacity-40"
-              >
-                <Download className="w-4 h-4" />
-                ดาวน์โหลด CSV
-              </button>
-            </div>
-            <div className="overflow-x-auto -mx-1">
-              <table className="w-full min-w-[720px] text-sm">
-                <thead>
-                  <tr className="text-left text-slate-500 border-b">
-                    <th className="py-3">เลขที่</th>
-                    <th>ผู้รับ</th>
-                    <th>ตำแหน่ง</th>
-                    <th>สถานะ</th>
-                    <th>จัดการ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {records.map((r) => (
-                    <tr key={r.id} className="border-b">
-                      <td className="py-3 font-bold">{r.certificateNumber}</td>
-                      <td>{r.recipientName}</td>
-                      <td>{r.snapshot?.position}</td>
-                      <td>{r.status}</td>
-                      <td>
-                        <div className="flex gap-2 whitespace-nowrap">
-                          {r.pdfUrl && (
-                            <a
-                              href={r.pdfUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-blue-600 font-bold"
-                            >
-                              ดาวน์โหลด
-                            </a>
-                          )}
-                          <button
-                            onClick={() => reissue(r)}
-                            disabled={busy}
-                            className="text-amber-600 font-bold disabled:opacity-40"
-                          >
-                            ออกใหม่
-                          </button>
-                          {r.status !== "revoked" && (
-                            <button
-                              onClick={() => revoke(r)}
-                              disabled={busy}
-                              className="text-red-600 font-bold disabled:opacity-40"
-                            >
-                              ยกเลิก
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
+            )}
+            {tab === "waiting" && (
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <label className="flex items-center gap-2 text-sm font-bold">
+                    <input type="checkbox" checked={allVisibleSelected} onChange={() => setSelectedNames(allVisibleSelected ? selectedNames.filter((name) => !visibleNames.includes(name)) : Array.from(new Set([...selectedNames, ...visibleNames])))} className="w-5 h-5 accent-blue-600" />
+                    เลือกทั้งหมดเฉพาะผลลัพธ์ที่กรอง
+                  </label>
+                  <button onClick={confirmBatch} disabled={busy || !selectedNames.length} className="rounded-2xl bg-emerald-600 text-white px-5 py-3 text-sm font-extrabold disabled:opacity-40">
+                    ออกเกียรติบัตรให้ผู้ที่เลือก ({selectedNames.length})
+                  </button>
+                </div>
+                <div className="grid md:grid-cols-2 gap-2">
+                  {waiting.map((item) => (
+                    <label key={item.fullName} className="flex gap-3 rounded-2xl border p-4 hover:border-blue-300">
+                      <input type="checkbox" checked={selectedNames.includes(item.fullName)} onChange={() => setSelectedNames((names) => names.includes(item.fullName) ? names.filter((name) => name !== item.fullName) : [...names, item.fullName])} className="mt-1 w-5 h-5 accent-blue-600" />
+                      <span><strong className="block">{item.fullName}</strong><small className="text-slate-500">{item.gradeLevel || "ไม่ระบุสายชั้น"} · {item.subjectGroup || "ไม่ระบุกลุ่มสาระ"} · ส่งครบ {item.submitted}/{item.required}</small></span>
+                    </label>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </div>
+                {!waiting.length && <p className="rounded-2xl bg-slate-50 p-8 text-center text-slate-500 font-bold">ไม่มีผู้ส่งครบที่รออนุมัติ</p>}
+              </div>
+            )}
+            {tab === "incomplete" && (
+              <div className="grid md:grid-cols-2 gap-2">
+                {incomplete.map((item) => (
+                  <div key={item.fullName} className="rounded-2xl border p-4">
+                    <strong>{item.fullName}</strong>
+                    <p className="text-sm text-amber-700 font-bold">ส่งแล้ว {item.submitted}/{item.required} · ขาด {Math.max(0, item.required - item.submitted)} ชิ้น</p>
+                    {!!item.missingTitles?.length && <p className="mt-2 text-xs text-slate-500">งานที่ขาด: {item.missingTitles.join(" · ")}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {tab === "issued" && (
+              <div className="space-y-3">
+                <div className="flex justify-end"><button onClick={exportCsv} disabled={!issuedRecords.length} className="text-sm font-bold flex gap-2 items-center disabled:opacity-40"><Download className="w-4 h-4" />ดาวน์โหลด CSV</button></div>
+                <div className="overflow-x-auto -mx-1">
+                  <table className="w-full min-w-[760px] text-sm">
+                    <thead><tr className="text-left text-slate-500 border-b"><th className="py-3">เลขที่</th><th>ผู้รับ</th><th>ตำแหน่ง</th><th>แก้ไขล่าสุด</th><th>จัดการ</th></tr></thead>
+                    <tbody>{issuedRecords.map((r) => (
+                      <tr key={r.id} className="border-b"><td className="py-3 font-bold">{r.certificateNumber}</td><td>{r.recipientName}</td><td>{r.snapshot?.position}</td><td>{r.revisionNumber ? `ฉบับที่ ${r.revisionNumber}` : "ฉบับแรก"}</td><td><div className="flex gap-3 whitespace-nowrap">{r.pdfUrl && <a href={r.pdfUrl} target="_blank" rel="noreferrer" className="text-blue-600 font-bold">ดาวน์โหลด</a>}<button onClick={() => openEditor(r)} className="text-amber-600 font-bold flex items-center gap-1"><Pencil className="w-3.5 h-3.5" />แก้ไขและออกใหม่</button><button onClick={() => revoke(r)} className="text-red-600 font-bold">ยกเลิก</button></div></td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </section>
+          {editing && (
+            <div className="fixed inset-0 z-[100] bg-slate-950/50 backdrop-blur-sm p-3 sm:p-8 overflow-y-auto">
+              <div className="max-w-3xl mx-auto rounded-3xl bg-white p-5 sm:p-7 shadow-2xl space-y-5">
+                <div className="flex justify-between gap-3"><div><h2 className="text-xl font-extrabold">แก้ไขและออกเกียรติบัตรใหม่</h2><p className="text-sm text-slate-500">ฉบับเดิมยังดาวน์โหลดได้จนกว่าสร้างฉบับใหม่สำเร็จ</p></div><button onClick={() => setEditing(null)} className="text-slate-500 font-bold">ปิด</button></div>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {([[
+                    "recipientName", "ชื่อ–นามสกุล"
+                  ], ["position", "ตำแหน่ง"], ["gradeLevel", "สายชั้น"], ["subjectGroup", "กลุ่มสาระ"]] as const).map(([key, label]) => <label key={key} className="text-xs font-bold text-slate-600">{label}<input value={editForm[key]} onChange={(e) => setEditForm({...editForm, [key]: e.target.value})} className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm" /></label>)}
+                </div>
+                <div className="rounded-2xl border bg-slate-50 p-4 space-y-3">
+                  <label className="flex items-center gap-2 font-bold"><input type="checkbox" checked={editForm.changeNumber} onChange={(e) => setEditForm({...editForm, changeNumber: e.target.checked, certificateNumber: editing.certificateNumber})} /> เปลี่ยนเลขที่เกียรติบัตร</label>
+                  <input disabled={!editForm.changeNumber} value={editForm.certificateNumber} onChange={(e) => setEditForm({...editForm, certificateNumber: e.target.value})} className="w-full rounded-xl border px-3 py-2.5 disabled:bg-slate-100" />
+                  <p className="text-xs text-slate-500">ค่าเริ่มต้นคงเลขเดิม ระบบจะตรวจเลขซ้ำก่อนบันทึก</p>
+                </div>
+                <label className="text-xs font-bold text-slate-600">เหตุผลในการแก้ไข *<textarea value={editForm.reason} onChange={(e) => setEditForm({...editForm, reason: e.target.value})} rows={3} className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm" /></label>
+                <div className="grid sm:grid-cols-2 gap-3 rounded-2xl border p-4"><div><p className="text-xs font-bold text-slate-400">ข้อมูลเดิม</p><strong>{editing.recipientName}</strong><p className="text-sm">{editing.certificateNumber}</p></div><div><p className="text-xs font-bold text-emerald-600">ข้อมูลใหม่</p><strong>{editForm.recipientName}</strong><p className="text-sm">{editForm.changeNumber ? editForm.certificateNumber : editing.certificateNumber}</p></div></div>
+                <div className="grid sm:grid-cols-2 gap-2"><button onClick={previewEdit} disabled={busy} className="rounded-xl border-2 py-3 font-extrabold">ดู PDF ตัวอย่าง</button><button onClick={saveEdit} disabled={busy || !editForm.reason.trim()} className="rounded-xl bg-emerald-600 text-white py-3 font-extrabold disabled:opacity-40">สร้างฉบับใหม่และบันทึก</button></div>
+              </div>
+            </div>
+          )}
         </main>
       </div>
       <Footer />
