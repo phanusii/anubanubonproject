@@ -7,11 +7,13 @@ import {
   Download,
   ExternalLink,
   Eye,
+  FileText,
   Filter,
   Loader2,
   Pencil,
   ScanText,
   Save,
+  X,
 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -39,6 +41,8 @@ import {
   CertificateTextField,
   Project,
 } from "@/lib/types";
+import { getUserProjectSubmissions } from "@/lib/submission-service";
+import { displayWorkTitle } from "@/lib/format";
 
 const field = (y: number, size: number): CertificateTextField => ({
   x: 15,
@@ -120,6 +124,10 @@ export default function CertificatesAdminPage() {
   const [subjectFilter, setSubjectFilter] = useState("");
   const [selectedNames, setSelectedNames] = useState<string[]>([]);
   const [editing, setEditing] = useState<CertificateRecord | null>(null);
+  const [reviewing, setReviewing] = useState<CertificateCandidate | null>(null);
+  const [reviewWorks, setReviewWorks] = useState<import("@/lib/types").Submission[]>([]);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState("");
   const [editForm, setEditForm] = useState({
     recipientName: "",
     position: "",
@@ -434,6 +442,33 @@ export default function CertificatesAdminPage() {
       );
     } finally {
       setBusy(false);
+    }
+  };
+
+  const openWorkReview = async (candidate: CertificateCandidate) => {
+    if (!project) return;
+    setReviewing(candidate);
+    setReviewWorks([]);
+    setReviewError("");
+    setReviewLoading(true);
+    try {
+      const works = await getUserProjectSubmissions(candidate.fullName, project.id);
+      const titleOrder = new Map(
+        project.workSlotTitles.map((title, index) => [title.trim(), index]),
+      );
+      const slotOrder = (value: import("@/lib/types").Submission) => {
+        const slot = value.workSlotId?.match(/slot-(\d+)/)?.[1];
+        return slot ? Number(slot) - 1 : titleOrder.get(value.projectTitle.trim()) ?? Number.MAX_SAFE_INTEGER;
+      };
+      setReviewWorks(
+        [...works].sort(
+          (a, b) => slotOrder(a) - slotOrder(b) || (b.createdAt || 0) - (a.createdAt || 0),
+        ),
+      );
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : "โหลดผลงานไม่สำเร็จ");
+    } finally {
+      setReviewLoading(false);
     }
   };
 
@@ -868,10 +903,17 @@ export default function CertificatesAdminPage() {
                 {tab === "incomplete" && <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">กลุ่มนี้ยังส่งงานไม่ครบ แอดมินสามารถเลือกออกเกียรติบัตรให้เป็นรายบุคคลได้</p>}
                 <div className="grid md:grid-cols-2 gap-2">
                   {visibleCandidates.map((item) => (
-                    <label key={item.fullName} className="flex gap-3 rounded-2xl border p-4 hover:border-blue-300">
-                      <input type="checkbox" checked={selectedNames.includes(item.fullName)} onChange={() => setSelectedNames((names) => names.includes(item.fullName) ? names.filter((name) => name !== item.fullName) : [...names, item.fullName])} className="mt-1 w-5 h-5 accent-blue-600" />
-                      <span><strong className="block">{item.fullName}</strong><small className="text-slate-500">{item.gradeLevel || "ไม่ระบุสายชั้น"} · {item.subjectGroup || "ไม่ระบุกลุ่มสาระ"} · ส่งแล้ว {item.submitted}/{item.required}</small>{!!item.missingTitles?.length && <small className="mt-1 block text-amber-700">ขาด: {item.missingTitles.join(" · ")}</small>}</span>
-                    </label>
+                    <div key={item.fullName} className="flex gap-3 rounded-2xl border p-4 hover:border-blue-300">
+                      <input aria-label={`เลือก ${item.fullName}`} type="checkbox" checked={selectedNames.includes(item.fullName)} onChange={() => setSelectedNames((names) => names.includes(item.fullName) ? names.filter((name) => name !== item.fullName) : [...names, item.fullName])} className="mt-1 w-5 h-5 accent-blue-600 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <strong className="block">{item.fullName}</strong>
+                        <small className="text-slate-500">{item.gradeLevel || "ไม่ระบุสายชั้น"} · {item.subjectGroup || "ไม่ระบุกลุ่มสาระ"} · ส่งแล้ว {item.submitted}/{item.required}</small>
+                        {!!item.missingTitles?.length && <small className="mt-1 block text-amber-700">ขาด: {item.missingTitles.join(" · ")}</small>}
+                        <button type="button" onClick={() => void openWorkReview(item)} className="mt-3 inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-extrabold text-blue-700 hover:bg-blue-100">
+                          <Eye className="w-4 h-4" /> ดูผลงานก่อนอนุมัติ
+                        </button>
+                      </div>
+                    </div>
                   ))}
                 </div>
                 {!visibleCandidates.length && <p className="rounded-2xl bg-slate-50 p-8 text-center text-slate-500 font-bold">ไม่มีรายชื่อที่รออนุมัติในกลุ่มนี้</p>}
@@ -908,6 +950,41 @@ export default function CertificatesAdminPage() {
                 <label className="text-xs font-bold text-slate-600">เหตุผลในการแก้ไข *<textarea value={editForm.reason} onChange={(e) => setEditForm({...editForm, reason: e.target.value})} rows={3} className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm" /></label>
                 <div className="grid sm:grid-cols-2 gap-3 rounded-2xl border p-4"><div><p className="text-xs font-bold text-slate-400">ข้อมูลเดิม</p><strong>{editing.recipientName}</strong><p className="text-sm">{editing.certificateNumber}</p></div><div><p className="text-xs font-bold text-emerald-600">ข้อมูลใหม่</p><strong>{editForm.recipientName}</strong><p className="text-sm">{editForm.changeNumber ? editForm.certificateNumber : editing.certificateNumber}</p></div></div>
                 <div className="grid sm:grid-cols-2 gap-2"><button onClick={previewEdit} disabled={busy} className="rounded-xl border-2 py-3 font-extrabold">ดู PDF ตัวอย่าง</button><button onClick={saveEdit} disabled={busy || !editForm.reason.trim()} className="rounded-xl bg-emerald-600 text-white py-3 font-extrabold disabled:opacity-40">สร้างฉบับใหม่และบันทึก</button></div>
+              </div>
+            </div>
+          )}
+          {reviewing && (
+            <div className="fixed inset-0 z-[110] bg-slate-950/55 backdrop-blur-sm p-3 sm:p-8 overflow-y-auto">
+              <div className="max-w-4xl mx-auto rounded-3xl bg-white shadow-2xl overflow-hidden">
+                <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b bg-white/95 p-5 backdrop-blur-xl">
+                  <div>
+                    <h2 className="text-xl font-extrabold text-slate-900">ตรวจผลงานก่อนอนุมัติ</h2>
+                    <p className="mt-1 text-sm font-bold text-slate-700">{reviewing.fullName}</p>
+                    <p className="text-xs text-slate-500">ส่งแล้ว {reviewing.submitted}/{reviewing.required} ชิ้น · เรียงตามลำดับที่กำหนดในรอบ</p>
+                  </div>
+                  <button type="button" aria-label="ปิด" onClick={() => setReviewing(null)} className="rounded-xl bg-slate-100 p-2 text-slate-600 hover:bg-slate-200"><X className="h-5 w-5" /></button>
+                </div>
+                <div className="p-5 space-y-3">
+                  {reviewLoading && <div className="flex items-center justify-center gap-2 rounded-2xl bg-blue-50 p-10 font-bold text-blue-700"><Loader2 className="h-5 w-5 animate-spin" /> กำลังโหลดผลงาน...</div>}
+                  {reviewError && <p className="rounded-2xl border border-red-200 bg-red-50 p-4 font-bold text-red-700">{reviewError}</p>}
+                  {!reviewLoading && !reviewError && reviewWorks.map((work, index) => (
+                    <div key={work.id} className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-2xl border border-slate-200 p-4">
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-blue-600 text-sm font-black text-white">{index + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-extrabold text-slate-900">{displayWorkTitle(work.projectTitle)}</p>
+                        <p className="mt-1 text-xs text-slate-500">ส่ง {work.uploadDate || "ไม่ระบุวันเวลา"} · {work.fileType?.toUpperCase()}</p>
+                      </div>
+                      <a href={work.fileURL || work.driveLink} target="_blank" rel="noopener noreferrer" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-extrabold text-white">
+                        <ExternalLink className="h-4 w-4" /> เปิดดูไฟล์
+                      </a>
+                    </div>
+                  ))}
+                  {!reviewLoading && !reviewError && !reviewWorks.length && <div className="rounded-2xl bg-slate-50 p-10 text-center text-sm font-bold text-slate-500"><FileText className="mx-auto mb-2 h-8 w-8" />ไม่พบไฟล์ผลงานในรอบนี้</div>}
+                </div>
+                <div className="sticky bottom-0 flex flex-col-reverse sm:flex-row sm:justify-end gap-2 border-t bg-white/95 p-4 backdrop-blur-xl">
+                  <button type="button" onClick={() => setReviewing(null)} className="rounded-xl border px-5 py-3 text-sm font-extrabold">ปิดหน้าตรวจ</button>
+                  <button type="button" onClick={() => { setSelectedNames((names) => names.includes(reviewing.fullName) ? names : [...names, reviewing.fullName]); setReviewing(null); }} className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-extrabold text-white">เลือกคนนี้เพื่อออกเกียรติบัตร</button>
+                </div>
               </div>
             </div>
           )}
