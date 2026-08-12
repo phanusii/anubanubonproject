@@ -870,7 +870,7 @@ export default function CertificatesAdminPage() {
                   {visibleCandidates.map((item) => (
                     <label key={item.fullName} className="flex gap-3 rounded-2xl border p-4 hover:border-blue-300">
                       <input type="checkbox" checked={selectedNames.includes(item.fullName)} onChange={() => setSelectedNames((names) => names.includes(item.fullName) ? names.filter((name) => name !== item.fullName) : [...names, item.fullName])} className="mt-1 w-5 h-5 accent-blue-600" />
-                      <span><strong className="block">{item.fullName}</strong><small className="text-slate-500">{item.gradeLevel || "ไม่ระบุสายชั้น"} · {item.subjectGroup || "ไม่ระบุกลุ่มสาระ"} · ส่งครบ {item.submitted}/{item.required}</small></span>
+                      <span><strong className="block">{item.fullName}</strong><small className="text-slate-500">{item.gradeLevel || "ไม่ระบุสายชั้น"} · {item.subjectGroup || "ไม่ระบุกลุ่มสาระ"} · ส่งแล้ว {item.submitted}/{item.required}</small>{!!item.missingTitles?.length && <small className="mt-1 block text-amber-700">ขาด: {item.missingTitles.join(" · ")}</small>}</span>
                     </label>
                   ))}
                 </div>
