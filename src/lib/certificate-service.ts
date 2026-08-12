@@ -113,11 +113,6 @@ export async function getCertificateBatchStatus(projectId: string): Promise<Cert
   return (result.job as CertificateBatchJob | null) || null;
 }
 
-export async function installCertificateScheduler(): Promise<void> {
-  const idToken = await getAdminIdToken();
-  await callService({ action: "installCertificateScheduler", idToken });
-}
-
 export async function removeCertificateScheduler(): Promise<void> {
   const idToken = await getAdminIdToken();
   await callService({ action: "removeCertificateScheduler", idToken });

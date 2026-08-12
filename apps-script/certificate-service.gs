@@ -404,7 +404,9 @@ function authorizeGoogleSlides() {
 }
 
 function querySubmissions_(projectId) {
-  var body = { structuredQuery: { from: [{ collectionId: "submissions" }], where: { fieldFilter: { field: { fieldPath: "projectId" }, op: "EQUAL", value: { stringValue: projectId } } }, limit: 1000 } };
+  // 300 recipients can exceed 1,000 documents when a round has 4+ work slots.
+  // Keep enough headroom for replacements while still bounding the response.
+  var body = { structuredQuery: { from: [{ collectionId: "submissions" }], where: { fieldFilter: { field: { fieldPath: "projectId" }, op: "EQUAL", value: { stringValue: projectId } } }, limit: 5000 } };
   var rows = firestoreRequest_("documents:runQuery", "post", body);
   return (rows || []).filter(function (row) { return row.document; }).map(function (row) {
     var data = decodeMap_(row.document.fields || {}); data.id = row.document.name.split("/").pop(); return data;
@@ -466,13 +468,6 @@ function loadCertificateRegistry_() {
   } catch (_) {
     return { records: {}, counters: {}, jobs: {}, batches: {}, batchCounters: {}, corrections: [] };
   }
-}
-
-function certificateCutoffMs_(config) {
-  var value = config && config.certificateFinalizeAt;
-  if (!value) return 0;
-  var parsed = new Date(value).getTime();
-  return isNaN(parsed) ? 0 : parsed;
 }
 
 function submissionsByRecipient_(submissions) {
@@ -564,30 +559,6 @@ function processCertificateBatch_(projectId) {
   } finally {
     batchLock.releaseLock();
   }
-}
-
-function listProjects_() {
-  var result = firestoreRequest_("documents/projects?pageSize=200", "get");
-  return (result.documents || []).map(function (doc) { var item = decodeMap_(doc.fields || {}); item.id = doc.name.split("/").pop(); return item; });
-}
-
-function processScheduledCertificates_() {
-  var now = Date.now();
-  listProjects_().forEach(function (project) {
-    var config = project.certificate || {};
-    var cutoffAt = certificateCutoffMs_(config);
-    if (!config.enabled || !cutoffAt || cutoffAt > now) return;
-    var current = getCertificateJob_(project.id);
-    if (!current) current = startCertificateBatch_(project.id, "scheduled");
-    if (current && current.status === "running") processCertificateBatch_(project.id);
-  });
-}
-
-function installCertificateScheduler_() {
-  ScriptApp.getProjectTriggers().forEach(function (trigger) {
-    if (trigger.getHandlerFunction() === "processScheduledCertificates_") ScriptApp.deleteTrigger(trigger);
-  });
-  ScriptApp.newTrigger("processScheduledCertificates_").timeBased().everyMinutes(1).create();
 }
 
 function removeCertificateScheduler_() {
