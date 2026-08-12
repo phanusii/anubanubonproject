@@ -102,8 +102,8 @@ function issueCertificate_(projectId, fullName, forceRetry, renumber, context) {
       return normalizeName_(item.fullName) === fullName;
     });
     var completion = completion_(project, submissions);
-    if (!completion.complete) throw new Error("ส่งงานยังไม่ครบ (" + completion.submitted + "/" + completion.required + ")");
-    var qualificationType = "complete";
+    if (completion.submitted < 1) throw new Error("ยังไม่พบชิ้นงานที่ส่ง");
+    var qualificationType = completion.complete ? "complete" : "partial";
 
     var recipientKey = normalizeName_(fullName).toLowerCase();
     var documentId = certificateId_(projectId, recipientKey);
@@ -497,7 +497,7 @@ function certificateCandidates_(projectId, useCurrent) {
     var progress = completion_(project, groups[key]);
     var type = progress.complete ? "complete" : progress.submitted > 0 ? "partial" : "none";
     var latest = progress.latest || {};
-    return { fullName: latest.fullName || key, qualificationType: type, submitted: progress.submitted, required: progress.required, eligible: progress.complete && !issued[key], reason: issued[key] ? "ออกแล้ว" : progress.complete ? "" : "ยังส่งไม่ครบ", position: latest.position || "", gradeLevel: latest.gradeLevel || "", subjectGroup: latest.subjectGroup || "", missingTitles: completionMissingTitles_(project, groups[key]) };
+    return { fullName: latest.fullName || key, qualificationType: type, submitted: progress.submitted, required: progress.required, eligible: progress.submitted > 0 && !issued[key], reason: issued[key] ? "ออกแล้ว" : progress.complete ? "" : "ยังส่งไม่ครบ (อนุมัติได้)", position: latest.position || "", gradeLevel: latest.gradeLevel || "", subjectGroup: latest.subjectGroup || "", missingTitles: completionMissingTitles_(project, groups[key]) };
   });
 }
 
@@ -508,7 +508,7 @@ function startCertificateBatch_(projectId, selectedNames) {
   var wanted = {};
   (selectedNames || []).forEach(function (name) { wanted[normalizeName_(name).toLowerCase()] = true; });
   var candidates = certificateCandidates_(projectId, true).filter(function (item) { return item.eligible && wanted[normalizeName_(item.fullName).toLowerCase()]; });
-  if (!candidates.length) throw new Error("ไม่พบรายชื่อที่ส่งครบและยังไม่มีเกียรติบัตร");
+  if (!candidates.length) throw new Error("ไม่พบรายชื่อที่ส่งงานแล้วและยังไม่มีเกียรติบัตร");
   var registry = loadCertificateRegistry_();
   registry.batchCounters = registry.batchCounters || {};
   var batchNumber = Number(registry.batchCounters[projectId] || 0) + 1;

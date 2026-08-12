@@ -502,9 +502,9 @@ export default function CertificatesAdminPage() {
       (!subjectFilter || subject === subjectFilter)
     );
   };
-  const waiting = candidates.filter((item) => item.eligible && matchesFilters(item));
+  const waiting = candidates.filter((item) => item.eligible && item.qualificationType === "complete" && matchesFilters(item));
   const incomplete = candidates.filter(
-    (item) => !item.eligible && item.reason !== "ออกแล้ว" && matchesFilters(item),
+    (item) => item.eligible && item.qualificationType === "partial" && matchesFilters(item),
   );
   const issuedRecords = records.filter(
     (item) => item.status === "issued" && matchesFilters(item),
@@ -515,7 +515,8 @@ export default function CertificatesAdminPage() {
   const subjectOptions = Array.from(
     new Set(candidates.map((item) => item.subjectGroup).filter((value): value is string => Boolean(value))),
   ).sort((a, b) => (a === "ไม่ระบุ" ? 1 : b === "ไม่ระบุ" ? -1 : a.localeCompare(b, "th")));
-  const visibleNames = waiting.map((item) => item.fullName);
+  const visibleCandidates = tab === "incomplete" ? incomplete : waiting;
+  const visibleNames = visibleCandidates.map((item) => item.fullName);
   const allVisibleSelected = visibleNames.length > 0 && visibleNames.every((name) => selectedNames.includes(name));
 
   return (
@@ -811,7 +812,7 @@ export default function CertificatesAdminPage() {
               <div>
                 <h2 className="text-xl font-extrabold text-slate-900">อนุมัติเกียรติบัตรโดยแอดมิน</h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  เลือกเฉพาะผู้ส่งครบ แล้วออกเกียรติบัตรเป็นรอบตามต้องการ
+                  เลือกผู้ส่งครบหรือผู้ที่ส่งแล้วแต่ยังไม่ครบ แล้วออกเกียรติบัตรเป็นรอบตามต้องการ
                 </p>
               </div>
               <button
@@ -824,8 +825,8 @@ export default function CertificatesAdminPage() {
             </div>
             <div className="grid grid-cols-3 rounded-2xl bg-slate-100 p-1 gap-1">
               {([
-                ["waiting", `รออนุมัติ ${waiting.length}`],
-                ["incomplete", `ยังส่งไม่ครบ ${incomplete.length}`],
+                ["waiting", `ส่งครบ ${waiting.length}`],
+                ["incomplete", `ส่งยังไม่ครบ ${incomplete.length}`],
                 ["issued", `ออกแล้ว ${issuedCount}`],
               ] as const).map(([value, label]) => (
                 <button key={value} onClick={() => setTab(value)} className={`rounded-xl px-2 py-3 text-xs sm:text-sm font-extrabold ${tab === value ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>
@@ -853,7 +854,7 @@ export default function CertificatesAdminPage() {
                 <p className="text-sm text-blue-700">สำเร็จ {job.issued} · รอดำเนินการ {Math.max(0, job.total - job.processed)} · ผิดพลาด {job.failed}</p>
               </div>
             )}
-            {tab === "waiting" && (
+            {(tab === "waiting" || tab === "incomplete") && (
               <div className="space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <label className="flex items-center gap-2 text-sm font-bold">
@@ -864,26 +865,16 @@ export default function CertificatesAdminPage() {
                     ออกเกียรติบัตรให้ผู้ที่เลือก ({selectedNames.length})
                   </button>
                 </div>
+                {tab === "incomplete" && <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">กลุ่มนี้ยังส่งงานไม่ครบ แอดมินสามารถเลือกออกเกียรติบัตรให้เป็นรายบุคคลได้</p>}
                 <div className="grid md:grid-cols-2 gap-2">
-                  {waiting.map((item) => (
+                  {visibleCandidates.map((item) => (
                     <label key={item.fullName} className="flex gap-3 rounded-2xl border p-4 hover:border-blue-300">
                       <input type="checkbox" checked={selectedNames.includes(item.fullName)} onChange={() => setSelectedNames((names) => names.includes(item.fullName) ? names.filter((name) => name !== item.fullName) : [...names, item.fullName])} className="mt-1 w-5 h-5 accent-blue-600" />
                       <span><strong className="block">{item.fullName}</strong><small className="text-slate-500">{item.gradeLevel || "ไม่ระบุสายชั้น"} · {item.subjectGroup || "ไม่ระบุกลุ่มสาระ"} · ส่งครบ {item.submitted}/{item.required}</small></span>
                     </label>
                   ))}
                 </div>
-                {!waiting.length && <p className="rounded-2xl bg-slate-50 p-8 text-center text-slate-500 font-bold">ไม่มีผู้ส่งครบที่รออนุมัติ</p>}
-              </div>
-            )}
-            {tab === "incomplete" && (
-              <div className="grid md:grid-cols-2 gap-2">
-                {incomplete.map((item) => (
-                  <div key={item.fullName} className="rounded-2xl border p-4">
-                    <strong>{item.fullName}</strong>
-                    <p className="text-sm text-amber-700 font-bold">ส่งแล้ว {item.submitted}/{item.required} · ขาด {Math.max(0, item.required - item.submitted)} ชิ้น</p>
-                    {!!item.missingTitles?.length && <p className="mt-2 text-xs text-slate-500">งานที่ขาด: {item.missingTitles.join(" · ")}</p>}
-                  </div>
-                ))}
+                {!visibleCandidates.length && <p className="rounded-2xl bg-slate-50 p-8 text-center text-slate-500 font-bold">ไม่มีรายชื่อที่รออนุมัติในกลุ่มนี้</p>}
               </div>
             )}
             {tab === "issued" && (

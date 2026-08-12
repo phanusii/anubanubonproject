@@ -69,6 +69,12 @@ export default function SubmitSection() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [confirmedExistingName, setConfirmedExistingName] = useState("");
+  const submissionComplete = Boolean(
+    activeProject &&
+      activeProject.workSlotTitles.length > 0 &&
+      latestSubmissionPerSlot(userExistingSubmissions, activeProject).size >=
+        activeProject.workSlotTitles.length,
+  );
 
   useEffect(() => {
     async function initData() {
@@ -455,6 +461,14 @@ export default function SubmitSection() {
                   ? "ไฟล์ผลงานเดิมได้รับการแทนที่ด้วยไฟล์ใหม่เรียบร้อยแล้ว"
                   : `${activeProject?.kind === "training" ? "งาน" : "ผลงาน"}ของคุณถูกบันทึกเรียบร้อยแล้ว`}
               </p>
+              {submissionComplete && activeProject?.certificate?.enabled && (
+                <div className="mt-4 max-w-lg mx-auto rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-left">
+                  <p className="font-extrabold text-blue-900">ส่งชิ้นงานครบแล้ว</p>
+                  <p className="mt-1 text-sm font-semibold text-blue-700">
+                    เกียรติบัตรกำลังรอผู้ดูแลตรวจสอบและอนุมัติ สามารถติดตามสถานะได้ที่แถบเกียรติบัตร
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col sm:flex-row justify-center gap-3 pt-4">
