@@ -12,11 +12,6 @@ function installTelegramNotifierV2() {
   sendTelegram_("✅ อัปเกรดระบบแจ้งเตือนสำหรับผู้ส่ง 300 คนเรียบร้อยแล้ว");
 }
 
-/** Manual admin repair; the minute trigger calls the same worker automatically. */
-function runCertificateSettingsRefreshV2() {
-  refreshCertificatesFromSettingsV2_();
-}
-
 /** Manual safe cleanup for obsolete generated certificate PDFs. */
 function runCertificateStorageCleanupV2() {
   var result = cleanupObsoleteCertificatePdfs_();
@@ -62,7 +57,6 @@ function runOrganizeDriveStructureV3() {
       try { legacyGrade.setTrashed(true); } catch (_) {}
     }
   }
-  refreshCertificatesFromSettingsV2_();
   return { movedTeacherFolders: movedFolders, movedCertificates: movedCertificates };
 }
 
@@ -117,7 +111,6 @@ function sharedProfilePictureFolder_(gradeLevel, teacherName) {
 
 function notifyNewSubmissionsV2() {
   var properties = PropertiesService.getScriptProperties();
-  refreshCertificatesFromSettingsV2_();
   var settings = getDocument_(SETTINGS_DOCUMENT);
   var chatId = String(settings.telegramChatId || "").trim();
   if (settings.telegramNotificationsEnabled && chatId) {
@@ -130,117 +123,16 @@ function notifyNewSubmissionsV2() {
   }
   var documents = listNewSubmissionsV2_(lastTime);
   if (!documents.length) return;
-  // Issue certificates server-side as soon as the final required submission is
-  // observed. This remains reliable even when the teacher closes the browser
-  // immediately after uploading; issueCertificate_ is idempotent and verifies
-  // completion from Firestore again before reserving a number.
-  autoIssueCompletedCertificatesV2_(documents);
   var newest = documents.reduce(function(value, document) {
     var createdAt = Number(firestoreFields_(document.fields || {}).createdAt || 0);
     return Math.max(value, createdAt);
   }, lastTime);
-  properties.setProperty("TELEGRAM_LAST_SUBMISSION_MS", String(newest));
-
-  // Telegram can be disabled without disabling automatic certificates.
-  if (!settings.telegramNotificationsEnabled) return;
-  if (!chatId) return;
-  sendTelegram_(formatSubmissionSummaryV2_(documents), chatId);
-}
-
-/**
- * Rebuild up to three stale certificates per minute from the latest settings.
- * Numbers are reassigned deterministically from numberStart (for example 66/2569)
- * in original issue order, so saving a new starting number updates existing PDFs.
- */
-function refreshCertificatesFromSettingsV2_() {
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(1000)) return;
-  try {
-    var registry = loadCertificateRegistry_();
-    var grouped = {};
-    Object.keys(registry.records || {}).forEach(function(id) {
-      var record = registry.records[id];
-      if (!record || !record.projectId || record.status === "revoked") return;
-      (grouped[record.projectId] = grouped[record.projectId] || []).push({ id: id, record: record });
-    });
-
-    var rebuilt = 0;
-    Object.keys(grouped).some(function(projectId) {
-      var project = getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
-      var config = project.certificate || {};
-      if (!config.enabled || !config.slideTemplateId) return false;
-      var start = Number(config.numberStart || 1);
-      var year = String(config.budgetYear || project.budgetYear || project.academicYear || "");
-      var prefix = String(config.numberPrefix || "");
-      grouped[projectId].sort(function(a, b) {
-        return Number(a.record.issuedAt || 0) - Number(b.record.issuedAt || 0);
-      });
-
-      grouped[projectId].some(function(entry, index) {
-        var expected = toThaiDigits_(prefix + String(start + index) + "/" + year);
-        var numberOrTemplateStale = String(entry.record.certificateNumber || "") !== expected ||
-          Number(entry.record.templateVersion || 1) !== Number(config.templateVersion || 1);
-        var storageStale = Number(entry.record.storageVersion || 0) < 3;
-        var stale = numberOrTemplateStale || storageStale;
-        if (!stale) return false;
-        try {
-          if (storageStale && !numberOrTemplateStale && entry.record.pdfFileId) {
-            organizeCertificateFile_(project, entry.record.snapshot || {}, entry.record.pdfFileId, expected);
-          } else {
-            var oldFileId = entry.record.pdfFileId;
-            var generated = renderCertificate_(project, config, entry.record.snapshot || {}, expected, config.issueDateText || "");
-            entry.record.pdfFileId = generated.id;
-            entry.record.pdfUrl = generated.url;
-            trashReplacedCertificate_(oldFileId, generated.id);
-          }
-          entry.record.certificateNumber = expected;
-          entry.record.budgetYear = year;
-          entry.record.templateVersion = Number(config.templateVersion || 1);
-          entry.record.storageVersion = 3;
-          entry.record.status = "issued";
-          entry.record.updatedAt = Date.now();
-          delete entry.record.error;
-        } catch (error) {
-          entry.record.status = "failed";
-          entry.record.error = String(error && error.message ? error.message : error);
-        }
-        registry.records[entry.id] = entry.record;
-        rebuilt += 1;
-        return rebuilt >= 3;
-      });
-      registry.counters[projectId] = Math.max(Number(registry.counters[projectId] || 0), start + grouped[projectId].length);
-      return rebuilt >= 3;
-    });
-    if (rebuilt) saveCertificateRegistry_(registry);
-  } catch (error) {
-    console.log("Certificate settings refresh skipped: " + error.message);
-  } finally {
-    lock.releaseLock();
+  // Advance only after Telegram accepts the message. When notifications are
+  // disabled, advance deliberately so re-enabling does not replay old work.
+  if (settings.telegramNotificationsEnabled && chatId) {
+    sendTelegram_(formatSubmissionSummaryV2_(documents), chatId);
   }
-}
-
-function autoIssueCompletedCertificatesV2_(documents) {
-  var recipients = {};
-  documents.forEach(function(document) {
-    var item = firestoreFields_(document.fields || {});
-    var projectId = String(item.projectId || "").trim();
-    var fullName = String(item.fullName || "").trim();
-    if (projectId && fullName) recipients[projectId + "\n" + fullName] = {
-      projectId: projectId,
-      fullName: fullName
-    };
-  });
-
-  Object.keys(recipients).forEach(function(key) {
-    var recipient = recipients[key];
-    try {
-      issueCertificate_(recipient.projectId, recipient.fullName, false);
-    } catch (error) {
-      // Incomplete submissions and temporary Slides/Drive errors are retried by
-      // the existing browser fallback or the next submission notification.
-      console.log("Automatic certificate skipped for " + recipient.fullName + ": " + error.message);
-    }
-  });
+  properties.setProperty("TELEGRAM_LAST_SUBMISSION_MS", String(newest));
 }
 
 function initializeTelegramCursorV2_() {
@@ -264,7 +156,7 @@ function listNewSubmissionsV2_(lastTime) {
       value: { integerValue: String(lastTime) }
     }},
     orderBy: [{ field: { fieldPath: "createdAt" }, direction: "ASCENDING" }],
-    limit: 200
+    limit: 500
   });
 }
 
