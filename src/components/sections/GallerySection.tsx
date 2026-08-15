@@ -312,8 +312,10 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
                   : "ผลงานที่กรอง"}
               </span>
               <span className="text-lg font-extrabold text-blue-600 leading-none">
-                {search.trim() === "" && selectedGrade === "ทั้งหมด" && selectedSubject === "ทั้งหมด" && totalCount >= 0
-                  ? totalCount
+                {search.trim() === "" && selectedGrade === "ทั้งหมด" && selectedSubject === "ทั้งหมด"
+                  ? totalCount >= 0
+                    ? totalCount
+                    : `${submissions.length}${hasMore ? "+" : ""}`
                   : filteredSubmissions.length}
               </span>
               <span className="text-xs font-bold text-slate-600">ชิ้น</span>
