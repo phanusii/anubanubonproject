@@ -302,13 +302,80 @@ function StatTable({
   expanded: string | null;
   setExpanded: (k: string | null) => void;
 }) {
+  // Progress means completed work slots, not only the share of teachers who
+  // reached 100%. Cap at the expected slots so duplicates cannot exceed 100%.
+  const rows = groups.map((g) => {
+    const expectedWorks = g.totalTeachers * required;
+    const p = pct(Math.min(g.works, expectedWorks), expectedWorks);
+    return { g, p, isOpen: expanded === title + "|" + g.key };
+  });
+  const barTone = (p: number) => (p >= 100 ? "bg-emerald-500" : p >= 50 ? "bg-blue-500" : "bg-amber-400");
+  const toggleKey = (key: string) => title + "|" + key;
+
   return (
     <div className="glass-panel rounded-3xl border border-white bg-white shadow-xs overflow-hidden">
-      <div className="flex items-center gap-2 px-5 py-4 border-b border-slate-100">
+      <div className="flex items-center gap-2 px-4 sm:px-5 py-4 border-b border-slate-100">
         {icon}
         <h2 className="text-base font-extrabold text-slate-900">{title}</h2>
       </div>
-      <div className="overflow-x-auto">
+
+      {/* Mobile: stacked cards — everything fits in one column, no side-scroll. */}
+      <div className="sm:hidden divide-y divide-slate-100">
+        {rows.map(({ g, p, isOpen }) => (
+          <div key={g.key} className="px-4 py-3.5 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-extrabold text-slate-800 text-sm min-w-0 truncate" title={labelFn(g.key)}>
+                {labelFn(g.key)}
+              </span>
+              <span className="text-xs font-black text-slate-600 shrink-0">{p}%</span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+              <div className={`h-full rounded-full ${barTone(p)}`} style={{ width: `${p}%` }} />
+            </div>
+            <div className="grid grid-cols-4 gap-1.5 text-center">
+              <div className="rounded-xl bg-slate-50 py-1.5">
+                <p className="text-sm font-black text-slate-700 leading-none">{g.totalTeachers}</p>
+                <p className="text-[10px] font-bold text-slate-400 mt-1">ครู</p>
+              </div>
+              <div className="rounded-xl bg-emerald-50 py-1.5">
+                <p className="text-sm font-black text-emerald-600 leading-none">{g.submitted}</p>
+                <p className="text-[10px] font-bold text-emerald-500/80 mt-1">ส่งแล้ว</p>
+              </div>
+              <div className="rounded-xl bg-violet-50 py-1.5">
+                <p className="text-sm font-black text-violet-600 leading-none">{g.complete}</p>
+                <p className="text-[10px] font-bold text-violet-500/80 mt-1">ส่งครบ</p>
+              </div>
+              <div className="rounded-xl bg-amber-50 py-1.5">
+                <p className="text-sm font-black text-amber-600 leading-none">{g.works}</p>
+                <p className="text-[10px] font-bold text-amber-500/80 mt-1">ชิ้นงาน</p>
+              </div>
+            </div>
+            {g.notDone.length > 0 && (
+              <div>
+                <button
+                  onClick={() => setExpanded(isOpen ? null : toggleKey(g.key))}
+                  className="flex items-center gap-1 text-[11px] font-bold text-amber-700"
+                >
+                  <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                  ยังส่งไม่ครบ {g.notDone.length} คน
+                </button>
+                {isOpen && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {g.notDone.map((n) => (
+                      <span key={n} className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-slate-600 text-[11px] font-semibold">
+                        {n}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop: full table. */}
+      <div className="hidden sm:block overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
             <tr className="text-slate-500 font-bold bg-slate-50/70">
@@ -322,76 +389,62 @@ function StatTable({
             </tr>
           </thead>
           <tbody>
-            {groups.map((g) => {
-              // Progress means completed work slots, not only the share of teachers
-              // who reached 100%. Cap at the expected slots so duplicates cannot
-              // produce more than 100%.
-              const expectedWorks = g.totalTeachers * required;
-              const p = pct(Math.min(g.works, expectedWorks), expectedWorks);
-              const isOpen = expanded === title + "|" + g.key;
-              return (
-                <Fragment key={g.key}>
-                  <tr className="border-t border-slate-100 hover:bg-slate-50/50">
-                    <td className="px-4 py-3 font-bold text-slate-800 max-w-[220px] truncate" title={labelFn(g.key)}>
-                      {labelFn(g.key)}
-                    </td>
-                    <td className="text-center px-3 py-3 font-semibold text-slate-700">{g.totalTeachers}</td>
-                    <td className="text-center px-3 py-3 font-semibold text-emerald-600">
-                      {g.submitted}
-                      <span className="text-[10px] text-slate-400"> ({pct(g.submitted, g.totalTeachers)}%)</span>
-                    </td>
-                    <td className="text-center px-3 py-3 font-semibold text-violet-600">{g.complete}</td>
-                    <td className="text-center px-3 py-3 font-semibold text-amber-600">{g.works}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${p >= 100 ? "bg-emerald-500" : p >= 50 ? "bg-blue-500" : "bg-amber-400"}`}
-                            style={{ width: `${p}%` }}
-                          />
-                        </div>
-                        <span className="text-[11px] font-bold text-slate-600 w-9 text-right">{p}%</span>
+            {rows.map(({ g, p, isOpen }) => (
+              <Fragment key={g.key}>
+                <tr className="border-t border-slate-100 hover:bg-slate-50/50">
+                  <td className="px-4 py-3 font-bold text-slate-800 max-w-[220px] truncate" title={labelFn(g.key)}>
+                    {labelFn(g.key)}
+                  </td>
+                  <td className="text-center px-3 py-3 font-semibold text-slate-700">{g.totalTeachers}</td>
+                  <td className="text-center px-3 py-3 font-semibold text-emerald-600">
+                    {g.submitted}
+                    <span className="text-[10px] text-slate-400"> ({pct(g.submitted, g.totalTeachers)}%)</span>
+                  </td>
+                  <td className="text-center px-3 py-3 font-semibold text-violet-600">{g.complete}</td>
+                  <td className="text-center px-3 py-3 font-semibold text-amber-600">{g.works}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+                        <div className={`h-full rounded-full ${barTone(p)}`} style={{ width: `${p}%` }} />
                       </div>
-                    </td>
-                    <td className="px-2 py-3 text-right">
-                      {g.notDone.length > 0 && (
-                        <button
-                          onClick={() => setExpanded(isOpen ? null : title + "|" + g.key)}
-                          className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"
-                          title="ดูรายชื่อที่ยังไม่ครบ"
-                        >
-                          <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                  {isOpen && (
-                    <tr className="bg-amber-50/40">
-                      <td colSpan={7} className="px-4 py-3">
-                        <div className="flex items-start gap-2">
-                          <Clock className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-                          <div>
-                            <p className="text-[11px] font-bold text-amber-700 mb-1">
-                              ยังส่งไม่ครบ ({g.notDone.length} คน):
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {g.notDone.map((n) => (
-                                <span
-                                  key={n}
-                                  className="px-2 py-0.5 rounded-md bg-white border border-amber-200 text-slate-600 text-[11px] font-semibold"
-                                >
-                                  {n}
-                                </span>
-                              ))}
-                            </div>
+                      <span className="text-[11px] font-bold text-slate-600 w-9 text-right">{p}%</span>
+                    </div>
+                  </td>
+                  <td className="px-2 py-3 text-right">
+                    {g.notDone.length > 0 && (
+                      <button
+                        onClick={() => setExpanded(isOpen ? null : toggleKey(g.key))}
+                        className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"
+                        title="ดูรายชื่อที่ยังไม่ครบ"
+                      >
+                        <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+                {isOpen && (
+                  <tr className="bg-amber-50/40">
+                    <td colSpan={7} className="px-4 py-3">
+                      <div className="flex items-start gap-2">
+                        <Clock className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-[11px] font-bold text-amber-700 mb-1">
+                            ยังส่งไม่ครบ ({g.notDone.length} คน):
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {g.notDone.map((n) => (
+                              <span key={n} className="px-2 py-0.5 rounded-md bg-white border border-amber-200 text-slate-600 text-[11px] font-semibold">
+                                {n}
+                              </span>
+                            ))}
                           </div>
                         </div>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
           </tbody>
         </table>
       </div>
