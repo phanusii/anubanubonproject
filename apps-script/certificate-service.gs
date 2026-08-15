@@ -419,7 +419,20 @@ function authorizeGoogleSlides() {
 function querySubmissions_(projectId) {
   // 300 recipients can exceed 1,000 documents when a round has 4+ work slots.
   // Keep enough headroom for replacements while still bounding the response.
-  var body = { structuredQuery: { from: [{ collectionId: "submissions" }], where: { fieldFilter: { field: { fieldPath: "projectId" }, op: "EQUAL", value: { stringValue: projectId } } }, limit: 5000 } };
+  // IMPORTANT: project only the fields we need. Submissions carry a base64 thumbnail
+  // (~100 KB each); fetching full documents for hundreds of works blows past
+  // UrlFetchApp's ~50 MB response limit and silently truncates the result — which
+  // undercounts recipients. The projection keeps the response tiny.
+  var body = { structuredQuery: {
+    from: [{ collectionId: "submissions" }],
+    where: { fieldFilter: { field: { fieldPath: "projectId" }, op: "EQUAL", value: { stringValue: projectId } } },
+    select: { fields: [
+      { fieldPath: "fullName" }, { fieldPath: "position" }, { fieldPath: "gradeLevel" },
+      { fieldPath: "subjectGroup" }, { fieldPath: "projectId" }, { fieldPath: "projectName" },
+      { fieldPath: "projectTitle" }, { fieldPath: "workSlotId" }, { fieldPath: "createdAt" }, { fieldPath: "uploadDate" }
+    ] },
+    limit: 5000
+  } };
   var rows = firestoreRequest_("documents:runQuery", "post", body);
   return (rows || []).filter(function (row) { return row.document; }).map(function (row) {
     var data = decodeMap_(row.document.fields || {}); data.id = row.document.name.split("/").pop(); return data;
