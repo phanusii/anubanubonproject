@@ -4,7 +4,7 @@ import { auth } from "./firebase";
 // The Apps Script web-app URL is public by design. Keep a checked-in fallback
 // so certificate lookup also works in clean CI/Firebase builds without .env.local.
 const SERVICE_URL = process.env.NEXT_PUBLIC_CERTIFICATE_SERVICE_URL
-  || "https://script.google.com/macros/s/AKfycbyhEJADSzKxiEsGcl80VuJyPPBaz_5GJhG7syFaJ2LgOake0smcU2Ipge5YmgyGNYg2/exec";
+  || "https://script.google.com/macros/s/AKfycbyagMNd7lH3Q6TpsCZZMx1KvnPl5VHEcWdnDj3bJaxVvWqDIDE2Tw6uwbWcDCmiTLRy/exec";
 
 export function certificateRecipientKey(fullName: string): string {
   return fullName.trim().toLowerCase().replace(/\s+/g, " ");
