@@ -29,6 +29,7 @@ interface GroupStat {
   complete: number; // teachers with ≥ required works
   works: number; // total works submitted
   notDone: string[]; // teacher names not yet complete
+  doneList: string[]; // teacher names who submitted the full set
 }
 
 function pct(n: number, d: number): number {
@@ -135,6 +136,7 @@ export default function StatsSection() {
           complete: 0,
           works: 0,
           notDone: [],
+          doneList: [],
         });
       }
       const g = groups.get(key)!;
@@ -142,7 +144,7 @@ export default function StatsSection() {
       const count = worksByTeacher.get(normName(t.fullName)) || 0;
       g.works += count;
       if (count >= 1) g.submitted += 1;
-      if (count >= required) g.complete += 1;
+      if (count >= required) { g.complete += 1; g.doneList.push(t.fullName); }
       else g.notDone.push(t.fullName);
     }
     return Array.from(groups.values());
@@ -350,22 +352,41 @@ function StatTable({
                 <p className="text-[10px] font-bold text-amber-500/80 mt-1">ชิ้นงาน</p>
               </div>
             </div>
-            {g.notDone.length > 0 && (
+            {g.totalTeachers > 0 && (
               <div>
                 <button
                   onClick={() => setExpanded(isOpen ? null : toggleKey(g.key))}
-                  className="flex items-center gap-1 text-[11px] font-bold text-amber-700"
+                  className="flex items-center gap-1 text-[11px] font-bold text-slate-600"
                 >
                   <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                  ยังส่งไม่ครบ {g.notDone.length} คน
+                  ดูรายชื่อ · ส่งครบ {g.complete} · ไม่ครบ {g.notDone.length}
                 </button>
                 {isOpen && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {g.notDone.map((n) => (
-                      <span key={n} className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-slate-600 text-[11px] font-semibold">
-                        {n}
-                      </span>
-                    ))}
+                  <div className="mt-2 space-y-2.5">
+                    {g.doneList.length > 0 && (
+                      <div>
+                        <p className="text-[11px] font-bold text-emerald-700 mb-1">ส่งครบแล้ว ({g.doneList.length} คน)</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {g.doneList.map((n) => (
+                            <span key={n} className="px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-semibold">
+                              {n}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {g.notDone.length > 0 && (
+                      <div>
+                        <p className="text-[11px] font-bold text-amber-700 mb-1">ยังส่งไม่ครบ ({g.notDone.length} คน)</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {g.notDone.map((n) => (
+                            <span key={n} className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-slate-600 text-[11px] font-semibold">
+                              {n}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -411,11 +432,11 @@ function StatTable({
                     </div>
                   </td>
                   <td className="px-2 py-3 text-right">
-                    {g.notDone.length > 0 && (
+                    {g.totalTeachers > 0 && (
                       <button
                         onClick={() => setExpanded(isOpen ? null : toggleKey(g.key))}
                         className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"
-                        title="ดูรายชื่อที่ยังไม่ครบ"
+                        title="ดูรายชื่อครู"
                       >
                         <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
                       </button>
@@ -423,23 +444,42 @@ function StatTable({
                   </td>
                 </tr>
                 {isOpen && (
-                  <tr className="bg-amber-50/40">
-                    <td colSpan={7} className="px-4 py-3">
-                      <div className="flex items-start gap-2">
-                        <Clock className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
-                        <div>
-                          <p className="text-[11px] font-bold text-amber-700 mb-1">
-                            ยังส่งไม่ครบ ({g.notDone.length} คน):
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {g.notDone.map((n) => (
-                              <span key={n} className="px-2 py-0.5 rounded-md bg-white border border-amber-200 text-slate-600 text-[11px] font-semibold">
-                                {n}
-                              </span>
-                            ))}
+                  <tr className="bg-slate-50/60">
+                    <td colSpan={7} className="px-4 py-3 space-y-3">
+                      {g.doneList.length > 0 && (
+                        <div className="flex items-start gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 shrink-0" />
+                          <div>
+                            <p className="text-[11px] font-bold text-emerald-700 mb-1">
+                              ส่งครบแล้ว ({g.doneList.length} คน):
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {g.doneList.map((n) => (
+                                <span key={n} className="px-2 py-0.5 rounded-md bg-white border border-emerald-200 text-emerald-800 text-[11px] font-semibold">
+                                  {n}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      )}
+                      {g.notDone.length > 0 && (
+                        <div className="flex items-start gap-2">
+                          <Clock className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                          <div>
+                            <p className="text-[11px] font-bold text-amber-700 mb-1">
+                              ยังส่งไม่ครบ ({g.notDone.length} คน):
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {g.notDone.map((n) => (
+                                <span key={n} className="px-2 py-0.5 rounded-md bg-white border border-amber-200 text-slate-600 text-[11px] font-semibold">
+                                  {n}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )}
