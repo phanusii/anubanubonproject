@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Award,
+  BadgeCheck,
   CheckCircle2,
   Download,
   FileWarning,
@@ -248,31 +249,39 @@ export default function CertificatePage() {
     <div className="min-h-screen flex flex-col">
       <Navbar />
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-6 sm:py-10 space-y-5">
-        <section className="rounded-3xl bg-linear-to-br from-amber-400 to-orange-500 px-6 py-6 text-white shadow-lg flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="flex items-center gap-4 flex-1">
-            <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">
+        <section className="rounded-3xl bg-linear-to-br from-amber-400 via-orange-500 to-orange-600 text-white shadow-lg shadow-orange-500/20 overflow-hidden">
+          <div className="px-6 pt-6 pb-5 flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center shrink-0 shadow-inner">
               <Award className="w-8 h-8" />
             </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold">
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-extrabold leading-tight">
                 ตรวจสอบเกียรติบัตร
               </h1>
-              <p className="text-sm font-semibold text-amber-50 mt-1">
+              <p className="text-sm font-semibold text-amber-50/90 mt-0.5">
                 เลือกสายชั้นและชื่อ ระบบจะแสดงผลให้ทันที
               </p>
             </div>
           </div>
           {issuedTotal !== null && (
-            <div className="rounded-2xl bg-white/20 px-5 py-3 text-center shrink-0 backdrop-blur-sm">
-              <p className="text-[11px] font-bold text-amber-50">ออกเกียรติบัตรแล้ว</p>
-              <p className="text-3xl font-black leading-tight">
-                {issuedTotal.toLocaleString("th-TH")} <span className="text-base font-extrabold">ใบ</span>
-              </p>
-              {activeProjectName && (
-                <p className="text-[10px] font-semibold text-amber-50/90 max-w-[220px] truncate">
-                  {activeProjectName}
+            <div className="mx-4 mb-4 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/25 px-5 py-4 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-amber-50 flex items-center gap-1.5">
+                  <BadgeCheck className="w-4 h-4 shrink-0" />
+                  ออกเกียรติบัตรแล้ว
                 </p>
-              )}
+                {activeProjectName && (
+                  <p className="text-[11px] font-medium text-amber-50/80 mt-1 line-clamp-2">
+                    {activeProjectName}
+                  </p>
+                )}
+              </div>
+              <div className="shrink-0 text-right leading-none">
+                <span className="text-4xl font-black tabular-nums">
+                  {issuedTotal.toLocaleString("th-TH")}
+                </span>
+                <span className="text-base font-extrabold ml-1">ใบ</span>
+              </div>
             </div>
           )}
         </section>
