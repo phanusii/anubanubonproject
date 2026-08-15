@@ -16,6 +16,7 @@ import {
 import { DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS, uploadFileToGoogleDrive } from "@/lib/submission-service";
 import { findSimilarTeachers, getTeachers, normalizeTeacherName, saveTeacher, deleteTeacher, updateTeacherPhoto, TeacherItem } from "@/lib/teachers-service";
 import { GradeLevelOption, SubjectGroupOption } from "@/lib/types";
+import { normalizeGradeKey } from "@/lib/format";
 import { Layers, BookOpen, Plus, Trash2, Edit2, Save, X, Search, Users, AlertTriangle, Camera, Loader2 } from "lucide-react";
 
 export default function AdminMastersPage() {
@@ -82,7 +83,7 @@ export default function AdminMastersPage() {
     const searchKey = teacherSearch.trim().toLowerCase();
     return teachers.filter((t) => {
       const matchesSearch = searchKey === "" || t.fullName.toLowerCase().includes(searchKey) || t.position.toLowerCase().includes(searchKey);
-      const matchesGrade = selectedGradeFilter === "ทั้งหมด" || t.gradeLevel === selectedGradeFilter;
+      const matchesGrade = selectedGradeFilter === "ทั้งหมด" || normalizeGradeKey(t.gradeLevel) === normalizeGradeKey(selectedGradeFilter);
       return matchesSearch && matchesGrade;
     });
   }, [teachers, teacherSearch, selectedGradeFilter]);

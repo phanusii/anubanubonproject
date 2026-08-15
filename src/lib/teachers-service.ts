@@ -1,6 +1,7 @@
 import { db } from "./firebase";
-import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, updateDoc, query, where } from "firebase/firestore";
+import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, updateDoc } from "firebase/firestore";
 import { Submission } from "./types";
+import { normalizeGradeKey } from "./format";
 
 export interface TeacherItem {
   id: string;
@@ -183,48 +184,29 @@ export async function updateTeacherPhoto(id: string, photoUrl: string, photoFile
  * Get all teachers with optional grade level filter
  */
 export async function getTeachers(gradeLevel?: string): Promise<TeacherItem[]> {
-  const requestedGrade = gradeLevel && gradeLevel !== "ทั้งหมด" ? gradeLevel : "";
-  if (memoryTeachersCache) {
-    return requestedGrade
-      ? memoryTeachersCache.filter((teacher) => teacher.gradeLevel === requestedGrade)
-      : [...memoryTeachersCache];
-  }
-  if (requestedGrade && gradeTeachersCache.has(requestedGrade)) {
-    return [...(gradeTeachersCache.get(requestedGrade) || [])];
-  }
-  if (requestedGrade) {
+  // Match by NORMALIZED grade so whitespace variants (e.g. "อื่นๆ" vs "อื่น ๆ")
+  // resolve to the same bucket — a per-grade exact-match query would drop the
+  // teachers stored under the other spelling.
+  const requestedGrade = gradeLevel && gradeLevel !== "ทั้งหมด" ? normalizeGradeKey(gradeLevel) : "";
+  const byGrade = (teacher: TeacherItem) => normalizeGradeKey(teacher.gradeLevel) === requestedGrade;
+
+  // Always work from the full roster so filtering is consistent everywhere.
+  let list = memoryTeachersCache ? [...memoryTeachersCache] : [];
+  if (!memoryTeachersCache) {
     try {
-      const snapshot = await getDocs(query(collection(db, "teachers"), where("gradeLevel", "==", requestedGrade)));
-      const rows = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TeacherItem, "id">) }));
-      gradeTeachersCache.set(requestedGrade, rows);
-      return rows;
+      const snapshot = await getDocs(collection(db, "teachers"));
+      if (!snapshot.empty) {
+        list = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TeacherItem, "id">) }));
+        saveLocalTeachers(list);
+      }
     } catch (err) {
-      console.warn("Firestore grade teachers query failed, using local cache:", err);
-      return getLocalTeachers().filter((teacher) => teacher.gradeLevel === requestedGrade);
+      console.warn("Firestore getTeachers error, fallback to local:", err);
     }
-  }
-  let list: TeacherItem[] = memoryTeachersCache ? [...memoryTeachersCache] : [];
-  try {
-    const snapshot = await getDocs(collection(db, "teachers"));
-    if (!snapshot.empty) {
-      list = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TeacherItem, "id">) }));
-      saveLocalTeachers(list);
-    }
-  } catch (err) {
-    console.warn("Firestore getTeachers error, fallback to local:", err);
+    if (list.length === 0) list = getLocalTeachers();
+    memoryTeachersCache = list;
   }
 
-  if (list.length === 0) {
-    list = getLocalTeachers();
-  }
-
-  memoryTeachersCache = list;
-
-  if (gradeLevel && gradeLevel !== "ทั้งหมด") {
-    list = list.filter((t) => t.gradeLevel === gradeLevel);
-  }
-
-  return list;
+  return requestedGrade ? list.filter(byGrade) : list;
 }
 
 /**
@@ -237,7 +219,8 @@ export async function saveTeacher(item: Omit<TeacherItem, "id"> & { id?: string 
   );
   if (duplicate) throw new Error(`มีรายชื่อ ${duplicate.fullName} อยู่ในระบบแล้ว`);
   const teacherId = item.id || `teacher-${Date.now()}`;
-  const newItem: TeacherItem = { ...item, id: teacherId, createdAt: Date.now() };
+  // Canonicalize the grade on write so future saves converge on one spelling.
+  const newItem: TeacherItem = { ...item, gradeLevel: normalizeGradeKey(item.gradeLevel), id: teacherId, createdAt: Date.now() };
 
   try {
     await setDoc(doc(db, "teachers", teacherId), newItem);
