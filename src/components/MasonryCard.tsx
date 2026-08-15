@@ -54,12 +54,17 @@ export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryC
               </span>
             </div>
           ) : isDrive ? (
-            <div className="flex flex-col items-center justify-center p-6 text-emerald-600 space-y-2">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center shadow-xs">
+            // Thumbnails only load for publicly-shared Drive files. Reaching this
+            // fallback means every thumbnail URL failed → the file isn't shared publicly.
+            <div className="flex flex-col items-center justify-center p-6 text-amber-600 space-y-2 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center shadow-xs">
                 <HardDrive className="w-7 h-7" />
               </div>
-              <span className="text-[11px] font-extrabold tracking-wider text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full uppercase">
+              <span className="text-[11px] font-extrabold tracking-wider text-amber-700 bg-amber-100/80 px-2.5 py-0.5 rounded-full uppercase">
                 GOOGLE DRIVE
+              </span>
+              <span className="text-[10px] font-bold text-amber-600 leading-tight px-2">
+                ยังไม่ได้แชร์สาธารณะ
               </span>
             </div>
           ) : (

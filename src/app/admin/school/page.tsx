@@ -18,7 +18,7 @@ export default function AdminSchoolPage() {
     closeDate: "",
     bannerUrl: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=1200&auto=format&fit=crop",
     allowSubmissions: true,
-    schoolLogoUrl: "https://images.unsplash.com/photo-1594312915251-48db9280c8f1?w=200&auto=format&fit=crop",
+    schoolLogoUrl: "",
     schoolName: "โรงเรียนอนุบาลอุบลราชธานี",
     educationalArea: "สำนักงานเขตพื้นที่การศึกษาประถมศึกษาอุบลราชธานี เขต 1",
     categoryType: "การส่งผลงานนวัตกรรมการเรียนรู้",
@@ -119,12 +119,13 @@ export default function AdminSchoolPage() {
 
               <div className="flex flex-col sm:flex-row items-center gap-6">
                 <div className="relative group shrink-0">
-                  <Image
-                    src={settings.schoolLogoUrl || "https://images.unsplash.com/photo-1594312915251-48db9280c8f1?w=200&auto=format&fit=crop"}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={settings.schoolLogoUrl || "https://placehold.co/200x200/e2e8f0/64748b?text=LOGO"}
                     alt="School Logo"
                     width={112}
                     height={112}
-                    className="w-28 h-28 rounded-full object-cover border-4 border-white shadow-lg ring-4 ring-blue-500/20"
+                    className="w-28 h-28 rounded-full object-cover border-4 border-white shadow-lg ring-4 ring-blue-500/20 bg-slate-100"
                   />
                   <label className="absolute inset-0 rounded-full bg-slate-900/40 text-white flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-[10px] font-bold">
                     <Upload className="w-5 h-5 mb-1" />
@@ -165,8 +166,8 @@ export default function AdminSchoolPage() {
                           if (settings.schoolLogoUrl?.includes("firebasestorage.googleapis.com")) {
                             deleteStorageFileByUrl(settings.schoolLogoUrl);
                           }
-                          setSettings({ ...settings, schoolLogoUrl: "https://images.unsplash.com/photo-1594312915251-48db9280c8f1?w=200&auto=format&fit=crop" });
-                          updateTrainingSettings({ schoolLogoUrl: "https://images.unsplash.com/photo-1594312915251-48db9280c8f1?w=200&auto=format&fit=crop" });
+                          setSettings({ ...settings, schoolLogoUrl: "" });
+                          updateTrainingSettings({ schoolLogoUrl: "" });
                         }}
                         className="px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-700 font-bold text-xs hover:bg-slate-50"
                       >

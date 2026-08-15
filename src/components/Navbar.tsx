@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { useState, useEffect } from "react";
 import {
   Send,
@@ -23,6 +22,7 @@ export default function Navbar() {
   const [settings, setSettings] = useState<TrainingSettings>(getInstantSettings());
   const [projectKind, setProjectKind] = useState<string | undefined>(undefined);
   const [hash, setHash] = useState("");
+  const [logoError, setLogoError] = useState(false);
 
   useEffect(() => {
     async function loadSettings() {
@@ -70,14 +70,17 @@ export default function Navbar() {
         <div className="flex items-center justify-between h-16 sm:h-20">
           {/* Logo & Brand */}
           <Link href="/#gallery" className="flex items-center gap-3 group">
-            {settings?.schoolLogoUrl ? (
+            {settings?.schoolLogoUrl && !logoError ? (
               <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white shadow-md shadow-blue-500/10 bg-white shrink-0 group-hover:scale-105 transition-transform duration-300 flex items-center justify-center p-0.5">
-                <Image
+                {/* Plain img: renders base64 data URLs and any host reliably in static export,
+                    and onError falls back to the branded icon instead of a broken "?" glyph. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
                   src={settings.schoolLogoUrl}
                   alt="School Logo"
                   width={48}
                   height={48}
-                  priority
+                  onError={() => setLogoError(true)}
                   className="w-full h-full object-cover rounded-full"
                 />
               </div>

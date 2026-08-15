@@ -59,7 +59,7 @@ export const DEFAULT_SETTINGS: TrainingSettings = {
   closeDate: "2026-08-31T23:59",
   bannerUrl: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=1200&auto=format&fit=crop",
   allowSubmissions: true,
-  schoolLogoUrl: "https://images.unsplash.com/photo-1594312915251-48db9280c8f1?w=200&auto=format&fit=crop",
+  schoolLogoUrl: "",
   schoolName: "โรงเรียนอนุบาลอุบลราชธานี",
   educationalArea: "สำนักงานเขตพื้นที่การศึกษาประถมศึกษาอุบลราชธานี เขต 1",
   categoryType: "การส่งผลงานนวัตกรรมการเรียนรู้",

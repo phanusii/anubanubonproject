@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import { getTrainingSettings } from "@/lib/submission-service";
 import { TrainingSettings } from "@/lib/types";
 import { Code2, Sparkles } from "lucide-react";
 
 export default function Footer() {
   const [settings, setSettings] = useState<TrainingSettings | null>(null);
+  const [logoError, setLogoError] = useState(false);
 
   useEffect(() => {
     async function loadSettings() {
@@ -21,13 +21,15 @@ export default function Footer() {
     <footer className="glass-panel border-t border-white/80 bg-white/70 backdrop-blur-md py-6 mt-12 text-slate-600 text-xs font-semibold">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-2">
-          {settings?.schoolLogoUrl ? (
+          {settings?.schoolLogoUrl && !logoError ? (
             <div className="w-7 h-7 rounded-full overflow-hidden border border-slate-200 bg-white shrink-0 p-0.5">
-              <Image
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src={settings.schoolLogoUrl}
                 alt="School Logo"
                 width={28}
                 height={28}
+                onError={() => setLogoError(true)}
                 className="w-full h-full object-cover rounded-full"
               />
             </div>
