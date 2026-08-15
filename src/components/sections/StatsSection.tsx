@@ -13,7 +13,6 @@ import {
   Clock,
   FileStack,
   Layers,
-  BookOpen,
   ChevronDown,
 } from "lucide-react";
 
@@ -118,14 +117,6 @@ export default function StatsSection() {
 
   // The imported roster has no subject group, so derive each teacher's group from
   // the subject group they picked on their submission (so submitters show correctly).
-  const subjectByTeacher = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const s of subs) {
-      if (s.subjectGroup) map.set(normName(s.fullName), s.subjectGroup);
-    }
-    return map;
-  }, [subs]);
-
   const statisticalTeachers = useMemo(
     () => mergeTeachersWithSubmitters(teachers, subs),
     [teachers, subs],
@@ -162,19 +153,6 @@ export default function StatsSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [statisticalTeachers, worksByTeacher, required]
   );
-  const bySubject = useMemo(
-    () =>
-      buildGroups((t) => subjectByTeacher.get(normName(t.fullName)) || t.subjectGroup).sort(
-        (a, b) => {
-          if (a.key === "ไม่ระบุ") return 1;
-          if (b.key === "ไม่ระบุ") return -1;
-          return b.totalTeachers - a.totalTeachers || a.label.localeCompare(b.label, "th");
-        }
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [statisticalTeachers, worksByTeacher, required, subjectByTeacher]
-  );
-
   // School overall
   const overall = useMemo(() => {
     const totalTeachers = statisticalTeachers.length;
@@ -202,7 +180,7 @@ export default function StatsSection() {
           สรุปการส่งงานของครู
         </h1>
         <p className="text-xs sm:text-sm text-slate-600 font-medium">
-          สรุประดับโรงเรียน สายชั้น และกลุ่มสาระ — ใครส่งแล้ว ส่งครบไหม กี่ชิ้น คิดเป็นกี่%
+          สรุประดับโรงเรียนและสายชั้น — ใครส่งแล้ว ส่งครบไหม กี่ชิ้น คิดเป็นกี่%
           {required > 1 && ` (เกณฑ์ครบ = ${required} ชิ้น)`}
         </p>
       </div>
@@ -268,16 +246,6 @@ export default function StatsSection() {
             setExpanded={setExpanded}
           />
 
-          {/* By subject group */}
-          <StatTable
-            title="สรุปตามกลุ่มสาระการเรียนรู้"
-            icon={<BookOpen className="w-5 h-5 text-purple-600" />}
-            groups={bySubject}
-            required={required}
-            labelFn={(k) => k}
-            expanded={expanded}
-            setExpanded={setExpanded}
-          />
         </>
       )}
     </main>

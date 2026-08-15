@@ -102,22 +102,6 @@ export default function AdminStatsPage() {
     return map;
   }, [projectSubmissions]);
 
-  const subjectRows = useMemo(() => {
-    const groups = new Map<string, { label: string; total: number; complete: number; works: number }>();
-    for (const item of progress) {
-      const label = shortSubject(subjectByTeacher.get(norm(item.teacher.fullName)) || item.teacher.subjectGroup) || "ไม่ระบุ";
-      const row = groups.get(label) || { label, total: 0, complete: 0, works: 0 };
-      row.total += 1;
-      row.works += item.submitted;
-      if (item.complete) row.complete += 1;
-      groups.set(label, row);
-    }
-    return [...groups.values()].sort((a, b) => {
-      if (a.label === "ไม่ระบุ") return 1;
-      if (b.label === "ไม่ระบุ") return -1;
-      return b.total - a.total || a.label.localeCompare(b.label, "th");
-    });
-  }, [progress, subjectByTeacher]);
 
   const displayedTeacherGroups = useMemo(() => {
     const groups = new Map<string, TeacherProgress[]>();
@@ -161,7 +145,7 @@ export default function AdminStatsPage() {
         <main className="flex-1 min-w-0 space-y-6">
           <section className="p-6 rounded-3xl bg-white border border-slate-100 shadow-xs">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div><h1 className="text-2xl font-extrabold text-slate-900">สถิติการส่งงานแบบละเอียด</h1><p className="text-xs font-semibold text-slate-500">ติดตามความครบถ้วนรายคน สายชั้น และกลุ่มสาระ</p></div>
+              <div><h1 className="text-2xl font-extrabold text-slate-900">สถิติการส่งงานแบบละเอียด</h1><p className="text-xs font-semibold text-slate-500">ติดตามความครบถ้วนรายคนและสายชั้น</p></div>
               <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="w-full lg:w-auto px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-bold lg:min-w-[260px]">
                 {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
@@ -183,7 +167,6 @@ export default function AdminStatsPage() {
             </div>
 
             <ProgressTable title="สรุปตามสายชั้น" required={project?.workSlotTitles.length || project?.maxUpload || 1} rows={gradeRows.map((row) => ({ label: gradeLabel(row.grade), total: row.total, complete: row.complete, works: row.works }))} />
-            <ProgressTable title="สรุปตามกลุ่มสาระ" required={project?.workSlotTitles.length || project?.maxUpload || 1} rows={subjectRows} />
 
             <section className="rounded-3xl bg-white border border-slate-100 shadow-xs overflow-hidden">
               <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
