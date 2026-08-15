@@ -6,6 +6,18 @@ import { auth } from "./firebase";
 const SERVICE_URL = process.env.NEXT_PUBLIC_CERTIFICATE_SERVICE_URL
   || "https://script.google.com/macros/s/AKfycbyagMNd7lH3Q6TpsCZZMx1KvnPl5VHEcWdnDj3bJaxVvWqDIDE2Tw6uwbWcDCmiTLRy/exec";
 
+/** Ask the Apps Script (DriveApp) whether a Drive file is shared publicly, so the
+ *  submit form can reject links that no one else can open. */
+export async function checkDriveLinkPublic(fileId: string): Promise<{ isPublic: boolean; accessible: boolean; name?: string }> {
+  try {
+    const res = await callService({ action: "checkSharing", fileId });
+    return { isPublic: Boolean(res.isPublic), accessible: Boolean(res.accessible), name: res.name as string | undefined };
+  } catch {
+    // If the check itself fails, treat as not-public so a broken link isn't accepted.
+    return { isPublic: false, accessible: false };
+  }
+}
+
 export function certificateRecipientKey(fullName: string): string {
   return fullName.trim().toLowerCase().replace(/\s+/g, " ");
 }

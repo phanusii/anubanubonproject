@@ -13,6 +13,7 @@ import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
 import { findSimilarTeachers, getTeachers, normalizeTeacherName, updateTeacherSubject, TeacherItem } from "@/lib/teachers-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
+import { checkDriveLinkPublic } from "@/lib/certificate-service";
 import { gradeLabel, submitVerb } from "@/lib/format";
 import { TrainingSettings, GradeLevelOption, SubjectGroupOption, Submission, Project } from "@/lib/types";
 import { latestSubmissionPerSlot, slotIdAt } from "@/lib/certificate-service";
@@ -342,6 +343,19 @@ export default function SubmitSection() {
         // Use the generated preview (e.g. PDF first page) if we have one, else Drive's thumbnail.
         if (!thumb) thumb = getGoogleDriveThumbnail(uploaded.id);
       } else if (submissionMethod === 'drive' && driveFileId) {
+        // The linked file MUST be shared publicly, otherwise no one can open/preview it.
+        setUploadProgress(30);
+        const share = await checkDriveLinkPublic(driveFileId);
+        if (!share.isPublic) {
+          setIsUploading(false);
+          setUploadProgress(0);
+          setErrorMessage(
+            share.accessible
+              ? "ลิงก์ Google Drive นี้ยังไม่ได้แชร์เป็นสาธารณะ — กรุณาตั้งค่าแชร์เป็น “ทุกคนที่มีลิงก์ (ผู้ดู)” แล้วส่งอีกครั้ง"
+              : "เปิดลิงก์ Google Drive นี้ไม่ได้ (อาจยังไม่แชร์สาธารณะ หรือลิงก์ไม่ถูกต้อง) — ตั้งค่าแชร์เป็น “ทุกคนที่มีลิงก์ (ผู้ดู)” แล้วลองใหม่"
+          );
+          return;
+        }
         fileURL = driveUrl.trim();
         ext = "drive";
         thumb = getGoogleDriveThumbnail(driveFileId);

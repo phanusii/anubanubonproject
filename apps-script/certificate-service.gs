@@ -69,6 +69,9 @@ function doPost(e) {
       var found = findCertificateRecord_(input.certificateNumber);
       return json_({ ok: true, certificate: found && found.status === "issued" ? found : null });
     }
+    if (input.action === "checkSharing") {
+      return json_(checkDriveSharing_(input.fileId));
+    }
     if (input.action === "revoke") {
       assertAdmin_(input.idToken);
       var revoked = getCertificateRecord_(input.certificateId);
@@ -761,3 +764,21 @@ function withId_(id, value) { value.id = id; return value; }
 function normalizeName_(value) { return String(value || "").trim().replace(/\s+/g, " "); }
 function pad_(value, digits) { return String(value).padStart(digits, "0"); }
 function json_(value) { return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON); }
+
+/**
+ * Report whether a Drive file is shared publicly, so the submit form can reject
+ * links that no one else can open. Returns { ok, accessible, isPublic, name }.
+ * isPublic = anyone (with the link, or on the web) can at least view the file.
+ */
+function checkDriveSharing_(fileId) {
+  if (!fileId) return { ok: true, accessible: false, isPublic: false };
+  try {
+    var file = DriveApp.getFileById(fileId);
+    var access = file.getSharingAccess();
+    var isPublic = (access === DriveApp.Access.ANYONE || access === DriveApp.Access.ANYONE_WITH_LINK);
+    return { ok: true, accessible: true, isPublic: isPublic, name: file.getName() };
+  } catch (error) {
+    // getFileById throws if the file isn't accessible to this account — treat as not public.
+    return { ok: true, accessible: false, isPublic: false };
+  }
+}
