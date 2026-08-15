@@ -14,6 +14,7 @@ import Footer from "@/components/Footer";
 import {
   certificateProgress,
   findCertificateForRecipient,
+  getIssuedCertificateCount,
   latestSubmissionPerSlot,
   requestCertificateCorrection,
   slotIdAt,
@@ -77,6 +78,8 @@ export default function CertificatePage() {
   const [correctionValue, setCorrectionValue] = useState("");
   const [correctionNote, setCorrectionNote] = useState("");
   const [correctionMessage, setCorrectionMessage] = useState("");
+  const [issuedTotal, setIssuedTotal] = useState<number | null>(null);
+  const [activeProjectName, setActiveProjectName] = useState("");
 
   useEffect(() => {
     // Cached lists are already usable above; this refresh never blocks grade selection.
@@ -91,6 +94,22 @@ export default function CertificatePage() {
       })
       .catch(() => setError("โหลดรายชื่อครูไม่สำเร็จ กรุณาลองใหม่"))
       .finally(() => setLoadingLists(false));
+  }, []);
+
+  useEffect(() => {
+    // Show how many certificates have already been issued for the current round.
+    (async () => {
+      try {
+        const active = await getActiveProject();
+        if (active?.id) {
+          setActiveProjectName(active.name);
+          setActiveProjectId(active.id);
+          setIssuedTotal(await getIssuedCertificateCount(active.id));
+        }
+      } catch {
+        // Non-critical: header count just stays hidden if this fails.
+      }
+    })();
   }, []);
 
   const teachersByGrade = useMemo(() => {
@@ -229,18 +248,33 @@ export default function CertificatePage() {
     <div className="min-h-screen flex flex-col">
       <Navbar />
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-6 sm:py-10 space-y-5">
-        <section className="rounded-3xl bg-linear-to-br from-amber-400 to-orange-500 px-6 py-6 text-white shadow-lg flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">
-            <Award className="w-8 h-8" />
+        <section className="rounded-3xl bg-linear-to-br from-amber-400 to-orange-500 px-6 py-6 text-white shadow-lg flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex items-center gap-4 flex-1">
+            <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">
+              <Award className="w-8 h-8" />
+            </div>
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold">
+                ตรวจสอบเกียรติบัตร
+              </h1>
+              <p className="text-sm font-semibold text-amber-50 mt-1">
+                เลือกสายชั้นและชื่อ ระบบจะแสดงผลให้ทันที
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold">
-              ตรวจสอบเกียรติบัตร
-            </h1>
-            <p className="text-sm font-semibold text-amber-50 mt-1">
-              เลือกสายชั้นและชื่อ ระบบจะแสดงผลให้ทันที
-            </p>
-          </div>
+          {issuedTotal !== null && (
+            <div className="rounded-2xl bg-white/20 px-5 py-3 text-center shrink-0 backdrop-blur-sm">
+              <p className="text-[11px] font-bold text-amber-50">ออกเกียรติบัตรแล้ว</p>
+              <p className="text-3xl font-black leading-tight">
+                {issuedTotal.toLocaleString("th-TH")} <span className="text-base font-extrabold">ใบ</span>
+              </p>
+              {activeProjectName && (
+                <p className="text-[10px] font-semibold text-amber-50/90 max-w-[220px] truncate">
+                  {activeProjectName}
+                </p>
+              )}
+            </div>
+          )}
         </section>
         <section className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 grid sm:grid-cols-2 gap-4 shadow-sm">
           <label className="space-y-1.5">

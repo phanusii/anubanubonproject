@@ -72,6 +72,10 @@ function doPost(e) {
     if (input.action === "checkSharing") {
       return json_(checkDriveSharing_(input.fileId));
     }
+    if (input.action === "issuedCount") {
+      var issuedRecords = listCertificateRecords_(String(input.projectId || "")).filter(function (r) { return r.status === "issued"; });
+      return json_({ ok: true, issued: issuedRecords.length });
+    }
     if (input.action === "revoke") {
       assertAdmin_(input.idToken);
       var revoked = getCertificateRecord_(input.certificateId);
