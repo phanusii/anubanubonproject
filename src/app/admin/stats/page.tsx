@@ -5,7 +5,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
-import { getInstantSubmissions, getSubmissions } from "@/lib/submission-service";
+import { getInstantSubmissions, getSubmissionsForStats } from "@/lib/submission-service";
 import { getInstantTeachers, getTeachers, mergeTeachersWithSubmitters, TeacherItem } from "@/lib/teachers-service";
 import { gradeLabel, gradeOrder, shortSubject } from "@/lib/format";
 import { Project, Submission } from "@/lib/types";
@@ -38,7 +38,7 @@ export default function AdminStatsPage() {
     Promise.all([
       getTeachers(),
       getProjects(),
-      getSubmissions({ limitNum: 2000, ignoreProjectFilter: true }),
+      getSubmissionsForStats(),
     ]).then(([teacherData, projectData, submissionData]) => {
       setTeachers(teacherData);
       setProjects(projectData);

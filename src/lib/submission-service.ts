@@ -112,6 +112,61 @@ export async function countSubmissions(projectId?: string): Promise<number> {
   }
 }
 
+// Persisted, thumbnail-stripped window for the statistics pages. Base64 thumbnails
+// are too big for localStorage, but stats only need the lightweight metadata — so we
+// cache a stripped copy and reuse it across reloads/tabs to avoid re-reading ~2,000
+// documents every visit (the biggest Firestore read cost).
+const STATS_WINDOW_KEY = "app_stats_window";
+const STATS_WINDOW_TTL = 10 * 60 * 1000; // 10 minutes
+
+/** Clear the cached stats window so the next stats load fetches fresh data. */
+export function clearStatsWindowCache(): void {
+  if (typeof window !== "undefined") {
+    try { localStorage.removeItem(STATS_WINDOW_KEY); } catch {}
+  }
+}
+
+/**
+ * Submissions for the statistics pages, cached (thumbnail-stripped) in localStorage.
+ * Returns the cached window when fresh (0 Firestore reads); otherwise reads the
+ * window once, strips heavy fields, persists it, and returns it. Pass forceRefresh
+ * to bypass the cache (e.g. an admin "refresh stats" button).
+ */
+export async function getSubmissionsForStats(forceRefresh = false): Promise<Submission[]> {
+  if (!forceRefresh && typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(STATS_WINDOW_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.data) && Date.now() - parsed.timestamp < STATS_WINDOW_TTL) {
+          return parsed.data as Submission[];
+        }
+      }
+    } catch {}
+  }
+  const full = await getSubmissions({ limitNum: FETCH_CAP, ignoreProjectFilter: true, forceRefresh });
+  // Keep only the fields the stats pages actually use — no base64 thumbnails/fileURL.
+  const light = full.map((s) => ({
+    id: s.id,
+    fullName: s.fullName,
+    position: s.position,
+    gradeLevel: s.gradeLevel,
+    subjectGroup: s.subjectGroup,
+    projectId: s.projectId,
+    projectName: s.projectName,
+    projectTitle: s.projectTitle,
+    workSlotId: s.workSlotId,
+    createdAt: s.createdAt,
+    uploadDate: s.uploadDate,
+  })) as Submission[];
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(STATS_WINDOW_KEY, JSON.stringify({ data: light, timestamp: Date.now() }));
+    } catch {}
+  }
+  return light;
+}
+
 // No built-in sample submissions — the app shows only real data from Firestore.
 const INITIAL_MOCK_SUBMISSIONS: Submission[] = [];
 

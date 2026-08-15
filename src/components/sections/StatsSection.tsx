@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { getInstantSubmissions, getSubmissions } from "@/lib/submission-service";
+import { getInstantSubmissions, getSubmissionsForStats } from "@/lib/submission-service";
 import { getInstantTeachers, getTeachers, mergeTeachersWithSubmitters, TeacherItem } from "@/lib/teachers-service";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { gradeLabel, gradeOrder } from "@/lib/format";
@@ -71,7 +71,7 @@ export default function StatsSection() {
         const [ts, projs, data] = await Promise.all([
           getTeachers(),
           getProjects(),
-          getSubmissions({ limitNum: 2000, ignoreProjectFilter: true }),
+          getSubmissionsForStats(),
         ]);
         setTeachers(ts);
         setAllSubs(data);
