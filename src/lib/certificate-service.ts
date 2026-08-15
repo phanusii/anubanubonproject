@@ -17,13 +17,26 @@ export function slotIdAt(index: number): string {
 export function latestSubmissionPerSlot(submissions: Submission[], project: Project): Map<string, Submission> {
   const result = new Map<string, Submission>();
   const titleToId = new Map(project.workSlotTitles.map((title, index) => [title, slotIdAt(index)]));
+  const required = project.workSlotTitles.length;
+  const unassigned: Submission[] = [];
   [...submissions]
     .filter((item) => item.projectId === project.id)
     .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
     .forEach((item) => {
       const slotId = item.workSlotId || titleToId.get(item.projectTitle);
-      if (slotId && !result.has(slotId)) result.set(slotId, item);
+      if (slotId) {
+        if (!result.has(slotId)) result.set(slotId, item);
+      } else {
+        // Older submissions predate workSlotId and may not match a slot title.
+        unassigned.push(item);
+      }
     });
+  // Count each genuinely unmatched work toward the next empty slot so a title
+  // mismatch doesn't wrongly mark a teacher as "ส่งไม่ครบ".
+  for (let i = 0; i < required && unassigned.length; i += 1) {
+    const id = slotIdAt(i);
+    if (!result.has(id)) result.set(id, unassigned.shift() as Submission);
+  }
   return result;
 }
 

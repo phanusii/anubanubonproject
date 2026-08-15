@@ -183,20 +183,33 @@ function createPreview_(projectId) {
 
 function completion_(project, submissions) {
   var titles = project.workSlotTitles || [];
+  var required = titles.length;
   var titleToSlot = {};
   titles.forEach(function (title, index) { titleToSlot[String(title)] = "slot-" + (index + 1); });
+  var sorted = (submissions || []).slice().sort(function (a, b) { return Number(b.createdAt || 0) - Number(a.createdAt || 0); });
   var bySlot = {};
-  submissions.sort(function (a, b) { return Number(b.createdAt || 0) - Number(a.createdAt || 0); });
-  submissions.forEach(function (item) {
+  var unassigned = [];
+  sorted.forEach(function (item) {
     var slot = item.workSlotId || titleToSlot[String(item.projectTitle || "")];
-    if (slot && !bySlot[slot]) bySlot[slot] = item;
+    if (slot) {
+      if (!bySlot[slot]) bySlot[slot] = item;
+    } else {
+      // Older submissions predate workSlotId and may not match a slot title.
+      unassigned.push(item);
+    }
   });
+  // Count each genuinely unmatched work toward the next empty slot so a title
+  // mismatch doesn't wrongly mark a teacher as "ส่งไม่ครบ".
+  for (var i = 0; i < required && unassigned.length; i++) {
+    var emptyId = "slot-" + (i + 1);
+    if (!bySlot[emptyId]) bySlot[emptyId] = unassigned.shift();
+  }
   var requiredIds = titles.map(function (_, index) { return "slot-" + (index + 1); });
-  var complete = requiredIds.length > 0 && requiredIds.every(function (id) { return !!bySlot[id]; });
   var used = requiredIds.map(function (id) { return bySlot[id]; }).filter(Boolean);
+  var complete = required > 0 && used.length >= required;
   return {
-    complete: complete, required: requiredIds.length, submitted: used.length,
-    latest: used.sort(function (a, b) { return Number(b.createdAt || 0) - Number(a.createdAt || 0); })[0] || submissions[0] || {},
+    complete: complete, required: required, submitted: used.length,
+    latest: used.slice().sort(function (a, b) { return Number(b.createdAt || 0) - Number(a.createdAt || 0); })[0] || sorted[0] || {},
     submissionIds: used.map(function (item) { return item.id; })
   };
 }
@@ -570,8 +583,18 @@ function removeCertificateScheduler_() {
 function completionMissingTitles_(project, submissions) {
   var titles = project.workSlotTitles || [], found = {};
   var titleToSlot = {}; titles.forEach(function (title, index) { titleToSlot[String(title)] = "slot-" + (index + 1); });
-  (submissions || []).forEach(function (item) { var slot = item.workSlotId || titleToSlot[String(item.projectTitle || "")]; if (slot) found[slot] = true; });
-  return titles.filter(function (_, index) { return !found["slot-" + (index + 1)]; });
+  var unassigned = 0;
+  (submissions || []).forEach(function (item) {
+    var slot = item.workSlotId || titleToSlot[String(item.projectTitle || "")];
+    if (slot) found[slot] = true; else unassigned++;
+  });
+  // Mirror completion_: an unmatched work still covers the next empty slot.
+  var missing = [];
+  for (var i = 0; i < titles.length; i++) {
+    if (found["slot-" + (i + 1)]) continue;
+    if (unassigned > 0) unassigned--; else missing.push(titles[i]);
+  }
+  return missing;
 }
 
 function createEditedPreview_(projectId, changes) {
