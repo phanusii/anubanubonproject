@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import type { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 import MasonryCard from "@/components/MasonryCard";
 import SubmissionModal from "@/components/SubmissionModal";
-import { getSubmissionsPage, getTrainingSettings, getInstantSettings, getInstantSubmissions, countSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
+import { getSubmissionsPage, getTrainingSettings, getInstantSettings, getInstantSubmissions, getSubmissionsForStats, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { getInstantTeachers, getTeachers } from "@/lib/teachers-service";
@@ -53,23 +53,20 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
 
   const projectIdParam = (pid: string) => (pid === "all" ? undefined : pid);
 
-  // True total for the badge: one round, or all rounds minus hidden ones (excludes their works).
+  // True total for the badge. Count from the cached (thumbnail-stripped) stats window
+  // — plain document reads, which work reliably — instead of an aggregation/count
+  // query (those get throttled with 429 under heavy read load).
   const refreshTotal = async (pid: string, hidden: Set<string>) => {
-    if (pid !== "all") {
-      setTotalCount(await countSubmissions(pid));
-      return;
-    }
-    const all = await countSubmissions();
-    if (all < 0) {
+    try {
+      const all = await getSubmissionsForStats();
+      const scoped =
+        pid === "all"
+          ? all.filter((s) => !s.projectId || !hidden.has(s.projectId))
+          : all.filter((s) => s.projectId === pid);
+      setTotalCount(scoped.length);
+    } catch {
       setTotalCount(-1);
-      return;
     }
-    let hiddenCount = 0;
-    for (const id of hidden) {
-      const c = await countSubmissions(id);
-      if (c > 0) hiddenCount += c;
-    }
-    setTotalCount(Math.max(0, all - hiddenCount));
   };
 
   // Load (or reload) the first page for a given round selection.
