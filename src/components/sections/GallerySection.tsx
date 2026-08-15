@@ -8,7 +8,7 @@ import { getSubmissionsPage, getTrainingSettings, getInstantSettings, getInstant
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { getInstantTeachers, getTeachers } from "@/lib/teachers-service";
-import { budgetYearOf, gradeLabel, sortGrades } from "@/lib/format";
+import { budgetYearOf, gradeLabel, normalizeGradeKey, sortGrades } from "@/lib/format";
 import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings, Project } from "@/lib/types";
 import { Search, Sparkles, FolderKanban, Layers } from "lucide-react";
 
@@ -179,7 +179,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         sub.description || "",
       ].join(" ").toLowerCase().includes(searchKey);
 
-      const matchesGrade = selectedGrade === "ทั้งหมด" || sub.gradeLevel === selectedGrade;
+      const matchesGrade = selectedGrade === "ทั้งหมด" || normalizeGradeKey(sub.gradeLevel) === normalizeGradeKey(selectedGrade);
       const matchesSubject = selectedSubject === "ทั้งหมด" || sub.subjectGroup === selectedSubject;
       const matchesLegacyProjectFilter = settings?.activeProjectFilterMode !== "specific" || !settings.activeProjectFilterName?.trim() ||
         [sub.projectTitle, sub.description || ""].join(" ").toLowerCase().includes(settings.activeProjectFilterName.trim().toLowerCase());

@@ -7,7 +7,7 @@ import AdminSidebar from "@/components/AdminSidebar";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { getInstantSubmissions, getSubmissionsForStats } from "@/lib/submission-service";
 import { getInstantTeachers, getTeachers, mergeTeachersWithSubmitters, TeacherItem } from "@/lib/teachers-service";
-import { gradeLabel, gradeOrder, shortSubject } from "@/lib/format";
+import { gradeLabel, gradeOrder, normalizeGradeKey, shortSubject } from "@/lib/format";
 import { Project, Submission } from "@/lib/types";
 import { BarChart3, CheckCircle2, Clipboard, Clock3, FileStack, Users } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -83,7 +83,7 @@ export default function AdminStatsPage() {
   const gradeRows = useMemo(() => {
     const groups = new Map<string, { grade: string; total: number; complete: number; submitted: number; works: number }>();
     for (const item of progress) {
-      const grade = item.teacher.gradeLevel || "ไม่ระบุ";
+      const grade = normalizeGradeKey(item.teacher.gradeLevel) || "ไม่ระบุ";
       const row = groups.get(grade) || { grade, total: 0, complete: 0, submitted: 0, works: 0 };
       row.total += 1;
       row.works += item.submitted;
@@ -107,7 +107,7 @@ export default function AdminStatsPage() {
     const groups = new Map<string, TeacherProgress[]>();
     for (const item of progress.filter((row) => teacherListStatus === "complete" ? row.complete : !row.complete)) {
       const key = incompleteGroupBy === "grade"
-        ? item.teacher.gradeLevel || "ไม่ระบุ"
+        ? normalizeGradeKey(item.teacher.gradeLevel) || "ไม่ระบุ"
         : shortSubject(subjectByTeacher.get(norm(item.teacher.fullName)) || item.teacher.subjectGroup) || "ไม่ระบุ";
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)?.push(item);

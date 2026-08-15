@@ -2,13 +2,28 @@
 const NON_HOMEROOM = ["ผู้บริหาร", "ผู้บริหารสถานศึกษา"];
 
 /**
+ * Canonical form of a grade-level string so equivalent values group together.
+ * Data has drifted into variants that differ only by whitespace — e.g. "อื่นๆ"
+ * vs "อื่น ๆ" — which would otherwise show as two separate rows. Collapses
+ * whitespace runs, removes the stray space before the Thai repetition mark "ๆ",
+ * and trims. Use this as the KEY whenever grouping/comparing by grade.
+ */
+export function normalizeGradeKey(name: string): string {
+  return (name || "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+ๆ/g, "ๆ")
+    .trim();
+}
+
+/**
  * Display label for a grade level. Teaching lines read "ครูสายชั้นป.1",
  * but administrator lines just read "ผู้บริหาร".
  */
 export function gradeLabel(name: string): string {
-  if (!name) return "";
-  if (NON_HOMEROOM.includes(name.trim())) return name;
-  return `ครูสายชั้น ${name}`;
+  const clean = normalizeGradeKey(name);
+  if (!clean) return "";
+  if (NON_HOMEROOM.includes(clean)) return clean;
+  return `ครูสายชั้น ${clean}`;
 }
 
 /** Submit verb by round kind: training → "ส่งงาน", project (default) → "ส่งผลงาน". */
