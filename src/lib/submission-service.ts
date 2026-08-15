@@ -14,6 +14,7 @@ import {
   startAfter,
   where,
   writeBatch,
+  getCountFromServer,
   QueryDocumentSnapshot,
   DocumentData
 } from "firebase/firestore";
@@ -93,6 +94,23 @@ const CACHE_TTL_MS = 120000;
 // Admin/statistics safety window. One 300-person round with three works is 900
 // documents; 2,000 leaves room for replacements and another active round.
 const FETCH_CAP = 2000;
+
+/**
+ * True submission count without downloading the documents (Firestore aggregation).
+ * Pass a projectId to count one round, or omit to count every submission.
+ * Cheap: billed as 1 read per 1,000 matched docs. Returns -1 on failure.
+ */
+export async function countSubmissions(projectId?: string): Promise<number> {
+  try {
+    const base = collection(db, "submissions");
+    const q = projectId ? query(base, where("projectId", "==", projectId)) : query(base);
+    const snap = await getCountFromServer(q);
+    return snap.data().count;
+  } catch (err) {
+    console.warn("countSubmissions error:", err);
+    return -1;
+  }
+}
 
 // No built-in sample submissions — the app shows only real data from Firestore.
 const INITIAL_MOCK_SUBMISSIONS: Submission[] = [];

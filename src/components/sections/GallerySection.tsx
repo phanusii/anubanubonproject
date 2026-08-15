@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import type { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 import MasonryCard from "@/components/MasonryCard";
 import SubmissionModal from "@/components/SubmissionModal";
-import { getSubmissionsPage, getTrainingSettings, getInstantSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
+import { getSubmissionsPage, getTrainingSettings, getInstantSettings, getInstantSubmissions, countSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { getInstantTeachers, getTeachers } from "@/lib/teachers-service";
@@ -34,6 +34,9 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   // Teacher profile pictures keyed by normalized name (for the card avatar).
   const [avatarByName, setAvatarByName] = useState<Map<string, string>>(() => new Map(getInstantTeachers().filter((t) => t.photoUrl).map((t) => [normName(t.fullName), t.photoUrl || ""])));
 
+  // True total works for the selected round (via a cheap count query, not the loaded page).
+  const [totalCount, setTotalCount] = useState<number>(-1);
+
   // Pagination state
   const [cursor, setCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -49,6 +52,25 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   const [activeSubmission, setActiveSubmission] = useState<Submission | null>(null);
 
   const projectIdParam = (pid: string) => (pid === "all" ? undefined : pid);
+
+  // True total for the badge: one round, or all rounds minus hidden ones (excludes their works).
+  const refreshTotal = async (pid: string, hidden: Set<string>) => {
+    if (pid !== "all") {
+      setTotalCount(await countSubmissions(pid));
+      return;
+    }
+    const all = await countSubmissions();
+    if (all < 0) {
+      setTotalCount(-1);
+      return;
+    }
+    let hiddenCount = 0;
+    for (const id of hidden) {
+      const c = await countSubmissions(id);
+      if (c > 0) hiddenCount += c;
+    }
+    setTotalCount(Math.max(0, all - hiddenCount));
+  };
 
   // Load (or reload) the first page for a given round selection.
   const fetchFirstPage = async (pid: string) => {
@@ -89,12 +111,14 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         // Only rounds the admin flagged to show appear in the public dropdown.
         const visibleProjects = projs.filter((p) => p.showInGallery !== false);
         setProjects(visibleProjects);
-        setHiddenIds(new Set(projs.filter((p) => p.showInGallery === false).map((p) => p.id)));
+        const hidden = new Set(projs.filter((p) => p.showInGallery === false).map((p) => p.id));
+        setHiddenIds(hidden);
 
         // The landing gallery follows the first round in the display order set
         // by Admin. "All rounds" remains available as the final dropdown option.
         const resolvedPid = visibleProjects[0]?.id || "all";
         setSelectedProjectId(resolvedPid);
+        refreshTotal(resolvedPid, hidden);
         await firstPagePromise;
         if (resolvedPid !== initialPid) await fetchFirstPage(resolvedPid);
       } catch (err) {
@@ -112,6 +136,8 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
     setCursor(null);
     setHasMore(false);
     setCurrentPage(1);
+    setTotalCount(-1);
+    refreshTotal(pid, hiddenIds);
     fetchFirstPage(pid);
   };
 
@@ -280,9 +306,15 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
               <span className="w-7 h-7 rounded-xl ios-gradient-blue text-white flex items-center justify-center shadow-sm shadow-blue-500/25">
                 <FolderKanban className="w-3.5 h-3.5" />
               </span>
-              <span className="text-xs font-bold text-slate-600">ผลงานทั้งหมด</span>
+              <span className="text-xs font-bold text-slate-600">
+                {search.trim() === "" && selectedGrade === "ทั้งหมด" && selectedSubject === "ทั้งหมด"
+                  ? "ผลงานทั้งหมด"
+                  : "ผลงานที่กรอง"}
+              </span>
               <span className="text-lg font-extrabold text-blue-600 leading-none">
-                {filteredSubmissions.length}
+                {search.trim() === "" && selectedGrade === "ทั้งหมด" && selectedSubject === "ทั้งหมด" && totalCount >= 0
+                  ? totalCount
+                  : filteredSubmissions.length}
               </span>
               <span className="text-xs font-bold text-slate-600">ชิ้น</span>
             </span>
