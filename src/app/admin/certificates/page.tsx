@@ -561,14 +561,26 @@ export default function CertificatesAdminPage() {
         <AdminSidebar />
         <main className="flex-1 space-y-6 min-w-0">
           <section className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm">
-            <div className="flex items-center gap-3">
-              <Award className="text-amber-500" />
-              <div>
-                <h1 className="text-2xl font-extrabold text-slate-900">
-                  จัดการเกียรติบัตร
-                </h1>
-                <p className="text-sm text-slate-500">
-                  ใช้ Google Slides เป็นแม่แบบและออกไฟล์ PDF อัตโนมัติ
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Award className="text-amber-500" />
+                <div>
+                  <h1 className="text-2xl font-extrabold text-slate-900">
+                    จัดการเกียรติบัตร
+                  </h1>
+                  <p className="text-sm text-slate-500">
+                    ใช้ Google Slides เป็นแม่แบบและออกไฟล์ PDF อัตโนมัติ
+                  </p>
+                </div>
+              </div>
+              {/* Issued-count summary for the currently selected project. */}
+              <div className="rounded-2xl bg-emerald-50 border border-emerald-100 px-5 py-3 text-center shrink-0">
+                <p className="text-[11px] font-bold text-emerald-700">ออกเกียรติบัตรแล้ว (โครงการนี้)</p>
+                <p className="text-3xl font-black text-emerald-700 leading-tight">
+                  {toThaiDigits(String(issuedCount))} <span className="text-base font-extrabold">ใบ</span>
+                </p>
+                <p className="text-[11px] font-semibold text-emerald-600/80 truncate max-w-[240px]">
+                  {projects.find((p) => p.id === projectId)?.name || ""}
                 </p>
               </div>
             </div>
