@@ -454,7 +454,7 @@ export async function getUserSubmissionCount(fullName: string): Promise<number> 
 // abuse guard. Both can be overridden by env for a different deployment.
 const DRIVE_UPLOAD_URL =
   process.env.NEXT_PUBLIC_DRIVE_UPLOAD_URL ||
-  "https://script.google.com/macros/s/AKfycbyhEJADSzKxiEsGcl80VuJyPPBaz_5GJhG7syFaJ2LgOake0smcU2Ipge5YmgyGNYg2/exec";
+  "https://script.google.com/macros/s/AKfycbyagMNd7lH3Q6TpsCZZMx1KvnPl5VHEcWdnDj3bJaxVvWqDIDE2Tw6uwbWcDCmiTLRy/exec";
 const DRIVE_UPLOAD_SECRET = process.env.NEXT_PUBLIC_DRIVE_UPLOAD_SECRET || "anuban-upload-2569";
 
 /** Send a Telegram test immediately through the trusted Apps Script endpoint. */
