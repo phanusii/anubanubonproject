@@ -4,7 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import { Submission } from "@/lib/types";
 import { FileText, Image as ImageIcon, ExternalLink, HardDrive, Smile } from "lucide-react";
-import { extractGoogleDriveFileId, getGoogleDriveThumbnail, isGoogleDriveLink } from "@/lib/google-drive-utils";
+import { extractGoogleDriveFileId, getGoogleDriveThumbnail } from "@/lib/google-drive-utils";
 import { displayWorkTitle, gradeLabel, shortThaiDate } from "@/lib/format";
 
 interface MasonryCardProps {
@@ -15,7 +15,6 @@ interface MasonryCardProps {
 
 export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryCardProps) {
   const isPdf = submission.fileType === "pdf";
-  const isDrive = submission.fileType === "drive" || isGoogleDriveLink(submission.fileURL);
   const driveFileId = submission.driveFileId || extractGoogleDriveFileId(submission.fileURL);
   const thumbnailCandidates = Array.from(new Set([
     submission.thumbnail,
@@ -53,9 +52,10 @@ export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryC
                 PDF DOCUMENT
               </span>
             </div>
-          ) : isDrive ? (
-            // Thumbnails only load for publicly-shared Drive files. Reaching this
-            // fallback means every thumbnail URL failed → the file isn't shared publicly.
+          ) : submission.fileType === "drive" ? (
+            // Only a teacher-pasted Drive LINK lands here with no thumbnail — that means
+            // the file isn't shared publicly. Uploaded PDFs/images keep their own
+            // placeholders above, so they're never mislabeled as "not shared".
             <div className="flex flex-col items-center justify-center p-6 text-amber-600 space-y-2 text-center">
               <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center shadow-xs">
                 <HardDrive className="w-7 h-7" />
