@@ -125,9 +125,12 @@ export async function getCertificates(projectId: string): Promise<CertificateRec
   return (result.certificates || []) as CertificateRecord[];
 }
 
-export async function getCertificateCandidates(projectId: string): Promise<CertificateCandidate[]> {
+/** Pass refresh=true only for the explicit "อัปเดตรายชื่อ" button: the Apps Script
+ *  re-scans Firestore only when input.refresh is true, otherwise it returns the last
+ *  cached snapshot (which never reflects newly-completed submitters). */
+export async function getCertificateCandidates(projectId: string, refresh = false): Promise<CertificateCandidate[]> {
   const idToken = await getAdminIdToken();
-  const result = await callService({ action: "certificateCandidates", projectId, idToken });
+  const result = await callService({ action: "certificateCandidates", projectId, refresh, idToken });
   return (result.candidates || []) as CertificateCandidate[];
 }
 

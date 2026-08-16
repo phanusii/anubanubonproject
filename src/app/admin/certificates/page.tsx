@@ -433,7 +433,8 @@ export default function CertificatesAdminPage() {
     setBusy(true);
     setMessage("กำลังตรวจผู้ที่ยังไม่มีเกียรติบัตร...");
     try {
-      const items = await getCertificateCandidates(project.id);
+      // refresh=true forces the Apps Script to re-scan Firestore (not serve its cache).
+      const items = await getCertificateCandidates(project.id, true);
       setCandidates(items);
       setMessage(`ตรวจแล้ว ${items.length} คน กรุณาตรวจรายชื่อก่อนยืนยัน`);
     } catch (error) {
