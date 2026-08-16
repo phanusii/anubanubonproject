@@ -11,7 +11,7 @@ import {
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
-import { findSimilarTeachers, getTeachers, normalizeTeacherName, updateTeacherSubject, TeacherItem } from "@/lib/teachers-service";
+import { findSimilarTeachers, getTeachers, normalizeTeacherName, updateTeacherSubject, ensureTeacherFromSubmission, TeacherItem } from "@/lib/teachers-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
 import { checkDriveLinkPublic } from "@/lib/certificate-service";
 import { gradeLabel, submitVerb } from "@/lib/format";
@@ -404,6 +404,15 @@ export default function SubmitSection() {
       if (selectedTeacherId && subjectGroup) {
         void updateTeacherSubject(selectedTeacherId, subjectGroup);
       }
+
+      // A name typed via "เพิ่มชื่อใหม่" is only on the submission; register it in the
+      // roster so it appears in the dropdown next time. Idempotent for known names.
+      void ensureTeacherFromSubmission({
+        fullName: fullName.trim(),
+        position: position.trim(),
+        gradeLevel,
+        subjectGroup,
+      });
 
       setIsUploading(false);
       setIsSuccess(true);

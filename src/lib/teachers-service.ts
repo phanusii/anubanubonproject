@@ -210,6 +210,41 @@ export async function getTeachers(gradeLevel?: string): Promise<TeacherItem[]> {
 }
 
 /**
+ * Add a teacher to the roster from a completed submission when their name isn't
+ * registered yet, so a name typed via "เพิ่มชื่อใหม่" persists and shows up in the
+ * dropdown next time. Idempotent: existing names (by normalized form) are left as-is.
+ */
+export async function ensureTeacherFromSubmission(input: {
+  fullName: string;
+  position?: string;
+  gradeLevel?: string;
+  subjectGroup?: string;
+}): Promise<void> {
+  const normalizedName = normalizeTeacherName(input.fullName);
+  if (!normalizedName) return;
+  const roster = await getTeachers();
+  if (roster.some((teacher) => normalizeTeacherName(teacher.fullName) === normalizedName)) return;
+
+  const teacherId = `teacher-${Date.now()}`;
+  const newItem: TeacherItem = {
+    id: teacherId,
+    fullName: input.fullName.trim(),
+    position: (input.position || "").trim(),
+    gradeLevel: normalizeGradeKey(input.gradeLevel || ""),
+    subjectGroup: (input.subjectGroup || "").trim(),
+    createdAt: Date.now(),
+  };
+  try {
+    await setDoc(doc(db, "teachers", teacherId), newItem);
+  } catch (err) {
+    console.warn("ensureTeacherFromSubmission error:", err);
+  }
+  const current = getLocalTeachers();
+  current.unshift(newItem);
+  saveLocalTeachers(current);
+}
+
+/**
  * Save or Add a teacher
  */
 export async function saveTeacher(item: Omit<TeacherItem, "id"> & { id?: string }): Promise<TeacherItem> {
