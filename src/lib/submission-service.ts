@@ -718,9 +718,31 @@ export async function createSubmission(submissionData: Omit<Submission, "id" | "
     }
     if (!docRef) throw lastError;
     const fullSub = { id: docRef.id, ...newSub };
-    const subs = getLocalSubmissions();
+
+    // One submission per (teacher, round, slot): re-submitting the same slot keeps
+    // only the latest. Remove any older records this teacher has for this slot so a
+    // resubmission never leaves a duplicate that inflates the "ส่งแล้ว" count.
+    let removedDuplicateIds: string[] = [];
+    if (submissionData.workSlotId && submissionData.projectId && submissionData.fullName) {
+      try {
+        const dupSnap = await getDocs(query(collection(db, "submissions"), where("fullName", "==", submissionData.fullName)));
+        removedDuplicateIds = dupSnap.docs
+          .filter((d) => d.id !== docRef!.id && d.data().projectId === submissionData.projectId && d.data().workSlotId === submissionData.workSlotId)
+          .map((d) => d.id);
+        await Promise.all(removedDuplicateIds.map((id) => deleteDoc(doc(db, "submissions", id)).catch(() => {})));
+      } catch (dupErr) {
+        console.warn("Slot de-duplication skipped:", dupErr);
+      }
+    }
+
+    const subs = getLocalSubmissions().filter((item) => !removedDuplicateIds.includes(item.id));
     subs.unshift(fullSub);
     saveLocalSubmissions(subs);
+    if (removedDuplicateIds.length) {
+      memorySubmissionsCache = null;
+      projectSubmissionsCache.clear();
+      galleryPageCache.clear();
+    }
     return fullSub;
   } catch (err) {
     console.error("Firestore save submission failed:", err);
