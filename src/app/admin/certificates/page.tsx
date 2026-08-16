@@ -20,6 +20,7 @@ import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getProjects, saveProject } from "@/lib/projects-service";
 import {
+  certificateRecipientKey,
   createCertificatePreview,
   getCertificateBatchStatus,
   getCertificateCandidates,
@@ -538,9 +539,19 @@ export default function CertificatesAdminPage() {
       (!subjectFilter || subject === subjectFilter)
     );
   };
-  const waiting = candidates.filter((item) => item.eligible && item.qualificationType === "complete" && matchesFilters(item));
+  // Names that already have an issued certificate (from the loaded records, which
+  // reflect Telegram/web issuance) so they drop out of the waiting/incomplete lists
+  // immediately — even before the cached candidate scan is refreshed.
+  const issuedKeys = new Set(
+    records
+      .filter((record) => record.status === "issued")
+      .map((record) => certificateRecipientKey(record.recipientName || record.snapshot?.fullName || ""))
+      .filter(Boolean),
+  );
+  const notIssued = (name: string) => !issuedKeys.has(certificateRecipientKey(name));
+  const waiting = candidates.filter((item) => item.eligible && item.qualificationType === "complete" && notIssued(item.fullName) && matchesFilters(item));
   const incomplete = candidates.filter(
-    (item) => item.eligible && item.qualificationType === "partial" && matchesFilters(item),
+    (item) => item.eligible && item.qualificationType === "partial" && notIssued(item.fullName) && matchesFilters(item),
   );
   const issuedRecords = records.filter(
     (item) => item.status === "issued" && matchesFilters(item),
