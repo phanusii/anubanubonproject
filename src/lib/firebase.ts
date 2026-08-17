@@ -23,7 +23,9 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 // getFirestore(); guard against a second init (hot reload) by falling back to getFirestore.
 let firestore: Firestore;
 try {
-  firestore = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+  // Force long-polling (not auto-detect): this network is known to block WebChannel,
+  // and detection can be unreliable through the same proxy. Long-polling is plain HTTPS.
+  firestore = initializeFirestore(app, { experimentalForceLongPolling: true });
 } catch {
   firestore = getFirestore(app);
 }
