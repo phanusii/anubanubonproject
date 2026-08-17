@@ -27,6 +27,7 @@ import {
 } from "@/lib/submission-service";
 import { getGradeLevels } from "@/lib/masters-service";
 import { getTeachers, TeacherItem } from "@/lib/teachers-service";
+import { normalizeGradeKey } from "@/lib/format";
 import { CertificateRecord, GradeLevelOption, Project } from "@/lib/types";
 
 type MissingWork = { index: number; title: string };
@@ -116,16 +117,20 @@ export default function CertificatePage() {
   const teachersByGrade = useMemo(() => {
     const grouped = new Map<string, TeacherItem[]>();
     teachers.forEach((teacher) => {
-      const rows = grouped.get(teacher.gradeLevel) || [];
+      // Group by NORMALIZED grade so whitespace variants ("อื่นๆ" vs "อื่น ๆ") land in
+      // the same bucket — otherwise a teacher stored under one spelling vanishes from
+      // the other's dropdown even though they have a certificate.
+      const key = normalizeGradeKey(teacher.gradeLevel);
+      const rows = grouped.get(key) || [];
       rows.push(teacher);
-      grouped.set(teacher.gradeLevel, rows);
+      grouped.set(key, rows);
     });
     grouped.forEach((rows) =>
       rows.sort((a, b) => a.fullName.localeCompare(b.fullName, "th")),
     );
     return grouped;
   }, [teachers]);
-  const teachersInGrade = teachersByGrade.get(gradeLevel) || [];
+  const teachersInGrade = teachersByGrade.get(normalizeGradeKey(gradeLevel)) || [];
 
   const resetResult = () => {
     setSearched(false);
