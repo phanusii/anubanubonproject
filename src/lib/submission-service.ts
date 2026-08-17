@@ -253,6 +253,73 @@ export async function getSubmissionsForStats(forceRefresh = false): Promise<Subm
   return light;
 }
 
+// Fields the gallery cards + preview need. Deliberately excludes the base64 `thumbnail`
+// (the heavy field) — cards regenerate a thumbnail from driveFileId — so the whole
+// gallery loads in one small request and can show every page number at once.
+const GALLERY_FIELDS = [
+  "fullName", "position", "gradeLevel", "subjectGroup", "school", "province",
+  "projectId", "projectName", "projectTitle", "workSlotId", "description",
+  "fileType", "fileURL", "fileName", "driveFileId", "driveLink", "createdAt", "uploadDate",
+];
+
+/**
+ * Load ALL gallery submissions (optionally for one round) in a single light REST query
+ * so the gallery can paginate over the full set and show every page number. Falls back to
+ * the SDK (getSubmissions) on any failure. Sorted newest-first.
+ */
+export async function getGallerySubmissions(projectId?: string): Promise<Submission[]> {
+  const fallback = () => getSubmissions({
+    ignoreProjectFilter: true,
+    projectId: projectId && projectId !== "all" ? projectId : undefined,
+    limitNum: FETCH_CAP,
+  });
+  try {
+    const options = (db as unknown as { app?: { options?: { projectId?: string; apiKey?: string } } }).app?.options || {};
+    const fbProjectId = options.projectId;
+    const apiKey = options.apiKey;
+    if (!fbProjectId || !apiKey) return await fallback();
+    const structuredQuery: Record<string, unknown> = {
+      from: [{ collectionId: "submissions" }],
+      select: { fields: GALLERY_FIELDS.map((fieldPath) => ({ fieldPath })) },
+      limit: FETCH_CAP,
+    };
+    if (projectId && projectId !== "all") {
+      structuredQuery.where = { fieldFilter: { field: { fieldPath: "projectId" }, op: "EQUAL", value: { stringValue: projectId } } };
+    }
+    const res = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${fbProjectId}/databases/(default)/documents:runQuery?key=${apiKey}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ structuredQuery }) },
+    );
+    if (!res.ok) return await fallback();
+    const rows = await res.json();
+    if (!Array.isArray(rows)) return await fallback();
+    const items = rows
+      .filter((row) => row.document)
+      .map((row) => {
+        const f = row.document.fields || {};
+        const str = (k: string) => f[k]?.stringValue as string | undefined;
+        const num = (k: string) =>
+          f[k]?.integerValue !== undefined ? Number(f[k].integerValue)
+          : f[k]?.doubleValue !== undefined ? Number(f[k].doubleValue)
+          : undefined;
+        return {
+          id: String(row.document.name).split("/").pop(),
+          fullName: str("fullName"), position: str("position"), gradeLevel: str("gradeLevel"),
+          subjectGroup: str("subjectGroup"), school: str("school"), province: str("province"),
+          projectId: str("projectId"), projectName: str("projectName"), projectTitle: str("projectTitle"),
+          workSlotId: str("workSlotId"), description: str("description"),
+          fileType: str("fileType"), fileURL: str("fileURL"), fileName: str("fileName"),
+          driveFileId: str("driveFileId"), driveLink: str("driveLink"),
+          createdAt: num("createdAt"), uploadDate: str("uploadDate"),
+        } as Submission;
+      });
+    if (items.length === 0) return await fallback();
+    return items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  } catch {
+    return await fallback();
+  }
+}
+
 // No built-in sample submissions — the app shows only real data from Firestore.
 const INITIAL_MOCK_SUBMISSIONS: Submission[] = [];
 

@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import type { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 import MasonryCard from "@/components/MasonryCard";
 import SubmissionModal from "@/components/SubmissionModal";
-import { getSubmissionsPage, getTrainingSettings, getInstantSettings, getInstantSubmissions, getSubmissionsForStats, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
+import { getSubmissionsPage, getGallerySubmissions, getTrainingSettings, getInstantSettings, getInstantSubmissions, getSubmissionsForStats, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { getInstantTeachers, getTeachers } from "@/lib/teachers-service";
@@ -69,15 +69,15 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
     }
   };
 
-  // Load (or reload) the first page for a given round selection.
+  // Load ALL works for a round (light REST projection) so the pager can show every page.
   const fetchFirstPage = async (pid: string) => {
     try {
-      const page = await getSubmissionsPage({ pageSize: PAGE_SIZE, projectId: projectIdParam(pid), ignoreProjectFilter: true });
-      setSubmissions(page.items);
-      setCursor(page.cursor);
-      setHasMore(page.hasMore);
+      const items = await getGallerySubmissions(pid === "all" ? undefined : pid);
+      setSubmissions(items);
+      setCursor(null);
+      setHasMore(false);
     } catch (err) {
-      console.error("Gallery fetch first page error:", err);
+      console.error("Gallery fetch error:", err);
     }
   };
 
