@@ -27,6 +27,11 @@ const DEFAULT_TEACHERS: TeacherItem[] = [
 ];
 
 let memoryTeachersCache: TeacherItem[] | null = null;
+// The roster changes when an admin edits it (e.g. moves a teacher to another
+// สายชั้น). Refetch after this TTL so other open sessions pick up changes without
+// a full page reload.
+let memoryTeachersCacheAt = 0;
+const TEACHERS_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 const gradeTeachersCache = new Map<string, TeacherItem[]>();
 
 /** Normalize a displayed Thai name for duplicate checks without changing what is stored. */
@@ -120,6 +125,7 @@ function getLocalTeachers(): TeacherItem[] {
 
 function saveLocalTeachers(items: TeacherItem[]) {
   memoryTeachersCache = items;
+  memoryTeachersCacheAt = Date.now();
   gradeTeachersCache.clear();
   if (typeof window !== "undefined") {
     localStorage.setItem("app_teachers", JSON.stringify(items));
@@ -191,8 +197,9 @@ export async function getTeachers(gradeLevel?: string): Promise<TeacherItem[]> {
   const byGrade = (teacher: TeacherItem) => normalizeGradeKey(teacher.gradeLevel) === requestedGrade;
 
   // Always work from the full roster so filtering is consistent everywhere.
-  let list = memoryTeachersCache ? [...memoryTeachersCache] : [];
-  if (!memoryTeachersCache) {
+  const cacheFresh = !!memoryTeachersCache && Date.now() - memoryTeachersCacheAt < TEACHERS_CACHE_TTL;
+  let list = cacheFresh ? [...(memoryTeachersCache as TeacherItem[])] : [];
+  if (!cacheFresh) {
     try {
       const snapshot = await getDocs(collection(db, "teachers"));
       if (!snapshot.empty) {
@@ -204,6 +211,7 @@ export async function getTeachers(gradeLevel?: string): Promise<TeacherItem[]> {
     }
     if (list.length === 0) list = getLocalTeachers();
     memoryTeachersCache = list;
+    memoryTeachersCacheAt = Date.now();
   }
 
   return requestedGrade ? list.filter(byGrade) : list;
