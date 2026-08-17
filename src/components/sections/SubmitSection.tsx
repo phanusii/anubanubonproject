@@ -79,11 +79,14 @@ export default function SubmitSection() {
 
   useEffect(() => {
     async function initData() {
+      // Fetch the teacher roster concurrently with everything else (it's the slowest
+      // call) — getTeachers() warms the cache so getTeachers(grade) below is instant.
       const [s, proj, gls, sgs] = await Promise.all([
         getTrainingSettings(),
         getActiveProject(),
         getGradeLevels(),
         getSubjectGroups(),
+        getTeachers(),
       ]);
 
       setSettings(s);
