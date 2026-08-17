@@ -132,6 +132,66 @@ export function clearStatsWindowCache(): void {
  * window once, strips heavy fields, persists it, and returns it. Pass forceRefresh
  * to bypass the cache (e.g. an admin "refresh stats" button).
  */
+const STATS_FIELDS = [
+  "fullName", "position", "gradeLevel", "subjectGroup",
+  "projectId", "projectName", "projectTitle", "workSlotId", "createdAt", "uploadDate",
+];
+
+/**
+ * Fetch only the small fields the stats pages need via the Firestore REST API with a
+ * field projection. The client SDK can only download whole documents — and submissions
+ * carry a base64 thumbnail (~100 KB each), so a full fetch of ~700 docs is many MB and
+ * slow. The projection keeps the response tiny (~150 KB). Returns null on any failure so
+ * the caller can fall back to the SDK path.
+ */
+async function fetchStatsSubmissionsViaRest(): Promise<Submission[] | null> {
+  try {
+    const options = (db as unknown as { app?: { options?: { projectId?: string; apiKey?: string } } }).app?.options || {};
+    const projectId = options.projectId;
+    const apiKey = options.apiKey;
+    if (!projectId || !apiKey) return null;
+    const body = {
+      structuredQuery: {
+        from: [{ collectionId: "submissions" }],
+        select: { fields: STATS_FIELDS.map((fieldPath) => ({ fieldPath })) },
+        limit: FETCH_CAP,
+      },
+    };
+    const res = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery?key=${apiKey}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    );
+    if (!res.ok) return null;
+    const rows = await res.json();
+    if (!Array.isArray(rows)) return null;
+    return rows
+      .filter((row) => row.document)
+      .map((row) => {
+        const f = row.document.fields || {};
+        const str = (k: string) => f[k]?.stringValue as string | undefined;
+        const num = (k: string) =>
+          f[k]?.integerValue !== undefined ? Number(f[k].integerValue)
+          : f[k]?.doubleValue !== undefined ? Number(f[k].doubleValue)
+          : undefined;
+        return {
+          id: String(row.document.name).split("/").pop(),
+          fullName: str("fullName"),
+          position: str("position"),
+          gradeLevel: str("gradeLevel"),
+          subjectGroup: str("subjectGroup"),
+          projectId: str("projectId"),
+          projectName: str("projectName"),
+          projectTitle: str("projectTitle"),
+          workSlotId: str("workSlotId"),
+          createdAt: num("createdAt"),
+          uploadDate: str("uploadDate"),
+        } as Submission;
+      });
+  } catch {
+    return null;
+  }
+}
+
 export async function getSubmissionsForStats(forceRefresh = false): Promise<Submission[]> {
   if (!forceRefresh && typeof window !== "undefined") {
     try {
@@ -144,21 +204,24 @@ export async function getSubmissionsForStats(forceRefresh = false): Promise<Subm
       }
     } catch {}
   }
-  const full = await getSubmissions({ limitNum: FETCH_CAP, ignoreProjectFilter: true, forceRefresh });
-  // Keep only the fields the stats pages actually use — no base64 thumbnails/fileURL.
-  const light = full.map((s) => ({
-    id: s.id,
-    fullName: s.fullName,
-    position: s.position,
-    gradeLevel: s.gradeLevel,
-    subjectGroup: s.subjectGroup,
-    projectId: s.projectId,
-    projectName: s.projectName,
-    projectTitle: s.projectTitle,
-    workSlotId: s.workSlotId,
-    createdAt: s.createdAt,
-    uploadDate: s.uploadDate,
-  })) as Submission[];
+  // Fast path: projected REST query. Fall back to the SDK (full docs) only if it fails.
+  let light = await fetchStatsSubmissionsViaRest();
+  if (!light) {
+    const full = await getSubmissions({ limitNum: FETCH_CAP, ignoreProjectFilter: true, forceRefresh });
+    light = full.map((s) => ({
+      id: s.id,
+      fullName: s.fullName,
+      position: s.position,
+      gradeLevel: s.gradeLevel,
+      subjectGroup: s.subjectGroup,
+      projectId: s.projectId,
+      projectName: s.projectName,
+      projectTitle: s.projectTitle,
+      workSlotId: s.workSlotId,
+      createdAt: s.createdAt,
+      uploadDate: s.uploadDate,
+    })) as Submission[];
+  }
   if (typeof window !== "undefined") {
     try {
       localStorage.setItem(STATS_WINDOW_KEY, JSON.stringify({ data: light, timestamp: Date.now() }));
