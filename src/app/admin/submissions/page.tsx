@@ -68,7 +68,8 @@ export default function AdminSubmissionsPage() {
 
   async function loadData() {
     const [subs, gls, sgs, projectData] = await Promise.all([
-      getSubmissions({ ignoreProjectFilter: true }),
+      // Admin manages the full list — always fetch fresh, never a small/stale cache.
+      getSubmissions({ ignoreProjectFilter: true, forceRefresh: true }),
       getGradeLevels(),
       getSubjectGroups(),
       getProjects(),

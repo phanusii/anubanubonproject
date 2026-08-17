@@ -919,8 +919,10 @@ export async function getSubmissions(params?: {
     }
 
     if (rawList.length === 0) {
+      // Firestore returned nothing (offline/transient) — use the local fallback for
+      // this render but DON'T cache it, so the next call retries Firestore instead of
+      // being stuck showing a small stale set for the whole TTL.
       rawList = getLocalSubmissions();
-      memorySubmissionsCache = { data: rawList, timestamp: now };
     }
   }
 
