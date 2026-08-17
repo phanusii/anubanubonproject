@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { getInstantSubmissions, getSubmissionsForStats } from "@/lib/submission-service";
+import { getInstantStatsWindow, getSubmissionsForStats } from "@/lib/submission-service";
 import { getInstantTeachers, getTeachers, mergeTeachersWithSubmitters, TeacherItem } from "@/lib/teachers-service";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { gradeLabel, gradeOrder, normalizeGradeKey } from "@/lib/format";
@@ -40,14 +40,18 @@ function pct(n: number, d: number): number {
 export default function StatsSection() {
   const instantTeachers = getInstantTeachers();
   const instantProjects = getInstantProjects().filter((p) => p.showInGallery !== false);
-  const instantSubs = getInstantSubmissions();
+  // Use the full stats-window cache (not the small gallery cache) so a warm cache
+  // paints the correct totals instantly instead of flashing partial numbers.
+  const instantStats = getInstantStatsWindow();
   const [teachers, setTeachers] = useState<TeacherItem[]>(instantTeachers);
-  const [subs, setSubs] = useState<Submission[]>(() => getInstantSubmissions());
-  const [allSubs, setAllSubs] = useState<Submission[]>(() => getInstantSubmissions());
+  const [subs, setSubs] = useState<Submission[]>(instantStats);
+  const [allSubs, setAllSubs] = useState<Submission[]>(instantStats);
   const [projects, setProjects] = useState<Project[]>(instantProjects);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(instantProjects[0]?.id || "all");
   const [required, setRequired] = useState<number>(() => instantProjects[0]?.workSlotTitles?.length || instantProjects[0]?.maxUpload || 1);
-  const [loading, setLoading] = useState(() => instantTeachers.length === 0 && instantSubs.length === 0);
+  // Only paint numbers once we have real submission data; otherwise show the loader
+  // rather than misleading partial counts.
+  const [loading, setLoading] = useState(instantStats.length === 0);
   const [expanded, setExpanded] = useState<string | null>(null);
   // Hidden rounds are excluded from the dropdown and from the "ทุกรอบ" totals.
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());

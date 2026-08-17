@@ -116,14 +116,35 @@ export async function countSubmissions(projectId?: string): Promise<number> {
 // are too big for localStorage, but stats only need the lightweight metadata — so we
 // cache a stripped copy and reuse it across reloads/tabs to avoid re-reading ~2,000
 // documents every visit (the biggest Firestore read cost).
-const STATS_WINDOW_KEY = "app_stats_window";
+// Bump the version suffix to force every device to discard an old/partial cached
+// window and refetch fresh (e.g. after changing what fields are stored).
+const STATS_WINDOW_KEY = "app_stats_window_v2";
 const STATS_WINDOW_TTL = 10 * 60 * 1000; // 10 minutes
 
 /** Clear the cached stats window so the next stats load fetches fresh data. */
 export function clearStatsWindowCache(): void {
   if (typeof window !== "undefined") {
-    try { localStorage.removeItem(STATS_WINDOW_KEY); } catch {}
+    try {
+      localStorage.removeItem(STATS_WINDOW_KEY);
+      localStorage.removeItem("app_stats_window"); // legacy key
+    } catch {}
   }
+}
+
+/** Synchronous read of the cached stats window (fresh only) for instant first paint.
+ *  Returns [] when there's no fresh cache, so the caller can show a loading state
+ *  instead of a small/partial set from a different cache. */
+export function getInstantStatsWindow(): Submission[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STATS_WINDOW_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.data) && Date.now() - parsed.timestamp < STATS_WINDOW_TTL) {
+      return parsed.data as Submission[];
+    }
+  } catch {}
+  return [];
 }
 
 /**
@@ -222,7 +243,9 @@ export async function getSubmissionsForStats(forceRefresh = false): Promise<Subm
       uploadDate: s.uploadDate,
     })) as Submission[];
   }
-  if (typeof window !== "undefined") {
+  // Never cache an empty result — a transient failure would otherwise show 0 for
+  // the whole TTL. Only persist a non-empty window.
+  if (typeof window !== "undefined" && light.length > 0) {
     try {
       localStorage.setItem(STATS_WINDOW_KEY, JSON.stringify({ data: light, timestamp: Date.now() }));
     } catch {}
