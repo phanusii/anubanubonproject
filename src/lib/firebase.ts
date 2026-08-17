@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, getFirestore, type Firestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 // Firebase web config is public by design (it ships in the browser bundle); the real
@@ -15,7 +15,19 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-export const db = getFirestore(app);
+
+// Many school/office networks block Firestore's default WebChannel/gRPC streaming
+// transport, which makes SDK reads hang or fail — the app then silently falls back to
+// stale local-cache data (showing partial counts). Auto-detect long-polling runs over
+// ordinary HTTPS and gets through those proxies. initializeFirestore must run before any
+// getFirestore(); guard against a second init (hot reload) by falling back to getFirestore.
+let firestore: Firestore;
+try {
+  firestore = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+} catch {
+  firestore = getFirestore(app);
+}
+export const db = firestore;
 export const auth = getAuth(app);
 
 export default app;
