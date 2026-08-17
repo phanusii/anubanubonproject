@@ -9,7 +9,7 @@ import {
   createSubmission,
   replaceSubmission
 } from "@/lib/submission-service";
-import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
+import { getGradeLevels, getSubjectGroups, getInstantGradeLevels, getInstantSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
 import { findSimilarTeachers, getTeachers, normalizeTeacherName, updateTeacherSubject, ensureTeacherFromSubmission, TeacherItem } from "@/lib/teachers-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
@@ -23,12 +23,14 @@ import confetti from "canvas-confetti";
 export default function SubmitSection() {
   const [settings, setSettings] = useState<TrainingSettings | null>(null);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
-  const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>([]);
-  const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>([]);
+  // Seed the dropdowns from cache so they show options instantly instead of empty
+  // selects while the network fetch (initData) runs.
+  const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(() => getInstantGradeLevels());
+  const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>(() => getInstantSubjectGroups());
   const [teacherList, setTeacherList] = useState<TeacherItem[]>([]);
 
   // Selected Grade Level First
-  const [gradeLevel, setGradeLevel] = useState("");
+  const [gradeLevel, setGradeLevel] = useState(() => getInstantGradeLevels()[0]?.name || "");
 
   // Teacher Selection Mode ('select' | 'custom')
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>("");

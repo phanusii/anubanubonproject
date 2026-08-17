@@ -7,6 +7,31 @@ import { DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "./submission-servi
 let cachedGradeLevels: GradeLevelOption[] | null = null;
 let cachedSubjectGroups: SubjectGroupOption[] | null = null;
 
+/** Synchronous grade-level options for instant first paint: in-memory cache →
+ *  localStorage snapshot → built-in defaults (never empty). */
+export function getInstantGradeLevels(): GradeLevelOption[] {
+  if (cachedGradeLevels && cachedGradeLevels.length) return cachedGradeLevels;
+  if (typeof window !== "undefined") {
+    try {
+      const local = localStorage.getItem("app_grade_levels");
+      if (local) { const parsed = JSON.parse(local); if (Array.isArray(parsed) && parsed.length) return parsed; }
+    } catch {}
+  }
+  return [...DEFAULT_GRADE_LEVELS];
+}
+
+/** Synchronous subject-group options for instant first paint. */
+export function getInstantSubjectGroups(): SubjectGroupOption[] {
+  if (cachedSubjectGroups && cachedSubjectGroups.length) return cachedSubjectGroups;
+  if (typeof window !== "undefined") {
+    try {
+      const local = localStorage.getItem("app_subject_groups");
+      if (local) { const parsed = JSON.parse(local); if (Array.isArray(parsed) && parsed.length) return parsed; }
+    } catch {}
+  }
+  return [...DEFAULT_SUBJECT_GROUPS];
+}
+
 export async function getGradeLevels(forceRefresh = false): Promise<GradeLevelOption[]> {
   // Session in-memory cache avoids refetching repeatedly within a page view.
   if (!forceRefresh && cachedGradeLevels) {
