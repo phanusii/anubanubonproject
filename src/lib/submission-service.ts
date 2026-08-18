@@ -891,11 +891,10 @@ export async function createSubmission(submissionData: Omit<Submission, "id" | "
     const subs = getLocalSubmissions().filter((item) => !removedDuplicateIds.includes(item.id));
     subs.unshift(fullSub);
     saveLocalSubmissions(subs);
-    if (removedDuplicateIds.length) {
-      memorySubmissionsCache = null;
-      projectSubmissionsCache.clear();
-      galleryPageCache.clear();
-    }
+    memorySubmissionsCache = null;
+    projectSubmissionsCache.clear();
+    galleryPageCache.clear();
+    clearStatsWindowCache();
     return fullSub;
   } catch (err) {
     console.error("Firestore save submission failed:", err);
@@ -938,6 +937,7 @@ export async function replaceSubmission(oldId: string, submissionData: Omit<Subm
   memorySubmissionsCache = null;
   projectSubmissionsCache.clear();
   galleryPageCache.clear();
+  clearStatsWindowCache();
   return fullSub;
 }
 
@@ -1146,6 +1146,11 @@ export async function deleteSubmission(id: string): Promise<void> {
 
   const filtered = localSubs.filter((s) => s.id !== id);
   saveLocalSubmissions(filtered);
+  // Drop every cached view so stats/gallery/admin reflect the deletion right away.
+  memorySubmissionsCache = null;
+  projectSubmissionsCache.clear();
+  galleryPageCache.clear();
+  clearStatsWindowCache();
 }
 
 /** Delete every Firestore submission belonging to one round/project. */
