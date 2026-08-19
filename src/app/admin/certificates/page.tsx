@@ -25,6 +25,7 @@ import {
   getCertificateBatchStatus,
   getCertificateCandidates,
   getCertificates,
+  getIssuedCertificateCount,
   inspectCertificateTemplate,
   previewEditedCertificate,
   reissueEditedCertificate,
@@ -114,6 +115,9 @@ export default function CertificatesAdminPage() {
   const [projectId, setProjectId] = useState("");
   const [config, setConfig] = useState<CertificateSettings | null>(null);
   const [records, setRecords] = useState<CertificateRecord[]>([]);
+  // Lightweight issued count for the summary card — loads faster than the full records
+  // fetch, so the card doesn't sit on "0" while the heavier list is still loading.
+  const [issuedTotal, setIssuedTotal] = useState<number | null>(null);
   const [candidates, setCandidates] = useState<CertificateCandidate[]>([]);
   const [job, setJob] = useState<CertificateBatchJob | null>(null);
   const [busy, setBusy] = useState(false);
@@ -157,6 +161,9 @@ export default function CertificatesAdminPage() {
     setConfig(project.certificate || defaults(project));
     setSlideFields([]);
     let cancelled = false;
+    // Fast, standalone issued-count for the summary card (doesn't wait on the full list).
+    setIssuedTotal(null);
+    void getIssuedCertificateCount(project.id).then((n) => { if (!cancelled) setIssuedTotal(n); });
     void Promise.allSettled([
       getCertificates(project.id),
       getCertificateBatchStatus(project.id),
@@ -589,7 +596,9 @@ export default function CertificatesAdminPage() {
               <div className="rounded-2xl bg-emerald-50 border border-emerald-100 px-5 py-3 text-center shrink-0">
                 <p className="text-[11px] font-bold text-emerald-700">ออกเกียรติบัตรแล้ว (โครงการนี้)</p>
                 <p className="text-3xl font-black text-emerald-700 leading-tight">
-                  {toThaiDigits(String(issuedCount))} <span className="text-base font-extrabold">ใบ</span>
+                  {issuedTotal === null && issuedCount === 0
+                    ? <span className="text-base font-bold text-emerald-600/70">กำลังโหลด…</span>
+                    : <>{toThaiDigits(String(issuedTotal ?? issuedCount))} <span className="text-base font-extrabold">ใบ</span></>}
                 </p>
                 <p className="text-[11px] font-semibold text-emerald-600/80 truncate max-w-[240px]">
                   {projects.find((p) => p.id === projectId)?.name || ""}
