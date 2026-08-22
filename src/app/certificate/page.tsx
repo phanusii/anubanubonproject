@@ -24,9 +24,10 @@ import { getActiveProject, getProjects } from "@/lib/projects-service";
 import {
   DEFAULT_GRADE_LEVELS,
   getPersonSubmissions,
+  getSubmissionsForStats,
 } from "@/lib/submission-service";
 import { getGradeLevels } from "@/lib/masters-service";
-import { getTeachers, TeacherItem } from "@/lib/teachers-service";
+import { getTeachers, mergeTeachersWithSubmitters, TeacherItem } from "@/lib/teachers-service";
 import { normalizeGradeKey } from "@/lib/format";
 import { CertificateRecord, GradeLevelOption, Project } from "@/lib/types";
 
@@ -84,18 +85,25 @@ export default function CertificatePage() {
   const [activeProjectName, setActiveProjectName] = useState("");
 
   useEffect(() => {
-    // Cached lists are already usable above; this refresh never blocks grade selection.
-    getGradeLevels()
-      .then(async (levels) => {
+    (async () => {
+      try {
+        // Include anyone who SUBMITTED (not just the registered roster), so a teacher who
+        // typed their own name at submit time — and may hold a certificate — is findable.
+        const [levels, roster, subs] = await Promise.all([
+          getGradeLevels(),
+          getTeachers(),
+          getSubmissionsForStats(),
+        ]);
         setGradeLevels(levels);
+        setTeachers(mergeTeachersWithSubmitters(roster, subs));
         const initialGrade = levels[0]?.name || "";
-        if (initialGrade) {
-          setGradeLevel(initialGrade);
-          setTeachers(await getTeachers(initialGrade));
-        }
-      })
-      .catch(() => setError("โหลดรายชื่อครูไม่สำเร็จ กรุณาลองใหม่"))
-      .finally(() => setLoadingLists(false));
+        if (initialGrade) setGradeLevel(initialGrade);
+      } catch {
+        setError("โหลดรายชื่อครูไม่สำเร็จ กรุณาลองใหม่");
+      } finally {
+        setLoadingLists(false);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -138,18 +146,11 @@ export default function CertificatePage() {
     setError("");
   };
 
-  const changeGrade = async (value: string) => {
+  const changeGrade = (value: string) => {
+    // The full roster+submitter list is already loaded; just switch the grade filter.
     setGradeLevel(value);
     setName("");
     resetResult();
-    setLoadingLists(true);
-    try {
-      setTeachers(await getTeachers(value));
-    } catch {
-      setError("โหลดรายชื่อครูไม่สำเร็จ กรุณาลองใหม่");
-    } finally {
-      setLoadingLists(false);
-    }
   };
 
   const search = async (selectedName: string) => {
