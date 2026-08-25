@@ -15,7 +15,7 @@ import { getActiveProject } from "@/lib/projects-service";
 import { findSimilarTeachers, getTeachers, normalizeTeacherName, updateTeacherSubject, ensureTeacherFromSubmission, TeacherItem } from "@/lib/teachers-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
 import { checkDriveLinkPublic } from "@/lib/certificate-service";
-import { gradeLabel, submitVerb } from "@/lib/format";
+import { gradeLabel, submitVerb, normalizeGradeKey } from "@/lib/format";
 import { TrainingSettings, GradeLevelOption, SubjectGroupOption, Submission, Project } from "@/lib/types";
 import { latestSubmissionPerSlot, slotIdAt } from "@/lib/certificate-service";
 import { Send, CheckCircle2, AlertCircle, Sparkles, User, FileText, HelpCircle, HardDrive, Link as LinkIcon, Upload, Check, PlusCircle } from "lucide-react";
@@ -97,7 +97,8 @@ export default function SubmitSection() {
       setGradeLevels(gls);
       const defaultGrade = gls.length > 0 ? gls[0].name : "ป.1";
       setGradeLevel(defaultGrade);
-      const ts = await getTeachers(defaultGrade);
+      // Full roster — scope filtering (by grade or subject) is done client-side.
+      const ts = await getTeachers();
 
       setSubjectGroups(sgs);
       if (sgs.length > 0) setSubjectGroup(sgs[0].name);
@@ -133,7 +134,16 @@ export default function SubmitSection() {
     initData();
   }, []);
 
-  const teachersInCurrentGrade = teacherList.filter((t) => t.gradeLevel === gradeLevel);
+  // Which dimension this round is organised by. When a round groups by subject,
+  // the submitter picks their subject group first and the roster is filtered by
+  // subject; grade becomes an ordinary editable field (still saved). Defaults to
+  // grade so untagged / legacy rounds behave exactly as before.
+  const axis = activeProject?.groupBy || "gradeLevel";
+  const bySubject = axis === "subjectGroup";
+  const scopeLabel = bySubject ? "ครู" : gradeLabel(gradeLevel);
+  const rosterInScope = bySubject
+    ? teacherList.filter((t) => (t.subjectGroup || "") === subjectGroup)
+    : teacherList.filter((t) => normalizeGradeKey(t.gradeLevel) === normalizeGradeKey(gradeLevel));
   const knownPeople = useMemo(() => {
     const result = new Map<string, TeacherItem>();
     teacherList.forEach((person) => {
@@ -166,9 +176,25 @@ export default function SubmitSection() {
     setTeacherPhotoUrl("");
     setConfirmedExistingName("");
 
-    const matchedTeachers = await getTeachers(newGrade);
-    setTeacherList(matchedTeachers);
-    if (matchedTeachers.length === 0) {
+    // Load the whole roster; scope filtering happens client-side (rosterInScope)
+    // so the same list serves both the grade and subject axes.
+    const allTeachers = await getTeachers();
+    setTeacherList(allTeachers);
+    const inGrade = allTeachers.filter((t) => normalizeGradeKey(t.gradeLevel) === normalizeGradeKey(newGrade));
+    if (inGrade.length === 0) {
+      setIsCustomName(true);
+    }
+  };
+
+  const handleSubjectChange = (newSubject: string) => {
+    setSubjectGroup(newSubject);
+    setSelectedTeacherId("");
+    setIsCustomName(false);
+    setFullName("");
+    setTeacherPhotoUrl("");
+    setConfirmedExistingName("");
+    // No teacher tagged with this subject yet → jump straight to free-text entry.
+    if (teacherList.filter((t) => (t.subjectGroup || "") === newSubject).length === 0) {
       setIsCustomName(true);
     }
   };
@@ -544,29 +570,43 @@ export default function SubmitSection() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* 1. Grade Level */}
+                {/* 1. Primary axis — grade level, or subject group for subject-based rounds */}
                 <div className="space-y-1.5 sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700">
-                    สายชั้น <span className="text-red-500">*</span>
+                    1. {bySubject ? "เลือกกลุ่มสาระการเรียนรู้" : "เลือกสายชั้น"} <span className="text-red-500">*</span>
                   </label>
-                  <select
-                    value={gradeLevel}
-                onChange={(e) => void handleGradeLevelChange(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-bold text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
-                  >
-                    {gradeLevels.map((gl) => (
-                      <option key={gl.id} value={gl.name}>
-                        {gradeLabel(gl.name)}
-                      </option>
-                    ))}
-                  </select>
+                  {bySubject ? (
+                    <select
+                      value={subjectGroup}
+                      onChange={(e) => handleSubjectChange(e.target.value)}
+                      className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-bold text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
+                    >
+                      {subjectGroups.map((sg) => (
+                        <option key={sg.id} value={sg.name}>
+                          {sg.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select
+                      value={gradeLevel}
+                      onChange={(e) => void handleGradeLevelChange(e.target.value)}
+                      className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-bold text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
+                    >
+                      {gradeLevels.map((gl) => (
+                        <option key={gl.id} value={gl.name}>
+                          {gradeLabel(gl.name)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 {/* 2. Teacher Name Select or Add Custom */}
                 <div className="space-y-2 sm:col-span-2">
                   <div className="flex items-center justify-between">
                     <label className="block text-sm font-extrabold text-slate-800">
-                      2. เลือกรายชื่อ{gradeLabel(gradeLevel)} <span className="text-red-500">*</span>
+                      2. เลือกรายชื่อ{scopeLabel} <span className="text-red-500">*</span>
                     </label>
                     <button
                       type="button"
@@ -592,9 +632,9 @@ export default function SubmitSection() {
                       className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition-all text-sm"
                     >
                       <option value="" disabled>
-                        -- เลือกรายชื่อ{gradeLabel(gradeLevel)} ({teachersInCurrentGrade.length} ท่าน) --
+                        -- เลือกรายชื่อ{scopeLabel} ({rosterInScope.length} ท่าน) --
                       </option>
-                      {teachersInCurrentGrade.map((t) => (
+                      {rosterInScope.map((t) => (
                         <option key={t.id} value={t.id}>
                           {t.fullName} ({t.position})
                         </option>
@@ -701,23 +741,43 @@ export default function SubmitSection() {
                   />
                 </div>
 
-                {/* Subject Group Dropdown */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-slate-700">
-                    กลุ่มสาระการเรียนรู้ <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={subjectGroup}
-                    onChange={(e) => setSubjectGroup(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition-all text-sm"
-                  >
-                    {subjectGroups.map((sg) => (
-                      <option key={sg.id} value={sg.name}>
-                        {sg.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {/* Secondary axis — for subject-based rounds this is the grade level;
+                    otherwise it is the subject group. Both values are always saved. */}
+                {bySubject ? (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-semibold text-slate-700">
+                      สายชั้น <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={gradeLevel}
+                      onChange={(e) => setGradeLevel(e.target.value)}
+                      className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition-all text-sm"
+                    >
+                      {gradeLevels.map((gl) => (
+                        <option key={gl.id} value={gl.name}>
+                          {gradeLabel(gl.name)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-semibold text-slate-700">
+                      กลุ่มสาระการเรียนรู้ <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      value={subjectGroup}
+                      onChange={(e) => setSubjectGroup(e.target.value)}
+                      className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition-all text-sm"
+                    >
+                      {subjectGroups.map((sg) => (
+                        <option key={sg.id} value={sg.name}>
+                          {sg.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 {/* School & province are auto-filled from settings; fields removed from the form. */}
               </div>
@@ -726,7 +786,7 @@ export default function SubmitSection() {
             {/* Work list — every required work in one place; upload or replace each */}
             {!fullName.trim() ? (
               <div className="pt-4 border-t border-slate-100 text-center text-sm text-slate-500 font-medium py-8">
-                เลือกสายชั้นและชื่อครูด้านบนก่อน เพื่อแสดงรายการงานที่ต้องส่ง
+                เลือก{bySubject ? "กลุ่มสาระ" : "สายชั้น"}และชื่อครูด้านบนก่อน เพื่อแสดงรายการงานที่ต้องส่ง
               </div>
             ) : (
               <div className="space-y-3 pt-4 border-t border-slate-100">

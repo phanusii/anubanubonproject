@@ -18,7 +18,7 @@ const ITEMS_PER_PAGE = 20;
 /** Normalize a teacher name for matching (ignore spaces / leading "ครู"). */
 const normName = (s: string) => (s || "").replace(/\s+/g, "").replace(/^ครู/, "").trim();
 
-export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name: string, grade: string) => void }) {
+export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name: string, field: "grade" | "subject", value: string) => void }) {
   const instantVisibleProjects = getInstantProjects().filter((project) => project.showInGallery !== false);
   // Instant synchronous initialization for 0ms frame-0 render (Never displays 0 items!)
   const [submissions, setSubmissions] = useState<Submission[]>(() => getInstantSubmissions());
@@ -197,18 +197,30 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
     });
   }, [submissions, search, selectedGrade, selectedSubject, hiddenIds, selectedProjectId, projects, settings]);
 
-  // Group works so that one teacher = one card (grouped by name + grade level).
-  // Cards are ordered by the group's most recent submission (latest sender first),
-  // and each card's own works are ordered newest-first for the slideshow.
+  // A round can be organised by grade level or by subject group. Cards for the
+  // selected round follow that round's axis; "ทั้งหมด" (mixed rounds) falls back
+  // to grade level.
+  const groupAxis: "gradeLevel" | "subjectGroup" = useMemo(() => {
+    if (selectedProjectId === "all" || !selectedProjectId) return "gradeLevel";
+    const p = projects.find((project) => project.id === selectedProjectId);
+    return p?.groupBy === "subjectGroup" ? "subjectGroup" : "gradeLevel";
+  }, [selectedProjectId, projects]);
+
+  // Group works so that one teacher = one card (grouped by name + the round's
+  // category axis). Cards are ordered by the group's most recent submission
+  // (latest sender first); each card's works are ordered newest-first.
   const groups = useMemo<PersonGroup[]>(() => {
     const timeOf = (s: Submission) => s.createdAt || Date.parse(s.uploadDate || "") || 0;
+    const valueOf = (s: Submission) => (groupAxis === "subjectGroup" ? s.subjectGroup || "" : s.gradeLevel || "");
+    const valueKey = (s: Submission) =>
+      groupAxis === "subjectGroup" ? (s.subjectGroup || "").trim() : normalizeGradeKey(s.gradeLevel);
     const map = new Map<string, PersonGroup>();
     for (const sub of filteredSubmissions) {
-      const key = `${normName(sub.fullName)}|${normalizeGradeKey(sub.gradeLevel)}`;
+      const key = `${normName(sub.fullName)}|${groupAxis}|${valueKey(sub)}`;
       const t = timeOf(sub);
       let g = map.get(key);
       if (!g) {
-        g = { key, fullName: sub.fullName, gradeLevel: sub.gradeLevel, position: sub.position, works: [], latestTime: 0 };
+        g = { key, fullName: sub.fullName, axis: groupAxis, categoryValue: valueOf(sub), position: sub.position, works: [], latestTime: 0 };
         map.set(key, g);
       }
       g.works.push(sub);
@@ -216,7 +228,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         // Trust the most recent submission for the display name / position.
         g.latestTime = t;
         g.fullName = sub.fullName;
-        g.gradeLevel = sub.gradeLevel;
+        g.categoryValue = valueOf(sub);
         g.position = sub.position;
       }
     }
@@ -224,7 +236,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
     for (const g of list) g.works.sort((a, b) => timeOf(b) - timeOf(a));
     list.sort((a, b) => b.latestTime - a.latestTime);
     return list;
-  }, [filteredSubmissions]);
+  }, [filteredSubmissions, groupAxis]);
 
   const loadedPageCount = Math.max(1, Math.ceil(groups.length / ITEMS_PER_PAGE));
   const pageButtonCount = loadedPageCount + (hasMore ? 1 : 0);
@@ -396,7 +408,13 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
                 group={group}
                 avatarUrl={avatarByName.get(normName(group.fullName))}
                 onOpen={() =>
-                  onOpenPerson ? onOpenPerson(group.fullName, group.gradeLevel) : setActiveSubmission(group.works[0])
+                  onOpenPerson
+                    ? onOpenPerson(
+                        group.fullName,
+                        group.axis === "subjectGroup" ? "subject" : "grade",
+                        group.categoryValue,
+                      )
+                    : setActiveSubmission(group.works[0])
                 }
               />
             ))}

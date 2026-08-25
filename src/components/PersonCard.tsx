@@ -7,15 +7,27 @@ import { FileText, Image as ImageIcon, HardDrive, Smile, ChevronLeft, ChevronRig
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail } from "@/lib/google-drive-utils";
 import { displayWorkTitle, gradeLabel } from "@/lib/format";
 
-/** One teacher (grouped by name + grade) with all of their works. */
+/** One teacher (grouped by name + the round's category axis) with all of their works. */
 export interface PersonGroup {
   key: string;
   fullName: string;
-  gradeLevel: string;
+  /** Which dimension this group is keyed on. */
+  axis: "gradeLevel" | "subjectGroup";
+  /** The category value for this group — a grade name or a subject-group name. */
+  categoryValue: string;
   position: string;
   works: Submission[];
   /** Newest submission time in the group — used to order cards. */
   latestTime: number;
+}
+
+/** Compact label for the card badge — grades use their short label; subject
+ *  groups drop the long "กลุ่มสาระการเรียนรู้" prefix so the badge stays small. */
+function categoryBadge(group: PersonGroup): string {
+  if (group.axis === "subjectGroup") {
+    return group.categoryValue.replace(/^กลุ่มสาระการเรียนรู้/, "").trim() || group.categoryValue;
+  }
+  return gradeLabel(group.categoryValue);
 }
 
 interface PersonCardProps {
@@ -73,8 +85,8 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
 
           {/* Grade badge */}
           <div className="absolute top-2.5 left-2.5 z-20">
-            <span className="px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-white/90 backdrop-blur-md text-slate-800 shadow-xs border border-white">
-              {gradeLabel(group.gradeLevel)}
+            <span className="max-w-[85%] px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-white/90 backdrop-blur-md text-slate-800 shadow-xs border border-white line-clamp-1">
+              {categoryBadge(group)}
             </span>
           </div>
 

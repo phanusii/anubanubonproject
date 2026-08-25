@@ -10,27 +10,32 @@ import StatsSection from "@/components/sections/StatsSection";
 
 type View = "gallery" | "submit" | "person" | "stats";
 
-function parseHash(): { view: View; param: string; grade: string } {
-  if (typeof window === "undefined") return { view: "gallery", param: "", grade: "" };
+type PersonField = "grade" | "subject";
+
+function parseHash(): { view: View; param: string; field: PersonField; value: string } {
+  const base = { view: "gallery" as View, param: "", field: "grade" as PersonField, value: "" };
+  if (typeof window === "undefined") return base;
   const raw = window.location.hash.replace(/^#/, "");
-  if (!raw) return { view: "gallery", param: "", grade: "" };
+  if (!raw) return base;
   const slash = raw.indexOf("/");
   const head = slash >= 0 ? raw.slice(0, slash) : raw;
   const rest = slash >= 0 ? raw.slice(slash + 1) : "";
-  if (head === "submit") return { view: "submit", param: "", grade: "" };
-  if (head === "stats") return { view: "stats", param: "", grade: "" };
+  if (head === "submit") return { ...base, view: "submit" };
+  if (head === "stats") return { ...base, view: "stats" };
   if (head === "person") {
-    // person/<name>/<grade> — name and grade are each encodeURIComponent'd, so
+    // person/<name>/<field>/<value> — each part is encodeURIComponent'd, so
     // splitting on "/" is safe even when a value contains its own slashes.
+    // Legacy form person/<name>/<grade> (no field keyword) still resolves to a
+    // grade filter for backward-compatible links.
     const parts = rest.split("/");
-    return {
-      view: "person",
-      param: decodeURIComponent(parts[0] || ""),
-      grade: parts[1] ? decodeURIComponent(parts[1]) : "",
-    };
+    const name = decodeURIComponent(parts[0] || "");
+    if (parts[1] === "grade" || parts[1] === "subject") {
+      return { ...base, view: "person", param: name, field: parts[1], value: parts[2] ? decodeURIComponent(parts[2]) : "" };
+    }
+    return { ...base, view: "person", param: name, field: "grade", value: parts[1] ? decodeURIComponent(parts[1]) : "" };
   }
   // "gallery", "home" (legacy), and anything else land on the work gallery.
-  return { view: "gallery", param: "", grade: "" };
+  return base;
 }
 
 /**
@@ -39,10 +44,11 @@ function parseHash(): { view: View; param: string; grade: string } {
  * page reload. Admin (/admin/*) stays on its own separate routes.
  */
 export default function PublicShell() {
-  const [{ view, param, grade }, setState] = useState<{ view: View; param: string; grade: string }>({
+  const [{ view, param, field, value }, setState] = useState<{ view: View; param: string; field: PersonField; value: string }>({
     view: "gallery",
     param: "",
-    grade: "",
+    field: "grade",
+    value: "",
   });
 
   useEffect(() => {
@@ -55,8 +61,9 @@ export default function PublicShell() {
     return () => window.removeEventListener("hashchange", update);
   }, []);
 
-  const openPerson = (name: string, personGrade: string) => {
-    window.location.hash = "person/" + encodeURIComponent(name) + "/" + encodeURIComponent(personGrade || "");
+  const openPerson = (name: string, personField: PersonField, personValue: string) => {
+    window.location.hash =
+      "person/" + encodeURIComponent(name) + "/" + personField + "/" + encodeURIComponent(personValue || "");
   };
 
   return (
@@ -66,7 +73,7 @@ export default function PublicShell() {
         {view === "gallery" && <GallerySection onOpenPerson={openPerson} />}
         {view === "submit" && <SubmitSection />}
         {view === "stats" && <StatsSection />}
-        {view === "person" && <PersonWorksView name={param} grade={grade} />}
+        {view === "person" && <PersonWorksView name={param} field={field} value={value} />}
       </div>
       <Footer />
     </div>

@@ -21,6 +21,7 @@ function blankProject(settings: TrainingSettings | null): Project {
     name: "",
     kind: "project",
     categoryType: settings?.categoryType || "การส่งผลงานนวัตกรรมการเรียนรู้",
+    groupBy: "gradeLevel",
     budgetYear: settings?.budgetYear || settings?.academicYear || "2569",
     description: "",
     openDate: "",
@@ -274,6 +275,31 @@ export default function AdminProjectsPage() {
                         key={opt.key}
                         type="button"
                         onClick={() => setEditing({ ...editing, kind: opt.key })}
+                        className={`p-3.5 rounded-2xl border text-left transition-all ${
+                          active ? "bg-white border-blue-500 ring-2 ring-blue-500/20" : "bg-white/60 border-slate-200 hover:border-blue-300"
+                        }`}
+                      >
+                        <span className="font-extrabold text-sm text-slate-900 block">{opt.title}</span>
+                        <span className="text-[11px] text-slate-500">{opt.sub}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-800">แกนหมวดหมู่ของรอบนี้ (ใช้จัดกลุ่มในฟอร์มส่งงานและคลังผลงาน)</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {([
+                    { key: "gradeLevel", title: "ตามสายชั้น", sub: "เลือกสายชั้น → เลือกชื่อครูในสายชั้น" },
+                    { key: "subjectGroup", title: "ตามกลุ่มสาระ", sub: "เลือกกลุ่มสาระ → เลือกชื่อครูในกลุ่มสาระ" },
+                  ] as const).map((opt) => {
+                    const active = (editing.groupBy || "gradeLevel") === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setEditing({ ...editing, groupBy: opt.key })}
                         className={`p-3.5 rounded-2xl border text-left transition-all ${
                           active ? "bg-white border-blue-500 ring-2 ring-blue-500/20" : "bg-white/60 border-slate-200 hover:border-blue-300"
                         }`}

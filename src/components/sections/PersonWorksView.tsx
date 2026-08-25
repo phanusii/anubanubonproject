@@ -26,13 +26,15 @@ import {
 
 interface PersonWorksViewProps {
   name: string;
-  /** Grade level of the group opened from the gallery — scopes the works to a
-   *  single (name + grade) group. Empty means "all grades for this name". */
-  grade?: string;
+  /** Which dimension the gallery card was grouped on. */
+  field?: "grade" | "subject";
+  /** The category value (grade name or subject-group name) to scope works to.
+   *  Empty means "every work for this name". */
+  value?: string;
 }
 
 /** Full-page view listing every work submitted by one teacher (replaces the modal). */
-export default function PersonWorksView({ name, grade }: PersonWorksViewProps) {
+export default function PersonWorksView({ name, field = "grade", value }: PersonWorksViewProps) {
   const [works, setWorks] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
@@ -64,9 +66,16 @@ export default function PersonWorksView({ name, grade }: PersonWorksViewProps) {
         const mine = all
           .filter((submission) => {
             if (norm(submission.fullName) !== norm(name)) return false;
-            // Scope to the grade of the gallery card that was opened, so a teacher
-            // who taught more than one grade shows only this group's works.
-            if (grade && normalizeGradeKey(submission.gradeLevel) !== normalizeGradeKey(grade)) return false;
+            // Scope to the category of the gallery card that was opened, so a
+            // teacher who spans more than one grade / subject shows only this
+            // group's works.
+            if (value) {
+              if (field === "subject") {
+                if ((submission.subjectGroup || "").trim() !== value.trim()) return false;
+              } else if (normalizeGradeKey(submission.gradeLevel) !== normalizeGradeKey(value)) {
+                return false;
+              }
+            }
             // Legacy submissions without a projectId remain visible. Works from
             // rounds hidden by Admin do not appear on the public person page.
             return !submission.projectId || visibleIds.has(submission.projectId);
@@ -100,7 +109,7 @@ export default function PersonWorksView({ name, grade }: PersonWorksViewProps) {
     return () => {
       alive = false;
     };
-  }, [name, grade]);
+  }, [name, field, value]);
 
   // Work cards are ordered by the Admin's slot order, so works[0] is not
   // necessarily the newest submission. Always use the newest submission as

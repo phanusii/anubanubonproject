@@ -187,6 +187,10 @@ export interface Project {
   // 'training' (การอบรม) → wording uses "ส่งงาน"; 'project' (โครงการ) → "ส่งผลงาน"
   kind?: 'training' | 'project';
   categoryType?: string;
+  // Which dimension this round is organised by. Drives both the submit form's
+  // primary selector and how the gallery groups cards. Defaults to 'gradeLevel'
+  // so every existing round keeps its current (grade-based) behaviour.
+  groupBy?: 'gradeLevel' | 'subjectGroup';
   academicYear?: string;
   budgetYear?: string;
   description?: string;
