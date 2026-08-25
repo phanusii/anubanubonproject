@@ -32,24 +32,24 @@ body::after {
   z-index: -1;
   pointer-events: none;
   border-radius: 999px;
-  filter: blur(24px);
-  opacity: 0.68;
+  filter: blur(26px);
+  opacity: 0.82;
 }
 
 body::before {
-  width: 19rem;
-  height: 19rem;
+  width: 21rem;
+  height: 21rem;
   left: -8rem;
-  top: 34%;
-  background: linear-gradient(145deg, rgba(10,132,255,.16), rgba(100,210,255,.05));
+  top: 30%;
+  background: linear-gradient(145deg, rgba(10,132,255,.24), rgba(120,90,255,.12) 55%, rgba(0,220,210,.08));
 }
 
 body::after {
-  width: 22rem;
-  height: 22rem;
+  width: 24rem;
+  height: 24rem;
   right: -10rem;
   bottom: 4%;
-  background: linear-gradient(145deg, rgba(191,90,242,.12), rgba(99,230,190,.08));
+  background: linear-gradient(145deg, rgba(255,90,180,.18), rgba(150,90,255,.12) 55%, rgba(90,200,255,.10));
 }
 
 @keyframes liquid-drift {
