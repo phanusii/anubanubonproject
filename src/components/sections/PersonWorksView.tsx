@@ -5,7 +5,7 @@ import { getPersonSubmissions } from "@/lib/submission-service";
 import { getTeachers } from "@/lib/teachers-service";
 import { getProjects } from "@/lib/projects-service";
 import { Submission } from "@/lib/types";
-import { displayWorkTitle, gradeLabel } from "@/lib/format";
+import { displayWorkTitle, gradeLabel, normalizeGradeKey } from "@/lib/format";
 import {
   extractGoogleDriveFileId,
   getGoogleDrivePreviewUrl,
@@ -26,10 +26,13 @@ import {
 
 interface PersonWorksViewProps {
   name: string;
+  /** Grade level of the group opened from the gallery — scopes the works to a
+   *  single (name + grade) group. Empty means "all grades for this name". */
+  grade?: string;
 }
 
 /** Full-page view listing every work submitted by one teacher (replaces the modal). */
-export default function PersonWorksView({ name }: PersonWorksViewProps) {
+export default function PersonWorksView({ name, grade }: PersonWorksViewProps) {
   const [works, setWorks] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
@@ -61,6 +64,9 @@ export default function PersonWorksView({ name }: PersonWorksViewProps) {
         const mine = all
           .filter((submission) => {
             if (norm(submission.fullName) !== norm(name)) return false;
+            // Scope to the grade of the gallery card that was opened, so a teacher
+            // who taught more than one grade shows only this group's works.
+            if (grade && normalizeGradeKey(submission.gradeLevel) !== normalizeGradeKey(grade)) return false;
             // Legacy submissions without a projectId remain visible. Works from
             // rounds hidden by Admin do not appear on the public person page.
             return !submission.projectId || visibleIds.has(submission.projectId);
@@ -94,7 +100,7 @@ export default function PersonWorksView({ name }: PersonWorksViewProps) {
     return () => {
       alive = false;
     };
-  }, [name]);
+  }, [name, grade]);
 
   // Work cards are ordered by the Admin's slot order, so works[0] is not
   // necessarily the newest submission. Always use the newest submission as

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import type { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
-import MasonryCard from "@/components/MasonryCard";
+import PersonCard, { PersonGroup } from "@/components/PersonCard";
 import SubmissionModal from "@/components/SubmissionModal";
 import { getSubmissionsPage, getGallerySubmissions, getTrainingSettings, getInstantSettings, getInstantSubmissions, getSubmissionsForStats, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
@@ -18,7 +18,7 @@ const ITEMS_PER_PAGE = 20;
 /** Normalize a teacher name for matching (ignore spaces / leading "ครู"). */
 const normName = (s: string) => (s || "").replace(/\s+/g, "").replace(/^ครู/, "").trim();
 
-export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name: string) => void }) {
+export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name: string, grade: string) => void }) {
   const instantVisibleProjects = getInstantProjects().filter((project) => project.showInGallery !== false);
   // Instant synchronous initialization for 0ms frame-0 render (Never displays 0 items!)
   const [submissions, setSubmissions] = useState<Submission[]>(() => getInstantSubmissions());
@@ -197,11 +197,40 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
     });
   }, [submissions, search, selectedGrade, selectedSubject, hiddenIds, selectedProjectId, projects, settings]);
 
-  const loadedPageCount = Math.max(1, Math.ceil(filteredSubmissions.length / ITEMS_PER_PAGE));
+  // Group works so that one teacher = one card (grouped by name + grade level).
+  // Cards are ordered by the group's most recent submission (latest sender first),
+  // and each card's own works are ordered newest-first for the slideshow.
+  const groups = useMemo<PersonGroup[]>(() => {
+    const timeOf = (s: Submission) => s.createdAt || Date.parse(s.uploadDate || "") || 0;
+    const map = new Map<string, PersonGroup>();
+    for (const sub of filteredSubmissions) {
+      const key = `${normName(sub.fullName)}|${normalizeGradeKey(sub.gradeLevel)}`;
+      const t = timeOf(sub);
+      let g = map.get(key);
+      if (!g) {
+        g = { key, fullName: sub.fullName, gradeLevel: sub.gradeLevel, position: sub.position, works: [], latestTime: 0 };
+        map.set(key, g);
+      }
+      g.works.push(sub);
+      if (t >= g.latestTime) {
+        // Trust the most recent submission for the display name / position.
+        g.latestTime = t;
+        g.fullName = sub.fullName;
+        g.gradeLevel = sub.gradeLevel;
+        g.position = sub.position;
+      }
+    }
+    const list = Array.from(map.values());
+    for (const g of list) g.works.sort((a, b) => timeOf(b) - timeOf(a));
+    list.sort((a, b) => b.latestTime - a.latestTime);
+    return list;
+  }, [filteredSubmissions]);
+
+  const loadedPageCount = Math.max(1, Math.ceil(groups.length / ITEMS_PER_PAGE));
   const pageButtonCount = loadedPageCount + (hasMore ? 1 : 0);
-  const pagedSubmissions = useMemo(
-    () => filteredSubmissions.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE),
-    [filteredSubmissions, currentPage],
+  const pagedGroups = useMemo(
+    () => groups.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE),
+    [groups, currentPage],
   );
 
   const goToPage = async (page: number) => {
@@ -361,19 +390,21 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
           </div>
         ) : (
           <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {pagedSubmissions.map((sub) => (
-              <MasonryCard
-                key={sub.id}
-                submission={sub}
-                avatarUrl={avatarByName.get(normName(sub.fullName))}
-                onClick={() => (onOpenPerson ? onOpenPerson(sub.fullName) : setActiveSubmission(sub))}
+            {pagedGroups.map((group) => (
+              <PersonCard
+                key={group.key}
+                group={group}
+                avatarUrl={avatarByName.get(normName(group.fullName))}
+                onOpen={() =>
+                  onOpenPerson ? onOpenPerson(group.fullName, group.gradeLevel) : setActiveSubmission(group.works[0])
+                }
               />
             ))}
           </div>
         )}
 
         {/* 20 works per page. The next cursor batch is fetched only when needed. */}
-        {filteredSubmissions.length > ITEMS_PER_PAGE || hasMore ? (
+        {groups.length > ITEMS_PER_PAGE || hasMore ? (
           <nav aria-label="หน้าคลังผลงาน" className="flex flex-wrap items-center justify-center gap-2 pt-3">
             <button type="button" onClick={() => void goToPage(currentPage - 1)} disabled={currentPage === 1 || isLoadingMore} className="h-10 px-4 rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-600 disabled:opacity-40">ก่อนหน้า</button>
             {Array.from({ length: pageButtonCount }, (_, index) => index + 1).map((page) => (
