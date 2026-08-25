@@ -6,6 +6,7 @@ import {
   getTrainingSettings,
   getUserProjectSubmissions,
   uploadFileToGoogleDrive,
+  uploadThumbnailToStorage,
   createSubmission,
   replaceSubmission
 } from "@/lib/submission-service";
@@ -349,6 +350,11 @@ export default function SubmitSection() {
           // its own URL as the card preview; other types keep the client-generated thumb.
           savedDriveFileId = undefined;
           if (!thumb && ["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) thumb = uploaded.url;
+          // Store the generated preview (e.g. PDF first page) as a Storage image, not a
+          // heavy base64 string inside the Firestore document.
+          if (thumb && thumb.startsWith("data:")) {
+            try { thumb = await uploadThumbnailToStorage(thumb); } catch { /* keep base64 as fallback */ }
+          }
         } else {
           savedDriveFileId = uploaded.id;
           // Use the generated preview (e.g. PDF first page) if we have one, else Drive's thumbnail.

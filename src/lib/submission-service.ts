@@ -663,6 +663,28 @@ export async function uploadToFirebaseStorage(
 }
 
 /**
+ * Upload a generated preview image (e.g. a PDF's first page, as a base64 data URL) to
+ * Storage and return its download URL — so the submission stores a short thumbnail URL
+ * instead of a ~100 KB base64 string bloating the Firestore document.
+ */
+export async function uploadThumbnailToStorage(dataUrl: string): Promise<string> {
+  const blob = await (await fetch(dataUrl)).blob(); // data: URL fetch is local, no CORS
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const uuid = (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  const ext = blob.type === "image/png" ? "png" : "jpg";
+  const path = `uploads/${year}/${month}/thumb-${uuid}.${ext}`;
+  const task = uploadBytesResumable(storageRef(storage, path), blob, {
+    contentType: blob.type || "image/jpeg",
+  });
+  await task;
+  return getDownloadURL(task.snapshot.ref);
+}
+
+/**
  * Upload a file into the school's Google Drive via the Apps Script web app.
  * Returns the shareable Drive view link + file id. Reports real progress via XHR.
  */
