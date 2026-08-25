@@ -110,6 +110,28 @@ function StepTitle({
   );
 }
 
+// Stale-while-revalidate cache for a project's certificate register + candidates.
+// The data comes from a slow Apps Script round-trip, so we paint the last snapshot
+// instantly and refresh in the background.
+type CertCache = { records?: CertificateRecord[]; candidates?: CertificateCandidate[]; issued?: number };
+function readCertCache(pid: string): CertCache | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return JSON.parse(localStorage.getItem(`cert_cache_${pid}`) || "null") as CertCache | null;
+  } catch {
+    return null;
+  }
+}
+function mergeCertCache(pid: string, patch: CertCache) {
+  if (typeof window === "undefined") return;
+  try {
+    const prev = readCertCache(pid) || {};
+    localStorage.setItem(`cert_cache_${pid}`, JSON.stringify({ ...prev, ...patch }));
+  } catch {
+    /* storage full / disabled — non-critical */
+  }
+}
+
 export default function CertificatesAdminPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
@@ -161,9 +183,20 @@ export default function CertificatesAdminPage() {
     setConfig(project.certificate || defaults(project));
     setSlideFields([]);
     let cancelled = false;
+    // Paint the last snapshot for this round instantly (the live data comes from a
+    // slow Apps Script call), then revalidate below.
+    const cached = readCertCache(project.id);
+    if (cached) {
+      if (cached.records) setRecords(cached.records);
+      if (cached.candidates) setCandidates(cached.candidates);
+      if (typeof cached.issued === "number") setIssuedTotal(cached.issued);
+    }
     // Fast, standalone issued-count for the summary card (doesn't wait on the full list).
-    setIssuedTotal(null);
-    void getIssuedCertificateCount(project.id).then((n) => { if (!cancelled) setIssuedTotal(n); });
+    if (!cached || typeof cached.issued !== "number") setIssuedTotal(null);
+    void getIssuedCertificateCount(project.id).then((n) => {
+      if (!cancelled) setIssuedTotal(n);
+      mergeCertCache(project.id, { issued: n });
+    });
     void Promise.allSettled([
       getCertificates(project.id),
       getCertificateBatchStatus(project.id),
@@ -175,9 +208,16 @@ export default function CertificatesAdminPage() {
           certificateResult.status === "fulfilled"
             ? certificateResult.value
             : [];
+        const candidateItems = candidateResult.status === "fulfilled" ? candidateResult.value : [];
         setRecords(certificateItems);
         setJob(jobResult.status === "fulfilled" ? jobResult.value : null);
-        setCandidates(candidateResult.status === "fulfilled" ? candidateResult.value : []);
+        setCandidates(candidateItems);
+        if (certificateResult.status === "fulfilled" || candidateResult.status === "fulfilled") {
+          mergeCertCache(project.id, {
+            ...(certificateResult.status === "fulfilled" ? { records: certificateItems } : {}),
+            ...(candidateResult.status === "fulfilled" ? { candidates: candidateItems } : {}),
+          });
+        }
 
         if (certificateResult.status === "rejected") {
           setMessage(
@@ -203,6 +243,7 @@ export default function CertificatesAdminPage() {
             setRecords(items);
             setJob(currentJob);
             setCandidates(currentCandidates);
+            mergeCertCache(project.id, { records: items, candidates: currentCandidates });
           }
         })
         .catch(() => undefined);
