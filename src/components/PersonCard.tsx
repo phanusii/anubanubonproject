@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Submission } from "@/lib/types";
 import { FileText, Image as ImageIcon, HardDrive, Smile, ChevronLeft, ChevronRight } from "lucide-react";
-import { extractGoogleDriveFileId, getGoogleDriveThumbnail } from "@/lib/google-drive-utils";
+import { extractGoogleDriveFileId, getGoogleDriveThumbnail, avatarUrlCandidates } from "@/lib/google-drive-utils";
 import { displayWorkTitle, gradeLabel } from "@/lib/format";
 
 /** One teacher (grouped by name + the round's category axis) with all of their works. */
@@ -67,10 +67,11 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
   const works = group.works;
   const count = works.length;
   const [index, setIndex] = useState(0);
-  const [avatarError, setAvatarError] = useState(false);
+  const [avatarIdx, setAvatarIdx] = useState(0);
   const [touchX, setTouchX] = useState<number | null>(null);
   const [hovered, setHovered] = useState(false);
-  const compactAvatarUrl = avatarUrl?.replace(/=w\d+$/i, "=w64").replace(/([?&]sz=)w\d+/i, "$1w64");
+  const avatarCandidates = avatarUrlCandidates(avatarUrl);
+  const avatarSrc = avatarCandidates[avatarIdx] || "";
 
   // A small per-card offset so the cards don't all advance in lock-step, which
   // would look mechanical. Fixed after mount (SSR-safe: 0 on the first render).
@@ -202,14 +203,13 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
       {/* Teacher footer */}
       <div className="pt-3 border-t border-slate-100 flex items-center gap-2">
         <span className="w-5 h-5 rounded-full overflow-hidden shrink-0 flex items-center justify-center bg-gradient-to-br from-pink-200 via-purple-200 to-blue-200 border border-white shadow-2xs">
-          {compactAvatarUrl && !avatarError ? (
-            <Image
-              src={compactAvatarUrl}
+          {avatarSrc ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={avatarSrc}
               alt=""
-              width={20}
-              height={20}
               className="w-full h-full object-cover"
-              onError={() => setAvatarError(true)}
+              onError={() => setAvatarIdx((i) => i + 1)}
             />
           ) : (
             <Smile className="w-3 h-3 text-purple-500" />

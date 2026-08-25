@@ -10,6 +10,7 @@ import {
   extractGoogleDriveFileId,
   getGoogleDrivePreviewUrl,
   getGoogleDriveDownloadUrl,
+  avatarUrlCandidates,
 } from "@/lib/google-drive-utils";
 import {
   ArrowLeft,
@@ -38,6 +39,9 @@ export default function PersonWorksView({ name, field = "grade", value }: Person
   const [works, setWorks] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
+  const [avatarIdx, setAvatarIdx] = useState(0);
+  useEffect(() => setAvatarIdx(0), [avatarUrl]);
+  const avatarSrc = avatarUrlCandidates(avatarUrl)[avatarIdx] || "";
 
   useEffect(() => {
     let alive = true;
@@ -153,9 +157,14 @@ export default function PersonWorksView({ name, field = "grade", value }: Person
       <div className="glass-panel p-6 rounded-3xl border border-white bg-white shadow-xs space-y-4">
         <div className="flex items-start gap-4">
           <div className="w-14 h-14 rounded-2xl overflow-hidden bg-white flex items-center justify-center shrink-0 shadow-md shadow-blue-500/20 border border-white">
-            {avatarUrl ? (
+            {avatarSrc ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={avatarUrl} alt={name} className="w-full h-full object-cover" />
+              <img
+                src={avatarSrc}
+                alt={name}
+                className="w-full h-full object-cover"
+                onError={() => setAvatarIdx((i) => i + 1)}
+              />
             ) : (
               <span className="w-full h-full ios-gradient-blue text-white flex items-center justify-center">
                 <User className="w-7 h-7" />
