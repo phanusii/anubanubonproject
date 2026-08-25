@@ -12,7 +12,7 @@ import {
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups, getInstantGradeLevels, getInstantSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
-import { findSimilarTeachers, getTeachers, normalizeTeacherName, updateTeacherSubject, ensureTeacherFromSubmission, TeacherItem } from "@/lib/teachers-service";
+import { findSimilarTeachers, getTeachers, getInstantTeachers, normalizeTeacherName, updateTeacherSubject, ensureTeacherFromSubmission, TeacherItem } from "@/lib/teachers-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
 import { checkDriveLinkPublic } from "@/lib/certificate-service";
 import { gradeLabel, submitVerb, normalizeGradeKey } from "@/lib/format";
@@ -28,7 +28,8 @@ export default function SubmitSection() {
   // selects while the network fetch (initData) runs.
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(() => getInstantGradeLevels());
   const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>(() => getInstantSubjectGroups());
-  const [teacherList, setTeacherList] = useState<TeacherItem[]>([]);
+  // Seed the roster from cache so the name dropdown is populated on first paint.
+  const [teacherList, setTeacherList] = useState<TeacherItem[]>(() => getInstantTeachers());
 
   // Selected Grade Level First
   const [gradeLevel, setGradeLevel] = useState(() => getInstantGradeLevels()[0]?.name || "");

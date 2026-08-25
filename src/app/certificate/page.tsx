@@ -25,10 +25,12 @@ import {
   DEFAULT_GRADE_LEVELS,
   getPersonSubmissions,
   getSubmissionsForStats,
+  getInstantStatsWindow,
 } from "@/lib/submission-service";
 import { getGradeLevels } from "@/lib/masters-service";
-import { getTeachers, mergeTeachersWithSubmitters, TeacherItem } from "@/lib/teachers-service";
+import { getTeachers, getInstantTeachers, mergeTeachersWithSubmitters, TeacherItem } from "@/lib/teachers-service";
 import { normalizeGradeKey } from "@/lib/format";
+import { useInstantState } from "@/lib/use-instant";
 import { CertificateRecord, GradeLevelOption, Project } from "@/lib/types";
 
 type MissingWork = { index: number; title: string };
@@ -70,7 +72,12 @@ export default function CertificatePage() {
   );
   const [gradeLevels, setGradeLevels] =
     useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
-  const [teachers, setTeachers] = useState<TeacherItem[]>([]);
+  // Seed the name list from cache after mount (SSR-safe) so the certificate
+  // lookup dropdown is usable immediately instead of waiting for the network.
+  const [teachers, setTeachers] = useInstantState<TeacherItem[]>(
+    () => mergeTeachersWithSubmitters(getInstantTeachers(), getInstantStatsWindow()),
+    [],
+  );
   const [loadingLists, setLoadingLists] = useState(true);
   const [results, setResults] = useState<RoundResult[]>([]);
   const [activeProjectId, setActiveProjectId] = useState("");
