@@ -62,6 +62,11 @@ export default function AdminSubmissionsPage() {
   const [scanMessage, setScanMessage] = useState("");
   const [nonPublicSubs, setNonPublicSubs] = useState<Submission[] | null>(null);
 
+  // Bulk selection / deletion
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
+
   useEffect(() => {
     loadData();
   }, []);
@@ -86,6 +91,41 @@ export default function AdminSubmissionsPage() {
       await deleteSubmission(sub.id);
       loadData();
     }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Delete a batch of submissions (files + records) with one confirmation and a
+  // progress readout. Used for "delete everything currently filtered" (a whole
+  // round / grade / subject) and for "delete the selected people".
+  const bulkDelete = async (items: Submission[], label: string) => {
+    if (bulkDeleting || items.length === 0) return;
+    if (
+      !confirm(
+        `ยืนยันลบ ${items.length} รายการ${label} ?\n\nไฟล์และข้อมูลทั้งหมดจะถูกลบถาวรจากระบบและ Google Drive — กู้คืนไม่ได้`,
+      )
+    )
+      return;
+    setBulkDeleting(true);
+    setBulkProgress({ done: 0, total: items.length });
+    for (let i = 0; i < items.length; i++) {
+      try {
+        await deleteSubmission(items[i].id);
+      } catch {
+        /* keep going — report count at the end */
+      }
+      setBulkProgress({ done: i + 1, total: items.length });
+    }
+    setSelectedIds(new Set());
+    setBulkDeleting(false);
+    await loadData();
   };
 
   // Scan every pasted Drive-link submission and keep only those NOT shared publicly
@@ -365,12 +405,73 @@ export default function AdminSubmissionsPage() {
             </div>
           </div>
 
+          {/* Bulk delete — operates on the current filter (a whole round / grade /
+              subject) or on the individually ticked rows */}
+          {filteredSubmissions.length > 0 && (
+            <div className="glass-panel rounded-2xl border border-white bg-white shadow-xs p-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs font-bold text-slate-600">
+                เลือกแล้ว {filteredSubmissions.filter((s) => selectedIds.has(s.id)).length} รายการ
+              </span>
+              <button
+                type="button"
+                onClick={() => bulkDelete(filteredSubmissions.filter((s) => selectedIds.has(s.id)), " ที่เลือก")}
+                disabled={bulkDeleting || filteredSubmissions.filter((s) => selectedIds.has(s.id)).length === 0}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-600 text-white text-xs font-extrabold shadow-sm disabled:opacity-40"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                ลบที่เลือก
+              </button>
+              {selectedIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(new Set())}
+                  className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-500 hover:bg-slate-50"
+                >
+                  ล้างการเลือก
+                </button>
+              )}
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-500">แสดง {filteredSubmissions.length} รายการ</span>
+                <button
+                  type="button"
+                  onClick={() => bulkDelete(filteredSubmissions, " ทั้งหมดตามตัวกรองที่เลือกอยู่")}
+                  disabled={bulkDeleting}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-red-200 bg-red-50 text-red-700 text-xs font-extrabold hover:bg-red-100 disabled:opacity-40"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  ลบทั้งหมดที่แสดง ({filteredSubmissions.length})
+                </button>
+              </div>
+              {bulkDeleting && (
+                <span className="w-full text-xs font-bold text-red-600">
+                  กำลังลบ {bulkProgress.done}/{bulkProgress.total} ...
+                </span>
+              )}
+            </div>
+          )}
+
           {/* Submissions Table */}
           <div className="glass-panel rounded-3xl border border-white overflow-hidden bg-white shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-extrabold">
+                    <th className="py-4 pl-4 pr-1 w-8">
+                      <input
+                        type="checkbox"
+                        aria-label="เลือกทั้งหมดที่แสดง"
+                        className="w-4 h-4 accent-red-600 align-middle"
+                        checked={filteredSubmissions.length > 0 && filteredSubmissions.every((s) => selectedIds.has(s.id))}
+                        onChange={(e) =>
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) filteredSubmissions.forEach((s) => next.add(s.id));
+                            else filteredSubmissions.forEach((s) => next.delete(s.id));
+                            return next;
+                          })
+                        }
+                      />
+                    </th>
                     <th className="py-4 px-4">ชื่อ-สกุล / ตำแหน่ง / โรงเรียน</th>
                     <th className="py-4 px-4">หัวข้อผลงาน</th>
                     <th className="py-4 px-4">สายชั้น / กลุ่มสาระ</th>
@@ -381,7 +482,7 @@ export default function AdminSubmissionsPage() {
                 <tbody className="divide-y divide-slate-100 font-semibold text-slate-800">
                   {filteredSubmissions.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-12 text-center text-slate-400 font-medium">
+                      <td colSpan={6} className="py-12 text-center text-slate-400 font-medium">
                         ไม่พบรายการผลงานตามเงื่อนไข
                       </td>
                     </tr>
@@ -389,7 +490,16 @@ export default function AdminSubmissionsPage() {
                     filteredSubmissions.map((sub) => {
                       const isDrive = sub.fileType === "drive" || isGoogleDriveLink(sub.fileURL);
                       return (
-                        <tr key={sub.id} className="hover:bg-slate-50/80 transition-colors">
+                        <tr key={sub.id} className={`transition-colors ${selectedIds.has(sub.id) ? "bg-red-50/70" : "hover:bg-slate-50/80"}`}>
+                          <td className="py-4 pl-4 pr-1 align-top">
+                            <input
+                              type="checkbox"
+                              aria-label={`เลือก ${sub.fullName}`}
+                              className="w-4 h-4 accent-red-600 mt-0.5"
+                              checked={selectedIds.has(sub.id)}
+                              onChange={() => toggleSelect(sub.id)}
+                            />
+                          </td>
                           <td className="py-4 px-4 space-y-0.5">
                             <div className="font-extrabold text-slate-900">{sub.fullName}</div>
                             <div className="text-[11px] text-slate-500">{sub.position}</div>
