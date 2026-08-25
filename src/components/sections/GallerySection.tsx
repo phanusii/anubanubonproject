@@ -9,6 +9,7 @@ import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { getInstantTeachers, getTeachers } from "@/lib/teachers-service";
 import { budgetYearOf, gradeLabel, normalizeGradeKey, sortGrades } from "@/lib/format";
+import { useInstantState } from "@/lib/use-instant";
 import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings, Project } from "@/lib/types";
 import { Search, Sparkles, FolderKanban, Layers } from "lucide-react";
 
@@ -19,20 +20,26 @@ const ITEMS_PER_PAGE = 20;
 const normName = (s: string) => (s || "").replace(/\s+/g, "").replace(/^ครู/, "").trim();
 
 export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name: string, field: "grade" | "subject", value: string) => void }) {
-  const instantVisibleProjects = getInstantProjects().filter((project) => project.showInGallery !== false);
-  // Instant synchronous initialization for 0ms frame-0 render (Never displays 0 items!)
-  const [submissions, setSubmissions] = useState<Submission[]>(() => getInstantSubmissions());
+  const visibleInstantProjects = () => getInstantProjects().filter((project) => project.showInGallery !== false);
+  // Instant cache is applied after mount (via useInstantState) rather than in the
+  // initializer, so the static build and first hydration render agree on the
+  // defaults below — otherwise a warm localStorage cache mismatches the
+  // prerendered HTML and React throws a hydration error.
+  const [submissions, setSubmissions] = useInstantState<Submission[]>(getInstantSubmissions, []);
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
   const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>(DEFAULT_SUBJECT_GROUPS);
-  const [settings, setSettings] = useState<TrainingSettings | null>(() => getInstantSettings());
+  const [settings, setSettings] = useInstantState<TrainingSettings | null>(getInstantSettings, null);
 
   // Training rounds / projects — tabs to browse works by round ("all" = every round)
-  const [projects, setProjects] = useState<Project[]>(instantVisibleProjects);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(instantVisibleProjects[0]?.id || "");
+  const [projects, setProjects] = useInstantState<Project[]>(visibleInstantProjects, []);
+  const [selectedProjectId, setSelectedProjectId] = useInstantState<string>(() => visibleInstantProjects()[0]?.id || "", "");
   // Project IDs the admin hid — their works are excluded even under "ทั้งหมด".
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   // Teacher profile pictures keyed by normalized name (for the card avatar).
-  const [avatarByName, setAvatarByName] = useState<Map<string, string>>(() => new Map(getInstantTeachers().filter((t) => t.photoUrl).map((t) => [normName(t.fullName), t.photoUrl || ""])));
+  const [avatarByName, setAvatarByName] = useInstantState<Map<string, string>>(
+    () => new Map(getInstantTeachers().filter((t) => t.photoUrl).map((t) => [normName(t.fullName), t.photoUrl || ""])),
+    new Map<string, string>(),
+  );
 
   // True total works for the selected round (via a cheap count query, not the loaded page).
   const [totalCount, setTotalCount] = useState<number>(-1);
@@ -84,7 +91,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   useEffect(() => {
     async function loadInitial() {
       try {
-        const initialPid = instantVisibleProjects[0]?.id || "all";
+        const initialPid = visibleInstantProjects()[0]?.id || "all";
         const firstPagePromise = fetchFirstPage(initialPid);
         const [projs, gls, sgs, st, teachers] = await Promise.all([
           getProjects(),
@@ -401,7 +408,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 min-[480px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {pagedGroups.map((group) => (
               <PersonCard
                 key={group.key}

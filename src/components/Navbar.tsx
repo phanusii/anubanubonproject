@@ -12,14 +12,16 @@ import {
   Sparkles,
   Award,
 } from "lucide-react";
-import { getTrainingSettings, getInstantSettings } from "@/lib/submission-service";
+import { getTrainingSettings, getInstantSettings, DEFAULT_SETTINGS } from "@/lib/submission-service";
 import { getActiveProject } from "@/lib/projects-service";
 import { submitVerb } from "@/lib/format";
-import { TrainingSettings } from "@/lib/types";
+import { useInstantState } from "@/lib/use-instant";
 
 export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [settings, setSettings] = useState<TrainingSettings>(getInstantSettings());
+  // Seed from cache after mount (not in the initializer) so SSR and hydration
+  // agree on DEFAULT_SETTINGS; the network fetch below still refreshes it.
+  const [settings, setSettings] = useInstantState(getInstantSettings, DEFAULT_SETTINGS);
   const [projectKind, setProjectKind] = useState<string | undefined>(undefined);
   const [hash, setHash] = useState("");
   const [logoError, setLogoError] = useState(false);

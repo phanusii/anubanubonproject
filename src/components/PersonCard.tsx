@@ -21,13 +21,14 @@ export interface PersonGroup {
   latestTime: number;
 }
 
-/** Compact label for the card badge — grades use their short label; subject
- *  groups drop the long "กลุ่มสาระการเรียนรู้" prefix so the badge stays small. */
+/** Compact label for the card badge. Grades drop the "ครูสายชั้น" prefix (just
+ *  "อ.1" / "ป.6"); subject groups drop the long "กลุ่มสาระการเรียนรู้" prefix so
+ *  the badge stays short and fully visible in the card corner. */
 function categoryBadge(group: PersonGroup): string {
   if (group.axis === "subjectGroup") {
     return group.categoryValue.replace(/^กลุ่มสาระการเรียนรู้/, "").trim() || group.categoryValue;
   }
-  return gradeLabel(group.categoryValue);
+  return gradeLabel(group.categoryValue).replace(/^ครูสายชั้น\s*/, "").trim() || group.categoryValue;
 }
 
 interface PersonCardProps {
@@ -83,9 +84,9 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
         >
           <SlidePreview key={current.id} submission={current} />
 
-          {/* Grade badge */}
-          <div className="absolute top-2.5 left-2.5 z-20">
-            <span className="max-w-[85%] px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-white/90 backdrop-blur-md text-slate-800 shadow-xs border border-white line-clamp-1">
+          {/* Category badge (grade / subject) — kept short so it never clips */}
+          <div className="absolute top-2.5 left-2.5 right-12 z-20">
+            <span className="inline-block max-w-full align-top px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-white/90 backdrop-blur-md text-slate-800 shadow-xs border border-white leading-tight line-clamp-2 break-words">
               {categoryBadge(group)}
             </span>
           </div>
