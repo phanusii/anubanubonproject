@@ -400,6 +400,9 @@ export default function SubmitSection() {
         fileName: selectedFile ? selectedFile.name : `Google Drive (${savedDriveFileId})`,
         fileSize: selectedFile ? selectedFile.size : 0,
         thumbnail: thumb,
+        // Short URL-only thumbnail (Storage) that the gallery projection can load without
+        // the base64 bloat of the legacy `thumbnail` field.
+        thumbUrl: thumb.startsWith("http") ? thumb : "",
         submissionMethod: effectiveMethod,
         driveLink: savedDriveLink,
         driveFileId: savedDriveFileId,

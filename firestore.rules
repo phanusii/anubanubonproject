@@ -24,7 +24,7 @@ service cloud.firestore {
                'fullName', 'position', 'school', 'province', 'gradeLevel',
                'subjectGroup', 'projectTitle', 'description', 'projectId',
                'projectName', 'workSlotId', 'fileType', 'fileURL', 'fileName', 'fileSize',
-               'thumbnail', 'uploadDate', 'createdAt', 'driveLink',
+               'thumbnail', 'thumbUrl', 'uploadDate', 'createdAt', 'driveLink',
                'driveFileId', 'submissionMethod'
              ])
              && request.resource.data.fullName is string

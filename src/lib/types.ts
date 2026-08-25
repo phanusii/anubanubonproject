@@ -18,6 +18,7 @@ export interface Submission {
   fileName?: string;
   fileSize?: number;
   thumbnail?: string; // DataURL or Google Drive thumbnail / storage image URL
+  thumbUrl?: string;  // Short URL-only thumbnail (Storage) — safe to load in the gallery projection
   uploadDate: string; // ISO String or formatted date
   createdAt?: number; // Timestamp ms for sorting
   // Google Drive integration fields

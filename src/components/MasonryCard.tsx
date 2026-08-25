@@ -17,7 +17,8 @@ export default function MasonryCard({ submission, onClick, avatarUrl }: MasonryC
   const isPdf = submission.fileType === "pdf";
   const driveFileId = submission.driveFileId || extractGoogleDriveFileId(submission.fileURL);
   const thumbnailCandidates = Array.from(new Set([
-    submission.thumbnail,
+    submission.thumbUrl,     // Storage thumbnail URL (present on new uploads)
+    submission.thumbnail,    // legacy base64 / URL, when the full doc is loaded
     driveFileId ? getGoogleDriveThumbnail(driveFileId) : "",
     driveFileId ? `https://lh3.googleusercontent.com/d/${driveFileId}=w1000` : "",
   ].filter(Boolean))) as string[];

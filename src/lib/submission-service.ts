@@ -260,7 +260,7 @@ export async function getSubmissionsForStats(forceRefresh = false): Promise<Subm
 const GALLERY_FIELDS = [
   "fullName", "position", "gradeLevel", "subjectGroup", "school", "province",
   "projectId", "projectName", "projectTitle", "workSlotId", "description",
-  "fileType", "fileURL", "fileName", "driveFileId", "driveLink", "createdAt", "uploadDate",
+  "fileType", "fileURL", "fileName", "driveFileId", "driveLink", "thumbUrl", "createdAt", "uploadDate",
 ];
 
 /**
@@ -310,7 +310,7 @@ export async function getGallerySubmissions(projectId?: string): Promise<Submiss
           projectId: str("projectId"), projectName: str("projectName"), projectTitle: str("projectTitle"),
           workSlotId: str("workSlotId"), description: str("description"),
           fileType: str("fileType"), fileURL: str("fileURL"), fileName: str("fileName"),
-          driveFileId: str("driveFileId"), driveLink: str("driveLink"),
+          driveFileId: str("driveFileId"), driveLink: str("driveLink"), thumbUrl: str("thumbUrl"),
           createdAt: num("createdAt"), uploadDate: str("uploadDate"),
         } as Submission;
       });
