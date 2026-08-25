@@ -4,14 +4,42 @@ import { useEffect, useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
-import { getDashboardStats } from "@/lib/submission-service";
+import { getDashboardStats, getStorageUsage } from "@/lib/submission-service";
 import { DashboardStats } from "@/lib/types";
-import { FileCheck, Users, FileText, Image as ImageIcon, TrendingUp } from "lucide-react";
+import { FileCheck, Users, FileText, Image as ImageIcon, TrendingUp, HardDrive, RefreshCw } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+
+// Firebase Storage free allotment (Spark / the free monthly bucket on Blaze).
+const STORAGE_FREE_BYTES = 5 * 1024 * 1024 * 1024;
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
 
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [storage, setStorage] = useState<{ bytes: number; files: number } | null>(null);
+  const [storageBusy, setStorageBusy] = useState(false);
+  const [storageCount, setStorageCount] = useState(0);
+  const [storageError, setStorageError] = useState("");
+
+  const computeStorage = async () => {
+    if (storageBusy) return;
+    setStorageBusy(true);
+    setStorageError("");
+    setStorageCount(0);
+    try {
+      const usage = await getStorageUsage((n) => setStorageCount(n));
+      setStorage(usage);
+    } catch {
+      setStorageError("คำนวณความจุไม่สำเร็จ กรุณาลองใหม่");
+    } finally {
+      setStorageBusy(false);
+    }
+  };
 
   useEffect(() => {
     async function loadStats() {
@@ -119,6 +147,57 @@ export default function AdminDashboardPage() {
               </div>
             </div>
           )}
+
+          {/* Storage capacity vs free quota */}
+          <div className="glass-panel p-6 rounded-3xl border border-white bg-white shadow-xs space-y-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5">
+                <span className="w-10 h-10 rounded-2xl ios-gradient-purple text-white flex items-center justify-center shrink-0">
+                  <HardDrive className="w-5 h-5" />
+                </span>
+                <div>
+                  <h2 className="font-extrabold text-base text-slate-900">ความจุพื้นที่จัดเก็บไฟล์ (Storage)</h2>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    ไฟล์ผลงานที่อัปโหลด (PDF / รูปภาพ) จากโควตาฟรี {formatBytes(STORAGE_FREE_BYTES)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={computeStorage}
+                disabled={storageBusy}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl ios-gradient-blue text-white text-xs font-extrabold shadow-sm disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${storageBusy ? "animate-spin" : ""}`} />
+                {storageBusy ? `กำลังคำนวณ… (${storageCount} ไฟล์)` : storage ? "คำนวณใหม่" : "คำนวณความจุ"}
+              </button>
+            </div>
+            {storageError && <p className="text-xs font-bold text-red-600">{storageError}</p>}
+            {storage && (
+              <div className="space-y-2">
+                <div className="flex items-end justify-between gap-2 flex-wrap">
+                  <span className="text-2xl font-extrabold bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent">
+                    {formatBytes(storage.bytes)}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-500">
+                    {storage.files.toLocaleString()} ไฟล์ · {((storage.bytes / STORAGE_FREE_BYTES) * 100).toFixed(1)}% ของ{" "}
+                    {formatBytes(STORAGE_FREE_BYTES)}
+                  </span>
+                </div>
+                <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all"
+                    style={{ width: `${Math.min(100, (storage.bytes / STORAGE_FREE_BYTES) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            {!storage && !storageBusy && (
+              <p className="text-xs text-slate-400 font-medium">
+                กด &quot;คำนวณความจุ&quot; เพื่อรวมขนาดไฟล์ทั้งหมดใน Storage (อาจใช้เวลาสักครู่หากมีไฟล์จำนวนมาก)
+              </p>
+            )}
+          </div>
 
           {/* Daily Trend Chart */}
           <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-white bg-white space-y-4 shadow-xs">

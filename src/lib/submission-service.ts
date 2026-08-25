@@ -1,5 +1,5 @@
 import { auth, db, storage } from "./firebase";
-import { ref as storageRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { ref as storageRef, uploadBytesResumable, getDownloadURL, listAll, getMetadata } from "firebase/storage";
 import { 
   collection, 
   addDoc, 
@@ -360,6 +360,35 @@ export async function getGallerySubmissions(projectId?: string): Promise<Submiss
   } catch {
     return await fallback();
   }
+}
+
+/**
+ * Total Firebase Storage used under uploads/ (bytes + file count). Walks the
+ * uploads/{year}/{month}/ tree and sums each file's metadata size. This is an
+ * on-demand calculation (many metadata reads), not something to run on every
+ * page load. `onProgress` reports the running file count for a live readout.
+ */
+export async function getStorageUsage(onProgress?: (files: number) => void): Promise<{ bytes: number; files: number }> {
+  let bytes = 0;
+  let files = 0;
+  const walk = async (prefixRef: ReturnType<typeof storageRef>): Promise<void> => {
+    const listing = await listAll(prefixRef);
+    await Promise.all(
+      listing.items.map(async (item) => {
+        try {
+          const meta = await getMetadata(item);
+          bytes += meta.size || 0;
+          files += 1;
+          onProgress?.(files);
+        } catch {
+          /* skip a file we can't read */
+        }
+      }),
+    );
+    for (const sub of listing.prefixes) await walk(sub);
+  };
+  await walk(storageRef(storage, "uploads"));
+  return { bytes, files };
 }
 
 // No built-in sample submissions — the app shows only real data from Firestore.

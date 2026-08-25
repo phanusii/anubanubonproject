@@ -9,6 +9,13 @@ service firebase.storage {
              && request.auth.token.email == 'phanu9818@anubanubon.ac.th';
     }
 
+    // Admin-only listing/traversal of the uploads tree, so the dashboard can sum
+    // total Storage usage (listAll walks the folder prefixes). Public reads of
+    // individual files are still granted by the file-level rule below.
+    match /uploads/{allPaths=**} {
+      allow read: if isAdmin();
+    }
+
     match /uploads/{year}/{month}/{fileName} {
       // Allow public read for portfolio showcase
       allow read: if true;
