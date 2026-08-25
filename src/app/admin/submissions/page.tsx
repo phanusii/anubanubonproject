@@ -6,13 +6,14 @@ import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import SubmissionModal from "@/components/SubmissionModal";
 import RevisionModal from "@/components/RevisionModal";
-import { 
-  getSubmissions, 
-  deleteSubmission, 
-  updateSubmission, 
-  getInstantSubmissions, 
-  DEFAULT_GRADE_LEVELS, 
-  DEFAULT_SUBJECT_GROUPS 
+import {
+  deleteSubmission,
+  updateSubmission,
+  getInstantSubmissions,
+  getGallerySubmissions,
+  getInstantGallery,
+  DEFAULT_GRADE_LEVELS,
+  DEFAULT_SUBJECT_GROUPS
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getProjects } from "@/lib/projects-service";
@@ -72,9 +73,16 @@ export default function AdminSubmissionsPage() {
   }, []);
 
   async function loadData() {
+    // Show the full set from the session cache immediately (instead of only the
+    // ~dozen works this browser submitted), then load the light projected list —
+    // ~1 MB instead of the ~8 MB of full documents with inlined thumbnails, which
+    // was why the page sat on a partial count for so long. The list only needs
+    // metadata fields, all of which the projection includes.
+    const instant = getInstantGallery();
+    if (instant.length) setSubmissions(instant);
+
     const [subs, gls, sgs, projectData] = await Promise.all([
-      // Admin manages the full list — always fetch fresh, never a small/stale cache.
-      getSubmissions({ ignoreProjectFilter: true, forceRefresh: true }),
+      getGallerySubmissions(),
       getGradeLevels(),
       getSubjectGroups(),
       getProjects(),
