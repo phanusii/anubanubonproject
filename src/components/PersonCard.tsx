@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Submission } from "@/lib/types";
 import { FileText, Image as ImageIcon, HardDrive, Smile, ChevronLeft, ChevronRight } from "lucide-react";
@@ -49,7 +49,30 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
   const [index, setIndex] = useState(0);
   const [avatarError, setAvatarError] = useState(false);
   const [touchX, setTouchX] = useState<number | null>(null);
+  const [hovered, setHovered] = useState(false);
   const compactAvatarUrl = avatarUrl?.replace(/=w\d+$/i, "=w64").replace(/([?&]sz=)w\d+/i, "$1w64");
+
+  // A small per-card offset so the cards don't all advance in lock-step, which
+  // would look mechanical. Fixed after mount (SSR-safe: 0 on the first render).
+  const offsetRef = useRef(0);
+  useEffect(() => {
+    offsetRef.current = Math.floor(Math.random() * 2200);
+  }, []);
+
+  // Auto-advance the slideshow gently and continuously; pause while hovered so
+  // the visitor can look, zoom, and use the controls.
+  useEffect(() => {
+    if (count <= 1 || hovered) return;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const kickoff = setTimeout(() => {
+      setIndex((i) => (i + 1) % count);
+      interval = setInterval(() => setIndex((i) => (i + 1) % count), 3800);
+    }, offsetRef.current);
+    return () => {
+      clearTimeout(kickoff);
+      if (interval) clearInterval(interval);
+    };
+  }, [count, hovered]);
 
   const current = works[Math.min(index, count - 1)];
   const step = (delta: number) => (e: React.MouseEvent) => {
@@ -64,6 +87,8 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
   return (
     <div
       onClick={onOpen}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       className="glass-panel group rounded-3xl p-4 cursor-pointer border border-white hover:border-blue-200 transition-all duration-300 hover:shadow-xl hover:-translate-y-1.5 flex flex-col justify-between space-y-4 bg-white/90"
     >
       <div className="space-y-3">
@@ -82,7 +107,10 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
               : undefined
           }
         >
-          <SlidePreview key={current.id} submission={current} />
+          <SlidePreview key={current.id} submission={current} zoom={hovered} />
+
+          {/* Soft zoom overlay to signal the preview is interactive on hover */}
+          <div className="pointer-events-none absolute inset-0 z-10 rounded-2xl ring-0 group-hover:ring-2 group-hover:ring-blue-400/40 transition-all duration-300" />
 
           {/* Category badge (grade / subject) — kept short so it never clips */}
           <div className="absolute top-2.5 left-2.5 right-12 z-20">
@@ -132,6 +160,13 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
                   />
                 ))}
               </div>
+
+              {/* Auto-advance progress bar — restarts each slide, hidden on hover */}
+              {!hovered && (
+                <div className="absolute bottom-0 left-0 right-0 h-1 z-20 bg-slate-900/10">
+                  <div key={index} className="card-slide-progress h-full w-full bg-blue-500/80" />
+                </div>
+              )}
             </>
           )}
         </div>
@@ -177,7 +212,7 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
 }
 
 /** Renders a single work's thumbnail with graceful fallbacks (mirrors MasonryCard). */
-function SlidePreview({ submission }: { submission: Submission }) {
+function SlidePreview({ submission, zoom }: { submission: Submission; zoom?: boolean }) {
   const isPdf = submission.fileType === "pdf";
   const driveFileId = submission.driveFileId || extractGoogleDriveFileId(submission.fileURL);
   const candidates = Array.from(
@@ -200,7 +235,10 @@ function SlidePreview({ submission }: { submission: Submission }) {
         alt={submission.projectTitle}
         fill
         sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
-        className="w-full h-full object-contain animate-in fade-in duration-300"
+        className={`w-full h-full object-contain animate-in fade-in duration-500 transition-transform ease-out will-change-transform ${
+          zoom ? "scale-[1.12]" : "scale-100"
+        }`}
+        style={{ transitionDuration: "600ms" }}
         onError={() => setThumbIndex((i) => i + 1)}
       />
     );

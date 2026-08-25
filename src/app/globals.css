@@ -289,6 +289,19 @@ select option {
   background-color: rgba(203, 213, 225, 0.5);
 }
 
+/* Auto-advancing gallery card: the progress bar fills over one slide cycle. */
+@keyframes card-slide-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.card-slide-progress {
+  transform-origin: left;
+  animation: card-slide-progress 3.8s linear forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-slide-progress { animation: none; }
+}
+
 /* Mobile ergonomics shared by public and admin pages. */
 @media (max-width: 640px) {
   body { background-attachment: scroll; }

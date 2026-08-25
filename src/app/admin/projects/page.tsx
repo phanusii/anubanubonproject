@@ -8,7 +8,7 @@ import { getProjects, saveProject, deleteProject, setActiveProject, saveProjects
 import { deleteSubmissionsByProject, getTrainingSettings, getSubmissions, updateSubmission, updateTrainingSettings } from "@/lib/submission-service";
 import { getTeachers, TeacherItem } from "@/lib/teachers-service";
 import { Project, TrainingSettings } from "@/lib/types";
-import { budgetYearOf, gradeLabel } from "@/lib/format";
+import { budgetYearOf, gradeLabel, normalizeGradeKey } from "@/lib/format";
 import { CalendarRange, Plus, Save, Trash2, CheckCircle2, Star, ListOrdered, Link2, X, Pencil, ChevronUp, ChevronDown, ToggleLeft, ToggleRight, Eye, EyeOff, Users, Search } from "lucide-react";
 
 function blankProject(settings: TrainingSettings | null): Project {
@@ -46,6 +46,8 @@ export default function AdminProjectsPage() {
   const [submissionCounts, setSubmissionCounts] = useState<Record<string, number>>({});
   const [allTeachers, setAllTeachers] = useState<TeacherItem[]>([]);
   const [attendeeSearch, setAttendeeSearch] = useState("");
+  const [attendeeGradeFilter, setAttendeeGradeFilter] = useState("ทั้งหมด");
+  const [attendeeSubjectFilter, setAttendeeSubjectFilter] = useState("ทั้งหมด");
 
   const reload = async () => {
     const [ps, s, allSubmissions, teachers] = await Promise.all([
@@ -422,21 +424,55 @@ export default function AdminProjectsPage() {
                   เลือกเฉพาะผู้ที่เข้าอบรมจริง เพื่อจำกัดรายชื่อในฟอร์ม (ครูยังพิมพ์ชื่อเองได้เสมอ)
                 </p>
 
+                {/* Narrow the roster by grade and/or subject, then tick names */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <select
+                    value={attendeeGradeFilter}
+                    onChange={(e) => setAttendeeGradeFilter(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  >
+                    <option value="ทั้งหมด">ทุกสายชั้น</option>
+                    {Array.from(new Set(allTeachers.map((t) => t.gradeLevel).filter(Boolean)))
+                      .sort((a, b) => normalizeGradeKey(a).localeCompare(normalizeGradeKey(b), "th"))
+                      .map((g) => (
+                        <option key={g} value={g}>
+                          {gradeLabel(g)}
+                        </option>
+                      ))}
+                  </select>
+                  <select
+                    value={attendeeSubjectFilter}
+                    onChange={(e) => setAttendeeSubjectFilter(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  >
+                    <option value="ทั้งหมด">ทุกกลุ่มสาระ</option>
+                    {Array.from(new Set(allTeachers.map((t) => t.subjectGroup).filter(Boolean)))
+                      .sort((a, b) => a.localeCompare(b, "th"))
+                      .map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
                 <div className="relative">
                   <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
                   <input
                     value={attendeeSearch}
                     onChange={(e) => setAttendeeSearch(e.target.value)}
-                    placeholder="ค้นหาชื่อครู / สายชั้น / กลุ่มสาระ"
+                    placeholder="ค้นหาชื่อครูเพิ่มเติม (ไม่บังคับ)"
                     className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
 
                 {(() => {
                   const q = attendeeSearch.trim().toLowerCase();
-                  const visible = allTeachers.filter(
-                    (t) => !q || `${t.fullName} ${t.position} ${t.gradeLevel} ${t.subjectGroup}`.toLowerCase().includes(q),
-                  );
+                  const visible = allTeachers.filter((t) => {
+                    if (attendeeGradeFilter !== "ทั้งหมด" && normalizeGradeKey(t.gradeLevel) !== normalizeGradeKey(attendeeGradeFilter)) return false;
+                    if (attendeeSubjectFilter !== "ทั้งหมด" && (t.subjectGroup || "") !== attendeeSubjectFilter) return false;
+                    return !q || `${t.fullName} ${t.position} ${t.gradeLevel} ${t.subjectGroup}`.toLowerCase().includes(q);
+                  });
                   const selected = new Set(editing.attendeeIds || []);
                   const visibleIds = visible.map((t) => t.id);
                   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
