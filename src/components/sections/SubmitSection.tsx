@@ -343,11 +343,11 @@ export default function SubmitSection() {
         );
         fileURL = uploaded.url;
         ext = selectedFile.name.split(".").pop()?.toLowerCase() || "bin";
-        effectiveMethod = 'drive';
-        savedDriveLink = uploaded.url;
         if (uploaded.provider === "storage") {
-          // Firebase Storage file — not a Drive item, so no driveFileId. An image can use
-          // its own URL as the card preview; other types keep the client-generated thumb.
+          // Firebase Storage file — a normal uploaded file, NOT a Drive item. Keep it out
+          // of the Drive code paths (preview/modal) so it renders straight from its URL.
+          effectiveMethod = 'file';
+          savedDriveLink = "";
           savedDriveFileId = undefined;
           if (!thumb && ["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) thumb = uploaded.url;
           // Store the generated preview (e.g. PDF first page) as a Storage image, not a
@@ -356,6 +356,9 @@ export default function SubmitSection() {
             try { thumb = await uploadThumbnailToStorage(thumb); } catch { /* keep base64 as fallback */ }
           }
         } else {
+          // Google Drive fallback path.
+          effectiveMethod = 'drive';
+          savedDriveLink = uploaded.url;
           savedDriveFileId = uploaded.id;
           // Use the generated preview (e.g. PDF first page) if we have one, else Drive's thumbnail.
           if (!thumb) thumb = getGoogleDriveThumbnail(uploaded.id);
