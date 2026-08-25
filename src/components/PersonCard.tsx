@@ -31,6 +31,26 @@ function categoryBadge(group: PersonGroup): string {
   return gradeLabel(group.categoryValue).replace(/^ครูสายชั้น\s*/, "").trim() || group.categoryValue;
 }
 
+// A lively but readable colour per category, picked deterministically from the
+// value so the same grade/subject always wears the same badge colour.
+const BADGE_SCHEMES = [
+  "bg-blue-500/90 border-blue-300/60",
+  "bg-emerald-500/90 border-emerald-300/60",
+  "bg-violet-500/90 border-violet-300/60",
+  "bg-amber-500/90 border-amber-300/60",
+  "bg-rose-500/90 border-rose-300/60",
+  "bg-cyan-500/90 border-cyan-300/60",
+  "bg-indigo-500/90 border-indigo-300/60",
+  "bg-teal-500/90 border-teal-300/60",
+  "bg-fuchsia-500/90 border-fuchsia-300/60",
+  "bg-sky-500/90 border-sky-300/60",
+];
+function badgeScheme(value: string): string {
+  let h = 0;
+  for (let i = 0; i < value.length; i++) h = (h * 31 + value.charCodeAt(i)) >>> 0;
+  return BADGE_SCHEMES[h % BADGE_SCHEMES.length];
+}
+
 interface PersonCardProps {
   group: PersonGroup;
   avatarUrl?: string;
@@ -89,7 +109,7 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
       onClick={onOpen}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className="glass-panel group rounded-3xl p-4 cursor-pointer border border-white hover:border-blue-200 transition-all duration-300 hover:shadow-xl hover:-translate-y-1.5 flex flex-col justify-between space-y-4 bg-white/90"
+      className="glass-panel group rounded-3xl p-4 cursor-pointer border border-white/80 hover:border-blue-200 transition-all duration-300 hover:shadow-2xl hover:shadow-blue-500/15 hover:-translate-y-1.5 flex flex-col justify-between space-y-4 bg-white/90 animate-in fade-in slide-in-from-bottom-3 duration-500"
     >
       <div className="space-y-3">
         {/* Preview — A4 portrait; slideshow when the teacher has multiple works */}
@@ -112,9 +132,9 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
           {/* Soft zoom overlay to signal the preview is interactive on hover */}
           <div className="pointer-events-none absolute inset-0 z-10 rounded-2xl ring-0 group-hover:ring-2 group-hover:ring-blue-400/40 transition-all duration-300" />
 
-          {/* Category badge (grade / subject) — kept short so it never clips */}
+          {/* Category badge (grade / subject) — coloured per category, kept short */}
           <div className="absolute top-2.5 left-2.5 right-12 z-20">
-            <span className="inline-block max-w-full align-top px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-white/90 backdrop-blur-md text-slate-800 shadow-xs border border-white leading-tight line-clamp-2 break-words">
+            <span className={`inline-block max-w-full align-top px-2.5 py-1 rounded-xl text-[10px] font-extrabold text-white backdrop-blur-md shadow-sm border leading-tight line-clamp-2 break-words ${badgeScheme(group.categoryValue)}`}>
               {categoryBadge(group)}
             </span>
           </div>

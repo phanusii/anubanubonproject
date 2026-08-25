@@ -289,7 +289,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 space-y-8">
         {/* Header */}
         <div className="text-center space-y-3 max-w-3xl mx-auto">
-          <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-extrabold bg-blue-100/70 text-blue-700 backdrop-blur-md border border-blue-200">
+          <div className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-extrabold bg-gradient-to-r from-blue-100 via-violet-100 to-fuchsia-100 text-violet-700 backdrop-blur-md border border-violet-200/60 shadow-sm">
             <Sparkles className="w-3.5 h-3.5" />
             <span>คลังรวมผลงานและสื่อการจัดการเรียนรู้ดิจิทัล</span>
           </div>
@@ -364,7 +364,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
                   ? "ผลงานทั้งหมด"
                   : "ผลงานที่กรอง"}
               </span>
-              <span className="text-lg font-extrabold text-blue-600 leading-none">
+              <span className="text-lg font-extrabold leading-none bg-gradient-to-r from-blue-600 to-violet-600 bg-clip-text text-transparent">
                 {search.trim() === "" && selectedGrade === "ทั้งหมด" && selectedSubject === "ทั้งหมด"
                   ? totalCount >= 0
                     ? totalCount
