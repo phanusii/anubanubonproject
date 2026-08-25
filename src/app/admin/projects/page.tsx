@@ -6,7 +6,7 @@ import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getProjects, saveProject, deleteProject, setActiveProject, saveProjectsOrder } from "@/lib/projects-service";
 import { deleteSubmissionsByProject, getTrainingSettings, getSubmissions, updateSubmission, updateTrainingSettings } from "@/lib/submission-service";
-import { getTeachers, saveTeacher, TeacherItem } from "@/lib/teachers-service";
+import { getTeachers, getInstantTeachers, saveTeacher, TeacherItem } from "@/lib/teachers-service";
 import { Project, TrainingSettings } from "@/lib/types";
 import { budgetYearOf, gradeLabel, normalizeGradeKey } from "@/lib/format";
 import { CalendarRange, Plus, Save, Trash2, CheckCircle2, Star, ListOrdered, Link2, X, Pencil, ChevronUp, ChevronDown, ToggleLeft, ToggleRight, Eye, EyeOff, Users, Search } from "lucide-react";
@@ -54,21 +54,33 @@ export default function AdminProjectsPage() {
   const [attendeeMsg, setAttendeeMsg] = useState("");
 
   const reload = async () => {
-    const [ps, s, allSubmissions, teachers] = await Promise.all([
-      getProjects(true),
-      getTrainingSettings(),
-      getSubmissions({ ignoreProjectFilter: true }),
-      getTeachers(),
-    ]);
-    setAllTeachers(teachers);
-    setProjects(ps);
-    setSettings(s);
-    setActiveId(s.activeProjectId);
-    const counts: Record<string, number> = {};
-    for (const submission of allSubmissions) {
-      if (submission.projectId) counts[submission.projectId] = (counts[submission.projectId] || 0) + 1;
+    // Seed the roster from cache so the grade/subject filters and attendee list
+    // are usable immediately instead of waiting on the network.
+    const instantRoster = getInstantTeachers();
+    if (instantRoster.length) setAllTeachers(instantRoster);
+
+    // Resolve each read independently — the teacher roster (fast) must not wait
+    // behind the heavier full-document submissions read, which was making the
+    // grade/subject dropdowns appear empty until everything finished.
+    getTeachers().then((teachers) => setAllTeachers(teachers)).catch(() => {});
+    getProjects(true).then((ps) => setProjects(ps)).catch(() => {});
+    getTrainingSettings()
+      .then((s) => {
+        setSettings(s);
+        setActiveId(s.activeProjectId);
+      })
+      .catch(() => {});
+
+    try {
+      const allSubmissions = await getSubmissions({ ignoreProjectFilter: true });
+      const counts: Record<string, number> = {};
+      for (const submission of allSubmissions) {
+        if (submission.projectId) counts[submission.projectId] = (counts[submission.projectId] || 0) + 1;
+      }
+      setSubmissionCounts(counts);
+    } catch {
+      /* counts are non-critical */
     }
-    setSubmissionCounts(counts);
   };
 
   useEffect(() => {
