@@ -6,7 +6,7 @@ import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getProjects, saveProject, deleteProject, setActiveProject, saveProjectsOrder } from "@/lib/projects-service";
 import { deleteSubmissionsByProject, getTrainingSettings, getSubmissions, updateSubmission, updateTrainingSettings } from "@/lib/submission-service";
-import { getTeachers, TeacherItem } from "@/lib/teachers-service";
+import { getTeachers, saveTeacher, TeacherItem } from "@/lib/teachers-service";
 import { Project, TrainingSettings } from "@/lib/types";
 import { budgetYearOf, gradeLabel, normalizeGradeKey } from "@/lib/format";
 import { CalendarRange, Plus, Save, Trash2, CheckCircle2, Star, ListOrdered, Link2, X, Pencil, ChevronUp, ChevronDown, ToggleLeft, ToggleRight, Eye, EyeOff, Users, Search } from "lucide-react";
@@ -48,6 +48,10 @@ export default function AdminProjectsPage() {
   const [attendeeSearch, setAttendeeSearch] = useState("");
   const [attendeeGradeFilter, setAttendeeGradeFilter] = useState("ทั้งหมด");
   const [attendeeSubjectFilter, setAttendeeSubjectFilter] = useState("ทั้งหมด");
+  const [newTeacherName, setNewTeacherName] = useState("");
+  const [newTeacherPosition, setNewTeacherPosition] = useState("");
+  const [addingTeacher, setAddingTeacher] = useState(false);
+  const [attendeeMsg, setAttendeeMsg] = useState("");
 
   const reload = async () => {
     const [ps, s, allSubmissions, teachers] = await Promise.all([
@@ -100,6 +104,46 @@ export default function AdminProjectsPage() {
   const setAttendees = (ids: string[]) => {
     if (!editing) return;
     setEditing({ ...editing, attendeeIds: ids });
+  };
+
+  // Add a teacher who isn't in the roster yet, into the currently filtered grade
+  // and/or subject, then tick them as an attendee of this round.
+  const handleAddTeacher = async () => {
+    if (!editing) return;
+    const name = newTeacherName.trim();
+    if (!name) {
+      setAttendeeMsg("กรุณากรอกชื่อครู");
+      return;
+    }
+    const grade = attendeeGradeFilter !== "ทั้งหมด" ? attendeeGradeFilter : "";
+    const subject = attendeeSubjectFilter !== "ทั้งหมด" ? attendeeSubjectFilter : "";
+    if (!grade && !subject) {
+      setAttendeeMsg("เลือกสายชั้นหรือกลุ่มสาระก่อน เพื่อระบุว่าจะเพิ่มครูเข้าที่ใด");
+      return;
+    }
+    setAddingTeacher(true);
+    setAttendeeMsg("");
+    try {
+      const saved = await saveTeacher({
+        fullName: name,
+        position: newTeacherPosition.trim() || "ครู",
+        gradeLevel: grade,
+        subjectGroup: subject,
+      });
+      const roster = await getTeachers();
+      setAllTeachers(roster);
+      // Tick the new teacher for this round straight away.
+      const set = new Set(editing.attendeeIds || []);
+      set.add(saved.id);
+      setEditing({ ...editing, attendeeIds: Array.from(set) });
+      setNewTeacherName("");
+      setNewTeacherPosition("");
+      setAttendeeMsg(`เพิ่ม "${saved.fullName}" แล้ว`);
+    } catch (err) {
+      setAttendeeMsg(err instanceof Error ? err.message : "เพิ่มครูไม่สำเร็จ");
+    } finally {
+      setAddingTeacher(false);
+    }
   };
 
   const handleSave = async () => {
@@ -528,6 +572,45 @@ export default function AdminProjectsPage() {
                     </>
                   );
                 })()}
+
+                {/* Add a teacher not yet in the roster, into the filtered grade/subject */}
+                <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 p-3 space-y-2">
+                  <p className="text-[11px] font-bold text-slate-700">
+                    ไม่มีชื่อครูในรายการ? เพิ่มเข้า{" "}
+                    <span className="text-blue-700">
+                      {attendeeGradeFilter !== "ทั้งหมด" ? gradeLabel(attendeeGradeFilter) : ""}
+                      {attendeeGradeFilter !== "ทั้งหมด" && attendeeSubjectFilter !== "ทั้งหมด" ? " · " : ""}
+                      {attendeeSubjectFilter !== "ทั้งหมด" ? attendeeSubjectFilter : ""}
+                      {attendeeGradeFilter === "ทั้งหมด" && attendeeSubjectFilter === "ทั้งหมด" ? "(เลือกสายชั้นหรือกลุ่มสาระด้านบนก่อน)" : ""}
+                    </span>
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2">
+                    <input
+                      value={newTeacherName}
+                      onChange={(e) => setNewTeacherName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void handleAddTeacher(); } }}
+                      placeholder="ชื่อ-สกุลครูใหม่ (เช่น นางสาวสมฤดี ใจดี)"
+                      className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                    <input
+                      value={newTeacherPosition}
+                      onChange={(e) => setNewTeacherPosition(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void handleAddTeacher(); } }}
+                      placeholder="ตำแหน่ง (ไม่บังคับ)"
+                      className="w-full sm:w-40 px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleAddTeacher()}
+                      disabled={addingTeacher || (attendeeGradeFilter === "ทั้งหมด" && attendeeSubjectFilter === "ทั้งหมด")}
+                      className="px-4 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-extrabold shadow-sm disabled:opacity-40 flex items-center justify-center gap-1.5 shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      {addingTeacher ? "กำลังเพิ่ม..." : "เพิ่มครู"}
+                    </button>
+                  </div>
+                  {attendeeMsg && <p className="text-[11px] font-bold text-slate-600">{attendeeMsg}</p>}
+                </div>
               </div>
 
               <div className="flex justify-end">
