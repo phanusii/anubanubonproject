@@ -141,9 +141,42 @@ export default function SubmitSection() {
   const axis = activeProject?.groupBy || "gradeLevel";
   const bySubject = axis === "subjectGroup";
   const scopeLabel = bySubject ? "ครู" : gradeLabel(gradeLevel);
+  // When a round defines its attendees, only those teachers are offered (a
+  // teacher may attend some rounds and not others). Empty list = whole roster.
+  const attendeeIds = useMemo(() => activeProject?.attendeeIds || [], [activeProject?.attendeeIds]);
+  const hasAttendeeList = attendeeIds.length > 0;
+  const rosterBase = useMemo(() => {
+    if (!hasAttendeeList) return teacherList;
+    const set = new Set(attendeeIds);
+    return teacherList.filter((t) => set.has(t.id));
+  }, [teacherList, attendeeIds, hasAttendeeList]);
   const rosterInScope = bySubject
-    ? teacherList.filter((t) => (t.subjectGroup || "") === subjectGroup)
-    : teacherList.filter((t) => normalizeGradeKey(t.gradeLevel) === normalizeGradeKey(gradeLevel));
+    ? rosterBase.filter((t) => (t.subjectGroup || "") === subjectGroup)
+    : rosterBase.filter((t) => normalizeGradeKey(t.gradeLevel) === normalizeGradeKey(gradeLevel));
+  // The primary selector only offers axis values that actually have someone in
+  // scope, so an attendee-restricted round hides grades/subjects with no one.
+  const gradeOptions = hasAttendeeList
+    ? gradeLevels.filter((gl) => rosterBase.some((t) => normalizeGradeKey(t.gradeLevel) === normalizeGradeKey(gl.name)))
+    : gradeLevels;
+  const subjectOptions = hasAttendeeList
+    ? subjectGroups.filter((sg) => rosterBase.some((t) => (t.subjectGroup || "") === sg.name))
+    : subjectGroups;
+
+  // For an attendee-restricted round, make sure the primary selector starts on a
+  // value that actually has attendees (otherwise the name list would be empty).
+  useEffect(() => {
+    if (!hasAttendeeList) return;
+    if (bySubject) {
+      const vals = rosterBase.map((t) => t.subjectGroup || "").filter(Boolean);
+      if (vals.length && !vals.includes(subjectGroup)) setSubjectGroup(vals[0]);
+    } else {
+      const vals = rosterBase.map((t) => t.gradeLevel).filter(Boolean);
+      if (vals.length && !vals.some((v) => normalizeGradeKey(v) === normalizeGradeKey(gradeLevel))) {
+        setGradeLevel(vals[0]);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasAttendeeList, bySubject, rosterBase]);
   const knownPeople = useMemo(() => {
     const result = new Map<string, TeacherItem>();
     teacherList.forEach((person) => {
@@ -581,7 +614,7 @@ export default function SubmitSection() {
                       onChange={(e) => handleSubjectChange(e.target.value)}
                       className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-bold text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
                     >
-                      {subjectGroups.map((sg) => (
+                      {subjectOptions.map((sg) => (
                         <option key={sg.id} value={sg.name}>
                           {sg.name}
                         </option>
@@ -593,7 +626,7 @@ export default function SubmitSection() {
                       onChange={(e) => void handleGradeLevelChange(e.target.value)}
                       className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-bold text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
                     >
-                      {gradeLevels.map((gl) => (
+                      {gradeOptions.map((gl) => (
                         <option key={gl.id} value={gl.name}>
                           {gradeLabel(gl.name)}
                         </option>

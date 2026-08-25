@@ -6,9 +6,10 @@ import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getProjects, saveProject, deleteProject, setActiveProject, saveProjectsOrder } from "@/lib/projects-service";
 import { deleteSubmissionsByProject, getTrainingSettings, getSubmissions, updateSubmission, updateTrainingSettings } from "@/lib/submission-service";
+import { getTeachers, TeacherItem } from "@/lib/teachers-service";
 import { Project, TrainingSettings } from "@/lib/types";
-import { budgetYearOf } from "@/lib/format";
-import { CalendarRange, Plus, Save, Trash2, CheckCircle2, Star, ListOrdered, Link2, X, Pencil, ChevronUp, ChevronDown, ToggleLeft, ToggleRight, Eye, EyeOff } from "lucide-react";
+import { budgetYearOf, gradeLabel } from "@/lib/format";
+import { CalendarRange, Plus, Save, Trash2, CheckCircle2, Star, ListOrdered, Link2, X, Pencil, ChevronUp, ChevronDown, ToggleLeft, ToggleRight, Eye, EyeOff, Users, Search } from "lucide-react";
 
 function blankProject(settings: TrainingSettings | null): Project {
   const titles = settings?.workSlotTitles || [
@@ -31,6 +32,7 @@ function blankProject(settings: TrainingSettings | null): Project {
     status: "active",
     createdAt: Date.now(),
     order: 0,
+    attendeeIds: [],
   };
 }
 
@@ -42,13 +44,17 @@ export default function AdminProjectsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [submissionCounts, setSubmissionCounts] = useState<Record<string, number>>({});
+  const [allTeachers, setAllTeachers] = useState<TeacherItem[]>([]);
+  const [attendeeSearch, setAttendeeSearch] = useState("");
 
   const reload = async () => {
-    const [ps, s, allSubmissions] = await Promise.all([
+    const [ps, s, allSubmissions, teachers] = await Promise.all([
       getProjects(true),
       getTrainingSettings(),
       getSubmissions({ ignoreProjectFilter: true }),
+      getTeachers(),
     ]);
+    setAllTeachers(teachers);
     setProjects(ps);
     setSettings(s);
     setActiveId(s.activeProjectId);
@@ -79,6 +85,19 @@ export default function AdminProjectsPage() {
     const titles = [...editing.workSlotTitles];
     titles[idx] = val;
     setEditing({ ...editing, workSlotTitles: titles });
+  };
+
+  const toggleAttendee = (id: string) => {
+    if (!editing) return;
+    const set = new Set(editing.attendeeIds || []);
+    if (set.has(id)) set.delete(id);
+    else set.add(id);
+    setEditing({ ...editing, attendeeIds: Array.from(set) });
+  };
+
+  const setAttendees = (ids: string[]) => {
+    if (!editing) return;
+    setEditing({ ...editing, attendeeIds: ids });
   };
 
   const handleSave = async () => {
@@ -378,6 +397,101 @@ export default function AdminProjectsPage() {
                     />
                   </div>
                 ))}
+              </div>
+
+              {/* Attendees for this round — restricts who the submit form offers */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-xs font-bold text-slate-700 flex items-center gap-2">
+                    <Users className="w-4 h-4 text-blue-600" />
+                    ผู้เข้าอบรมรอบนี้
+                    <span className="font-semibold text-slate-400">(เลือกแล้ว {(editing.attendeeIds || []).length} คน)</span>
+                  </span>
+                  {(editing.attendeeIds || []).length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setAttendees([])}
+                      className="text-[11px] font-bold text-slate-500 hover:text-red-600 px-2 py-1 rounded-lg border border-slate-200"
+                    >
+                      ล้างทั้งหมด
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 font-medium leading-relaxed">
+                  ถ้าไม่เลือกใครเลย = ฟอร์มส่งงานจะแสดงครูทั้ง{editing.groupBy === "subjectGroup" ? "กลุ่มสาระ" : "สายชั้น"}ตามปกติ ·
+                  เลือกเฉพาะผู้ที่เข้าอบรมจริง เพื่อจำกัดรายชื่อในฟอร์ม (ครูยังพิมพ์ชื่อเองได้เสมอ)
+                </p>
+
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                  <input
+                    value={attendeeSearch}
+                    onChange={(e) => setAttendeeSearch(e.target.value)}
+                    placeholder="ค้นหาชื่อครู / สายชั้น / กลุ่มสาระ"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+
+                {(() => {
+                  const q = attendeeSearch.trim().toLowerCase();
+                  const visible = allTeachers.filter(
+                    (t) => !q || `${t.fullName} ${t.position} ${t.gradeLevel} ${t.subjectGroup}`.toLowerCase().includes(q),
+                  );
+                  const selected = new Set(editing.attendeeIds || []);
+                  const visibleIds = visible.map((t) => t.id);
+                  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+                  return (
+                    <>
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-[11px] font-semibold text-slate-500">พบ {visible.length} คน</span>
+                        {visibleIds.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const s = new Set(selected);
+                              if (allVisibleSelected) visibleIds.forEach((id) => s.delete(id));
+                              else visibleIds.forEach((id) => s.add(id));
+                              setAttendees(Array.from(s));
+                            }}
+                            className="text-[11px] font-bold text-blue-600 hover:text-blue-700"
+                          >
+                            {allVisibleSelected ? "เอาออกที่แสดงทั้งหมด" : "เลือกที่แสดงทั้งหมด"}
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-64 overflow-y-auto rounded-2xl border border-slate-200 divide-y divide-slate-100 bg-slate-50/40">
+                        {visible.length === 0 ? (
+                          <p className="p-4 text-center text-xs text-slate-400 font-medium">
+                            ไม่พบรายชื่อครู{allTeachers.length === 0 ? " (ยังไม่มีข้อมูลครูในระบบ)" : ""}
+                          </p>
+                        ) : (
+                          visible.map((t) => {
+                            const on = selected.has(t.id);
+                            return (
+                              <label
+                                key={t.id}
+                                className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${on ? "bg-blue-50/70" : "hover:bg-white"}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  onChange={() => toggleAttendee(t.id)}
+                                  className="w-4 h-4 accent-blue-600 shrink-0"
+                                />
+                                <span className="min-w-0">
+                                  <span className="block text-xs font-bold text-slate-800 truncate">{t.fullName}</span>
+                                  <span className="block text-[10px] text-slate-400 font-semibold truncate">
+                                    {gradeLabel(t.gradeLevel)} · {t.subjectGroup || "-"}
+                                  </span>
+                                </span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               <div className="flex justify-end">

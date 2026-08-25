@@ -191,6 +191,11 @@ export interface Project {
   // primary selector and how the gallery groups cards. Defaults to 'gradeLevel'
   // so every existing round keeps its current (grade-based) behaviour.
   groupBy?: 'gradeLevel' | 'subjectGroup';
+  // Teacher ids allowed to submit in this round (its actual attendees). When set
+  // and non-empty, the submit form only offers these teachers (free-text names
+  // stay available). Empty / undefined means "no restriction" — the whole
+  // grade/subject roster is offered, as before.
+  attendeeIds?: string[];
   academicYear?: string;
   budgetYear?: string;
   description?: string;
