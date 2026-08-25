@@ -495,8 +495,12 @@ export default function CertificatesAdminPage() {
       while (current.status === "running")
         current = (await runCertificateBatch(project.id)) || current;
       setJob(current);
-      setRecords(await getCertificates(project.id));
-      setCandidates(await getCertificateCandidates(project.id));
+      const [freshRecords, freshCandidates] = await Promise.all([
+        getCertificates(project.id),
+        getCertificateCandidates(project.id),
+      ]);
+      setRecords(freshRecords);
+      setCandidates(freshCandidates);
       setSelectedNames([]);
       setMessage(
         `ประมวลผลเสร็จ ออกแล้ว ${current.issued} ผิดพลาด ${current.failed}`,

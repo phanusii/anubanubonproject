@@ -5,7 +5,7 @@ import Image from "next/image";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
-import { getTrainingSettings, updateTrainingSettings, compressAndResizeImage, fileToDataURL, deleteStorageFileByUrl } from "@/lib/submission-service";
+import { getTrainingSettings, getInstantSettings, updateTrainingSettings, compressAndResizeImage, fileToDataURL, deleteStorageFileByUrl } from "@/lib/submission-service";
 import { TrainingSettings } from "@/lib/types";
 import { Building, Upload, Image as ImageIcon, CheckCircle2, Save, MapPin } from "lucide-react";
 
@@ -32,6 +32,9 @@ export default function AdminSchoolPage() {
 
   useEffect(() => {
     async function load() {
+      // Show the cached settings immediately, then refresh from Firestore.
+      const cached = getInstantSettings();
+      if (cached) setSettings(cached);
       const data = await getTrainingSettings();
       setSettings(data);
     }
