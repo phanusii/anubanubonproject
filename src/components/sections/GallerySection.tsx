@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import type { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 import PersonCard, { PersonGroup } from "@/components/PersonCard";
 import SubmissionModal from "@/components/SubmissionModal";
-import { getSubmissionsPage, getGallerySubmissions, getTrainingSettings, getInstantSettings, getInstantSubmissions, getSubmissionsForStats, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
+import { getSubmissionsPage, getGallerySubmissions, getInstantGallery, getTrainingSettings, getInstantSettings, getInstantSubmissions, getSubmissionsForStats, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { getInstantTeachers, getTeachers } from "@/lib/teachers-service";
@@ -78,6 +78,14 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
 
   // Load ALL works for a round (light REST projection) so the pager can show every page.
   const fetchFirstPage = async (pid: string) => {
+    // Paint any in-session snapshot for this round immediately (e.g. returning
+    // from a person page), then revalidate over the network.
+    const instant = getInstantGallery(pid === "all" ? undefined : pid);
+    if (instant.length) {
+      setSubmissions(instant);
+      setCursor(null);
+      setHasMore(false);
+    }
     try {
       const items = await getGallerySubmissions(pid === "all" ? undefined : pid);
       setSubmissions(items);

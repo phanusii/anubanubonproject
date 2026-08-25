@@ -87,6 +87,12 @@ let memorySettingsCache: { data: TrainingSettings; timestamp: number } | null = 
 let memorySubmissionsCache: { data: Submission[]; timestamp: number } | null = null;
 const galleryPageCache = new Map<string, { data: SubmissionsPage; timestamp: number }>();
 const projectSubmissionsCache = new Map<string, { data: Submission[]; timestamp: number }>();
+// Full gallery result per round — the landing page and every "back to gallery"
+// otherwise re-download ~all works (~1MB) each time. Keyed by round ("all" =
+// every round). Cleared on any submission mutation via saveLocalSubmissions.
+const galleryResultCache = new Map<string, { data: Submission[]; timestamp: number }>();
+const GALLERY_RESULT_TTL_MS = 90000;
+const galleryCacheKey = (projectId?: string) => (projectId && projectId !== "all" ? projectId : "all");
 const CACHE_TTL_MS = 120000;
 
 // Upper bound on how many newest submissions we fetch in one read. Bounds Firestore
@@ -268,7 +274,18 @@ const GALLERY_FIELDS = [
  * so the gallery can paginate over the full set and show every page number. Falls back to
  * the SDK (getSubmissions) on any failure. Sorted newest-first.
  */
+/** Synchronous gallery snapshot for the current session (any age) — lets the
+ *  gallery paint cached cards instantly while getGallerySubmissions revalidates. */
+export function getInstantGallery(projectId?: string): Submission[] {
+  const hit = galleryResultCache.get(galleryCacheKey(projectId));
+  return hit ? hit.data : [];
+}
+
 export async function getGallerySubmissions(projectId?: string): Promise<Submission[]> {
+  const key = galleryCacheKey(projectId);
+  const cached = galleryResultCache.get(key);
+  if (cached && Date.now() - cached.timestamp < GALLERY_RESULT_TTL_MS) return cached.data;
+
   const fallback = () => getSubmissions({
     ignoreProjectFilter: true,
     projectId: projectId && projectId !== "all" ? projectId : undefined,
@@ -315,7 +332,9 @@ export async function getGallerySubmissions(projectId?: string): Promise<Submiss
         } as Submission;
       });
     if (items.length === 0) return await fallback();
-    return items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const sorted = items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    galleryResultCache.set(key, { data: sorted, timestamp: Date.now() });
+    return sorted;
   } catch {
     return await fallback();
   }
@@ -343,6 +362,7 @@ function saveLocalSubmissions(subs: Submission[]) {
   memorySubmissionsCache = { data: subs, timestamp: Date.now() };
   galleryPageCache.clear();
   projectSubmissionsCache.clear();
+  galleryResultCache.clear();
   if (typeof window !== "undefined") {
     localStorage.setItem("app_submissions", JSON.stringify(subs));
   }
