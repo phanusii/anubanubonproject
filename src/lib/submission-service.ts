@@ -161,7 +161,7 @@ export function getInstantStatsWindow(): Submission[] {
  * to bypass the cache (e.g. an admin "refresh stats" button).
  */
 const STATS_FIELDS = [
-  "fullName", "position", "gradeLevel", "subjectGroup",
+  "fullName", "position", "gradeLevel", "subjectGroup", "fileType",
   "projectId", "projectName", "projectTitle", "workSlotId", "createdAt", "uploadDate",
 ];
 
@@ -207,6 +207,7 @@ async function fetchStatsSubmissionsViaRest(): Promise<Submission[] | null> {
           position: str("position"),
           gradeLevel: str("gradeLevel"),
           subjectGroup: str("subjectGroup"),
+          fileType: str("fileType"),
           projectId: str("projectId"),
           projectName: str("projectName"),
           projectTitle: str("projectTitle"),
@@ -242,6 +243,7 @@ export async function getSubmissionsForStats(forceRefresh = false): Promise<Subm
       position: s.position,
       gradeLevel: s.gradeLevel,
       subjectGroup: s.subjectGroup,
+      fileType: s.fileType,
       projectId: s.projectId,
       projectName: s.projectName,
       projectTitle: s.projectTitle,
@@ -1298,7 +1300,9 @@ export async function updateSubmission(id: string, data: Partial<Submission>): P
  * Get Dashboard Analytics Data
  */
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const submissions = await getSubmissions({ ignoreProjectFilter: true });
+  // Use the light, cached stats window (projected fields incl. fileType) instead
+  // of downloading full documents — the dashboard only needs counts and dates.
+  const submissions = await getSubmissionsForStats();
   
   const totalSubmissions = submissions.length;
   const uniqueSenders = new Set(submissions.map((s) => s.fullName.trim().toLowerCase())).size;
