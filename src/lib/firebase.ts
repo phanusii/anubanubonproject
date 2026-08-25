@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { initializeFirestore, getFirestore, type Firestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
+import { getStorage } from "firebase/storage";
 
 // Firebase web config is public by design (it ships in the browser bundle); the real
 // protection is Firestore/Storage security rules. Env vars override these defaults if set.
@@ -31,5 +32,6 @@ try {
 }
 export const db = firestore;
 export const auth = getAuth(app);
+export const storage = getStorage(app);
 
 export default app;

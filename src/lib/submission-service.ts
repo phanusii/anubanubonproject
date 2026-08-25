@@ -1,4 +1,5 @@
-import { auth, db } from "./firebase";
+import { auth, db, storage } from "./firebase";
+import { ref as storageRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { 
   collection, 
   addDoc, 
@@ -622,6 +623,43 @@ export interface DriveUploadResult {
   url: string;
   id: string;
   name: string;
+  provider?: "storage" | "drive";
+}
+
+/**
+ * Upload directly to Firebase Storage (uploads/<year>/<month>/<uuid-name>) over plain
+ * HTTPS — no Apps Script, no manual sharing, works behind proxies that block WebChannel.
+ * Returns the public download URL + storage path. Rejects if Storage isn't reachable yet
+ * (e.g. the bucket hasn't been enabled), so callers can fall back to the Drive path.
+ */
+export async function uploadToFirebaseStorage(
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<DriveUploadResult> {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const uuid = (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+  const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(-100) || "file";
+  const path = `uploads/${year}/${month}/${uuid}-${safeName}`;
+  const task = uploadBytesResumable(storageRef(storage, path), file, {
+    contentType: file.type || "application/octet-stream",
+  });
+  return new Promise<DriveUploadResult>((resolve, reject) => {
+    task.on(
+      "state_changed",
+      (snap) => { if (onProgress && snap.totalBytes) onProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)); },
+      (err) => reject(err),
+      async () => {
+        try {
+          const url = await getDownloadURL(task.snapshot.ref);
+          resolve({ url, id: path, name: file.name, provider: "storage" });
+        } catch (err) { reject(err); }
+      },
+    );
+  });
 }
 
 /**
@@ -685,6 +723,16 @@ export async function uploadFileToGoogleDrive(
   onProgress?: (percent: number) => void,
   meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string; existingFileId?: string; storageCategory?: "profile" }
 ): Promise<DriveUploadResult> {
+  // Prefer Firebase Storage (direct HTTPS, fast, no Apps Script). If Storage isn't ready
+  // yet — bucket not enabled, or the file exceeds the Storage-rules 10 MB cap — fall back
+  // to the existing Google Drive path so uploads never break during the migration.
+  if (file.size <= 10 * 1024 * 1024) {
+    try {
+      return await uploadToFirebaseStorage(file, onProgress);
+    } catch (err) {
+      console.warn("Firebase Storage upload unavailable, using Google Drive:", err);
+    }
+  }
   if (file.size > SINGLE_SHOT_MAX) {
     return uploadChunkedToGoogleDrive(file, onProgress, meta);
   }

@@ -343,10 +343,17 @@ export default function SubmitSection() {
         fileURL = uploaded.url;
         ext = selectedFile.name.split(".").pop()?.toLowerCase() || "bin";
         effectiveMethod = 'drive';
-        savedDriveFileId = uploaded.id;
         savedDriveLink = uploaded.url;
-        // Use the generated preview (e.g. PDF first page) if we have one, else Drive's thumbnail.
-        if (!thumb) thumb = getGoogleDriveThumbnail(uploaded.id);
+        if (uploaded.provider === "storage") {
+          // Firebase Storage file — not a Drive item, so no driveFileId. An image can use
+          // its own URL as the card preview; other types keep the client-generated thumb.
+          savedDriveFileId = undefined;
+          if (!thumb && ["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) thumb = uploaded.url;
+        } else {
+          savedDriveFileId = uploaded.id;
+          // Use the generated preview (e.g. PDF first page) if we have one, else Drive's thumbnail.
+          if (!thumb) thumb = getGoogleDriveThumbnail(uploaded.id);
+        }
       } else if (submissionMethod === 'drive' && driveFileId) {
         // The linked file MUST be shared publicly, otherwise no one can open/preview it.
         setUploadProgress(30);
