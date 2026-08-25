@@ -281,6 +281,26 @@ export function getInstantGallery(projectId?: string): Submission[] {
   return hit ? hit.data : [];
 }
 
+/** One person's works pulled synchronously from whatever gallery rounds are
+ *  already cached — lets the person page paint instantly on a card click while
+ *  the authoritative per-name query runs. */
+export function getInstantPersonWorks(fullName: string): Submission[] {
+  const key = (fullName || "").replace(/\s+/g, "").replace(/^ครู/, "").trim();
+  if (!key) return [];
+  const seen = new Set<string>();
+  const out: Submission[] = [];
+  for (const entry of galleryResultCache.values()) {
+    for (const s of entry.data) {
+      const sk = (s.fullName || "").replace(/\s+/g, "").replace(/^ครู/, "").trim();
+      if (sk === key && s.id && !seen.has(s.id)) {
+        seen.add(s.id);
+        out.push(s);
+      }
+    }
+  }
+  return out;
+}
+
 export async function getGallerySubmissions(projectId?: string): Promise<Submission[]> {
   const key = galleryCacheKey(projectId);
   const cached = galleryResultCache.get(key);

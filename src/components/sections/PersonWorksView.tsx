@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getPersonSubmissions } from "@/lib/submission-service";
+import { getPersonSubmissions, getInstantPersonWorks } from "@/lib/submission-service";
 import { getTeachers } from "@/lib/teachers-service";
 import { getProjects } from "@/lib/projects-service";
 import { Submission } from "@/lib/types";
@@ -42,8 +42,23 @@ export default function PersonWorksView({ name, field = "grade", value }: Person
   useEffect(() => {
     let alive = true;
     const norm = (s: string) => (s || "").replace(/\s+/g, "").replace(/^ครู/, "").trim();
+    const scoped = (list: Submission[]) =>
+      list.filter((w) => {
+        if (!value) return true;
+        return field === "subject"
+          ? (w.subjectGroup || "").trim() === value.trim()
+          : normalizeGradeKey(w.gradeLevel) === normalizeGradeKey(value);
+      });
     async function load() {
-      setLoading(true);
+      // Paint instantly from the gallery cache (the round the visitor just came
+      // from), then refine with the authoritative per-name query below.
+      const seed = scoped(getInstantPersonWorks(name)).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      if (seed.length) {
+        setWorks(seed);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
       try {
         // Load every visible round once, then order this person's work by the
         // round and work-slot order configured by Admin.
