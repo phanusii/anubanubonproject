@@ -774,27 +774,6 @@ export async function sendTelegramTest(chatId: string): Promise<void> {
   if (!result?.ok) throw new Error(String(result?.error || "ส่งข้อความทดสอบไม่สำเร็จ"));
 }
 
-/**
- * Fire-and-forget Telegram notification that a teacher uploaded a work. The
- * Apps Script service holds the bot token, reads the target chat + enabled flag
- * from settings, keeps the running storage/upload counters, and appends the
- * "quota used" footer. Never blocks or fails the submission.
- */
-export async function notifyTelegramUpload(info: {
-  fullName: string;
-  workTitle: string;
-  projectName?: string;
-  gradeLevel?: string;
-  subjectGroup?: string;
-  fileSize?: number;
-}): Promise<void> {
-  try {
-    await postDriveJson({ action: "telegramNotify", ...info }, 20000);
-  } catch {
-    /* best-effort — a failed notification must never affect the submitter */
-  }
-}
-
 export interface DriveUploadResult {
   url: string;
   id: string;

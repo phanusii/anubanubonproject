@@ -8,8 +8,7 @@ import {
   uploadFileToGoogleDrive,
   uploadThumbnailToStorage,
   createSubmission,
-  replaceSubmission,
-  notifyTelegramUpload
+  replaceSubmission
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups, getInstantGradeLevels, getInstantSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
@@ -497,16 +496,6 @@ export default function SubmitSection() {
         position: position.trim(),
         gradeLevel,
         subjectGroup,
-      });
-
-      // Notify the admin on Telegram that a work was uploaded (best-effort).
-      void notifyTelegramUpload({
-        fullName: fullName.trim(),
-        workTitle: finalTitle,
-        projectName: activeProject?.name,
-        gradeLevel,
-        subjectGroup,
-        fileSize: selectedFile?.size || 0,
       });
 
       setIsUploading(false);
