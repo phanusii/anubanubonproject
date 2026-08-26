@@ -551,6 +551,41 @@ export default function SubmitSection() {
     setIsSuccess(false);
   };
 
+  const continueWithSameTeacher = () => {
+    // Keep the selected teacher/profile fields and the refreshed submission
+    // history. Only clear the previous work file and move to the next empty slot.
+    setDescription("");
+    setSelectedFile(null);
+    setThumbnailDataUrl("");
+    setIsPreparingFile(false);
+    setDriveUrl("");
+    setDriveFileId(null);
+    setSubmissionMethod("file");
+    setUploadProgress(0);
+    setErrorMessage("");
+    setShowConfirmReplaceModal(false);
+
+    if (activeProject) {
+      const occupied = latestSubmissionPerSlot(userExistingSubmissions, activeProject);
+      const nextEmpty = Array.from({ length: maxUpload }).findIndex(
+        (_, index) => !occupied.has(slotIdAt(index)),
+      );
+      if (nextEmpty >= 0) {
+        setSelectedSlotIndex(nextEmpty);
+        setReplacingSubmissionId(null);
+      } else {
+        // Everything is complete: keep the same teacher and open the first work
+        // as a replaceable item instead of accidentally creating a duplicate.
+        setSelectedSlotIndex(0);
+        setReplacingSubmissionId(occupied.get(slotIdAt(0))?.id || null);
+      }
+    }
+
+    setIsSuccess(false);
+    window.location.hash = "submit";
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "smooth" }));
+  };
+
   return (
     <div className="flex flex-col w-full">
 
@@ -597,10 +632,16 @@ export default function SubmitSection() {
 
             <div className="flex flex-col sm:flex-row justify-center gap-3 pt-4">
               <button
-                onClick={resetForm}
+                onClick={continueWithSameTeacher}
                 className="px-6 py-3.5 rounded-2xl ios-gradient-blue text-white font-bold shadow-md transition-all"
               >
-                {verb}เพิ่มเติม / อัปเดตชิ้นอื่น
+                {verb}ต่อด้วยชื่อเดิม
+              </button>
+              <button
+                onClick={resetForm}
+                className="px-6 py-3.5 rounded-2xl bg-white text-blue-700 font-bold border border-blue-200 hover:bg-blue-50 transition-all"
+              >
+                เปลี่ยนชื่อผู้ส่ง
               </button>
               <a
                 href="/gallery"
