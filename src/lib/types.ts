@@ -27,6 +27,20 @@ export interface Submission {
   submissionMethod?: 'file' | 'drive';
 }
 
+export interface AdminSubmissionSummary {
+  key: string;
+  projectId: string;
+  fullName: string;
+  position: string;
+  school: string;
+  gradeLevel: string;
+  subjectGroup: string;
+  submissionIds: string[];
+  submittedCount: number;
+  latestCreatedAt: number;
+  latestUploadDate: string;
+}
+
 export type CertificateTextAlign = "left" | "center" | "right";
 
 export interface CertificateTextField {

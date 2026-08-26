@@ -19,7 +19,7 @@ import {
   QueryDocumentSnapshot,
   DocumentData
 } from "firebase/firestore";
-import { Submission, TrainingSettings, GradeLevelOption, SubjectGroupOption, DashboardStats } from "./types";
+import { AdminSubmissionSummary, Submission, TrainingSettings, GradeLevelOption, SubjectGroupOption, DashboardStats } from "./types";
 
 // Default Master Data (สายชั้น อ.1 - อ.3 ถึง ป.1 - ป.6)
 export const DEFAULT_GRADE_LEVELS: GradeLevelOption[] = [
@@ -325,6 +325,68 @@ export function getInstantPersonWorks(fullName: string): Submission[] {
 // a visit reads those chunks plus only the works created since the last rebuild.
 const SNAPSHOT_COLLECTION = "gallerySnapshot";
 const SNAPSHOT_CHUNK_SIZE = 600;
+const ADMIN_SUMMARY_COLLECTION = "adminSubmissionSummary";
+const ADMIN_SUMMARY_CHUNK_SIZE = 300;
+
+function adminSummaryKey(projectId: string, fullName: string): string {
+  return `${projectId}::${String(fullName || "").normalize("NFC").replace(/\s+/g, "").toLowerCase()}`;
+}
+
+function summarizeAdminSubmissions(items: Submission[]): AdminSubmissionSummary[] {
+  const summaries = new Map<string, AdminSubmissionSummary>();
+  for (const item of items) {
+    if (!item.projectId || !item.fullName) continue;
+    const key = adminSummaryKey(item.projectId, item.fullName);
+    const existing = summaries.get(key);
+    const createdAt = item.createdAt || 0;
+    if (!existing) {
+      summaries.set(key, {
+        key,
+        projectId: item.projectId,
+        fullName: item.fullName,
+        position: item.position || "",
+        school: item.school || "",
+        gradeLevel: item.gradeLevel || "",
+        subjectGroup: item.subjectGroup || "",
+        submissionIds: item.id ? [item.id] : [],
+        submittedCount: 1,
+        latestCreatedAt: createdAt,
+        latestUploadDate: item.uploadDate || "",
+      });
+    } else {
+      if (item.id && !existing.submissionIds.includes(item.id)) existing.submissionIds.push(item.id);
+      existing.submittedCount = existing.submissionIds.length;
+      if (createdAt >= existing.latestCreatedAt) {
+        existing.fullName = item.fullName;
+        existing.position = item.position || existing.position;
+        existing.school = item.school || existing.school;
+        existing.gradeLevel = item.gradeLevel || existing.gradeLevel;
+        existing.subjectGroup = item.subjectGroup || existing.subjectGroup;
+        existing.latestCreatedAt = createdAt;
+        existing.latestUploadDate = item.uploadDate || existing.latestUploadDate;
+      }
+    }
+  }
+  return [...summaries.values()].sort((a, b) => b.latestCreatedAt - a.latestCreatedAt);
+}
+
+async function writeAdminSubmissionSummary(items: Submission[], updatedAt: number): Promise<void> {
+  const summaries = summarizeAdminSubmissions(items);
+  const chunks: AdminSubmissionSummary[][] = [];
+  for (let index = 0; index < summaries.length; index += ADMIN_SUMMARY_CHUNK_SIZE) {
+    chunks.push(summaries.slice(index, index + ADMIN_SUMMARY_CHUNK_SIZE));
+  }
+  const existing = await getDocs(collection(db, ADMIN_SUMMARY_COLLECTION));
+  const batch = writeBatch(db);
+  chunks.forEach((chunkItems, index) => {
+    batch.set(doc(db, ADMIN_SUMMARY_COLLECTION, `chunk_${index}`), { index, items: chunkItems, updatedAt });
+  });
+  existing.docs.forEach((snapshotDoc) => {
+    const index = Number(snapshotDoc.data().index ?? -1);
+    if (index >= chunks.length) batch.delete(snapshotDoc.ref);
+  });
+  await batch.commit();
+}
 
 /** Map raw Firestore REST rows to projected Submission objects. */
 function parseGalleryRows(rows: unknown[]): Submission[] {
@@ -401,6 +463,57 @@ export async function getGallerySnapshotRaw(): Promise<{ items: Submission[]; up
   }
 }
 
+/** Compact rows for the admin list. Full work documents are fetched only after
+ * an administrator expands a teacher. The fallback also seeds this snapshot for
+ * installations upgrading from the older all-works admin page. */
+export async function getAdminSubmissionSummaries(projectId: string): Promise<AdminSubmissionSummary[]> {
+  if (!projectId) return [];
+  try {
+    const snap = await getDocs(collection(db, ADMIN_SUMMARY_COLLECTION));
+    if (!snap.empty) {
+      const chunks = snap.docs
+        .map((item) => item.data() as { index?: number; items?: AdminSubmissionSummary[]; updatedAt?: number })
+        .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+      const summaries = chunks.flatMap((chunk) => chunk.items || []).map((summary) => ({
+        ...summary,
+        submissionIds: summary.submissionIds || [],
+      }));
+      const updatedAt = chunks.reduce((latest, chunk) => Math.max(latest, chunk.updatedAt || 0), 0);
+      const delta = updatedAt ? (await fetchGalleryRest({ sinceCreatedAt: updatedAt })) || [] : [];
+      const byKey = new Map(summaries.map((summary) => [summary.key, summary]));
+      for (const item of delta) {
+        if (!item.projectId || !item.fullName) continue;
+        const key = adminSummaryKey(item.projectId, item.fullName);
+        const current = byKey.get(key);
+        if (!current) {
+          const created = summarizeAdminSubmissions([item])[0];
+          if (created) byKey.set(key, created);
+          continue;
+        }
+        if (item.id && !current.submissionIds.includes(item.id)) current.submissionIds.push(item.id);
+        current.submittedCount = current.submissionIds.length;
+        if ((item.createdAt || 0) >= current.latestCreatedAt) {
+          current.position = item.position || current.position;
+          current.school = item.school || current.school;
+          current.gradeLevel = item.gradeLevel || current.gradeLevel;
+          current.subjectGroup = item.subjectGroup || current.subjectGroup;
+          current.latestCreatedAt = item.createdAt || current.latestCreatedAt;
+          current.latestUploadDate = item.uploadDate || current.latestUploadDate;
+        }
+      }
+      return [...byKey.values()]
+        .filter((summary) => summary.projectId === projectId)
+        .sort((a, b) => b.latestCreatedAt - a.latestCreatedAt);
+    }
+  } catch (error) {
+    console.warn("Admin summary unavailable; seeding from gallery snapshot:", error);
+  }
+
+  const all = await getGallerySubmissions();
+  if (all.length) await writeAdminSubmissionSummary(all, Date.now()).catch(() => {});
+  return summarizeAdminSubmissions(all).filter((summary) => summary.projectId === projectId);
+}
+
 /** Rebuild the snapshot from the full projected list. Admin-only (Firestore
  *  rules gate the write). Returns the counts, or null if there is nothing/failed. */
 export async function rebuildGallerySnapshot(): Promise<{ count: number; chunks: number } | null> {
@@ -424,6 +537,7 @@ export async function rebuildGallerySnapshot(): Promise<{ count: number; chunks:
     /* best-effort cleanup */
   }
   await batch.commit();
+  await writeAdminSubmissionSummary(clean, updatedAt);
   galleryResultCache.clear();
   return { count: clean.length, chunks: chunks.length };
 }

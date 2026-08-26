@@ -10,14 +10,15 @@ import {
   deleteSubmission,
   updateSubmission,
   getGallerySubmissions,
-  getInstantGallery,
+  getAdminSubmissionSummaries,
+  getUserProjectSubmissions,
   rebuildGallerySnapshot,
   DEFAULT_GRADE_LEVELS,
   DEFAULT_SUBJECT_GROUPS
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getProjects } from "@/lib/projects-service";
-import { Submission, GradeLevelOption, SubjectGroupOption, Project } from "@/lib/types";
+import { AdminSubmissionSummary, Submission, GradeLevelOption, SubjectGroupOption, Project } from "@/lib/types";
 import { 
   Search, 
   Trash2, 
@@ -43,6 +44,9 @@ import { displayWorkTitle, shortSubject } from "@/lib/format";
 
 export default function AdminSubmissionsPage() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [summaries, setSummaries] = useState<AdminSubmissionSummary[]>([]);
+  const [loadedTeachers, setLoadedTeachers] = useState<Set<string>>(new Set());
+  const [loadingTeachers, setLoadingTeachers] = useState<Set<string>>(new Set());
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
   const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>(DEFAULT_SUBJECT_GROUPS);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -95,31 +99,57 @@ export default function AdminSubmissionsPage() {
   }, []);
 
   useEffect(() => {
-    if (!selectedProjectId) {
-      setSubmissions([]);
-      return;
-    }
+    if (!selectedProjectId) return;
     let cancelled = false;
-    setLoadingSubmissions(true);
-    setSubmissions(getInstantGallery(selectedProjectId));
-    setExpandedTeachers(new Set());
-    setPage(1);
-    setSelectedIds(new Set());
-    setNonPublicSubs(null);
-    setScanMessage("");
-    getGallerySubmissions(selectedProjectId)
-      .then((items) => { if (!cancelled) setSubmissions(items); })
-      .finally(() => { if (!cancelled) setLoadingSubmissions(false); });
+    void Promise.resolve().then(async () => {
+      if (cancelled) return;
+      setLoadingSubmissions(true);
+      setSubmissions([]);
+      setSummaries([]);
+      setLoadedTeachers(new Set());
+      setLoadingTeachers(new Set());
+      setExpandedTeachers(new Set());
+      setPage(1);
+      setSelectedIds(new Set());
+      setNonPublicSubs(null);
+      setScanMessage("");
+      const items = await getAdminSubmissionSummaries(selectedProjectId);
+      if (!cancelled) {
+        setSummaries(items);
+        setLoadingSubmissions(false);
+      }
+    });
     return () => { cancelled = true; };
   }, [selectedProjectId]);
 
   async function loadData() {
     if (!selectedProjectId) return;
     setLoadingSubmissions(true);
-    const items = await getGallerySubmissions(selectedProjectId);
-    setSubmissions(items);
+    const items = await getAdminSubmissionSummaries(selectedProjectId);
+    setSummaries(items);
+    setSubmissions([]);
+    setLoadedTeachers(new Set());
     setLoadingSubmissions(false);
   }
+
+  const loadTeacherWorks = async (summary: AdminSubmissionSummary) => {
+    if (!selectedProjectId || loadedTeachers.has(summary.key) || loadingTeachers.has(summary.key)) return;
+    setLoadingTeachers((previous) => new Set(previous).add(summary.key));
+    try {
+      const items = await getUserProjectSubmissions(summary.fullName, selectedProjectId);
+      setSubmissions((previous) => [
+        ...previous.filter((item) => !(item.projectId === selectedProjectId && item.fullName === summary.fullName)),
+        ...items,
+      ]);
+      setLoadedTeachers((previous) => new Set(previous).add(summary.key));
+    } finally {
+      setLoadingTeachers((previous) => {
+        const next = new Set(previous);
+        next.delete(summary.key);
+        return next;
+      });
+    }
+  };
 
   const handleDelete = async (sub: Submission) => {
     if (confirm(`คุณต้องการลบผลงาน "${sub.projectTitle}" ของ ${sub.fullName} ใช่หรือไม่?\n\n(ไฟล์และข้อมูลผลงานทั้งหมดจะถูกลบออกจากระบบและคลาวด์ไดร์ฟอย่างสมบูรณ์)`)) {
@@ -171,7 +201,8 @@ export default function AdminSubmissionsPage() {
     setScanning(true);
     setNonPublicSubs(null);
     setScanMessage("กำลังตรวจการแชร์ของลิงก์ Google Drive...");
-    const links = submissions.filter((s) => s.projectId === selectedProjectId && s.fileType === "drive");
+    const roundSubmissions = await getGallerySubmissions(selectedProjectId);
+    const links = roundSubmissions.filter((s) => s.fileType === "drive");
     const found: Submission[] = [];
     try {
       for (let i = 0; i < links.length; i += 6) {
@@ -273,33 +304,37 @@ export default function AdminSubmissionsPage() {
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
 
   const teacherGroups = useMemo(() => {
-    const groups = new Map<string, Submission[]>();
-    for (const sub of filteredSubmissions) {
-      const key = (sub.fullName || "ไม่ระบุชื่อ").replace(/\s+/g, "").toLowerCase();
-      const list = groups.get(key) || [];
-      list.push(sub);
-      groups.set(key, list);
-    }
-    return Array.from(groups.values())
-      .map((items) => {
-        const sorted = [...items].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-        return { teacher: sorted[0], items: sorted, latestAt: sorted[0]?.createdAt || 0 };
+    const searchKey = search.trim().toLowerCase();
+    return summaries
+      .filter((summary) => {
+        const matchesSearch = !searchKey || [summary.fullName, summary.school, summary.position, summary.gradeLevel, summary.subjectGroup]
+          .join(" ").toLowerCase().includes(searchKey);
+        const matchesGrade = selectedGrade === "ทั้งหมด" || summary.gradeLevel === selectedGrade;
+        const matchesSubject = selectedSubject === "ทั้งหมด" || summary.subjectGroup === selectedSubject;
+        return matchesSearch && matchesGrade && matchesSubject;
       })
-      .sort((a, b) => b.latestAt - a.latestAt || a.teacher.fullName.localeCompare(b.teacher.fullName, "th"));
-  }, [filteredSubmissions]);
+      .map((summary) => ({
+        summary,
+        teacher: {
+          id: summary.key,
+          fullName: summary.fullName,
+          position: summary.position,
+          school: summary.school,
+          gradeLevel: summary.gradeLevel,
+          subjectGroup: summary.subjectGroup,
+          uploadDate: summary.latestUploadDate,
+          createdAt: summary.latestCreatedAt,
+        } as Submission,
+        items: submissions
+          .filter((item) => item.projectId === summary.projectId && item.fullName === summary.fullName)
+          .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
+      }));
+  }, [summaries, submissions, search, selectedGrade, selectedSubject]);
 
   const PAGE_SIZE = 20;
   const totalPages = Math.max(1, Math.ceil(teacherGroups.length / PAGE_SIZE));
-  const pagedTeacherGroups = teacherGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  useEffect(() => {
-    setPage(1);
-    setExpandedTeachers(new Set());
-  }, [search, selectedGrade, selectedSubject]);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  const safePage = Math.min(page, totalPages);
+  const pagedTeacherGroups = teacherGroups.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -314,7 +349,7 @@ export default function AdminSubmissionsPage() {
               <div className="mr-auto min-w-0">
                 <h1 className="text-xl font-extrabold text-slate-900">จัดการผลงาน</h1>
                 <p className="text-xs font-semibold text-slate-500 truncate">
-                  {selectedProject?.name || "กำลังโหลดรอบ..."} · {teacherGroups.length.toLocaleString()} คน · {filteredSubmissions.length.toLocaleString()} ชิ้น
+                  {selectedProject?.name || "กำลังโหลดรอบ..."} · {teacherGroups.length.toLocaleString()} คน · {teacherGroups.reduce((total, group) => total + group.summary.submittedCount, 0).toLocaleString()} ชิ้น
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-[150px_minmax(260px,1fr)] gap-2 xl:w-[610px]">
@@ -442,7 +477,7 @@ export default function AdminSubmissionsPage() {
                   type="text"
                   placeholder="ค้นหาชื่อครู, ผลงาน, โรงเรียน, กลุ่มสาระ, สายชั้น..."
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); setExpandedTeachers(new Set()); }}
                   className="w-full pl-11 pr-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
                 />
               </div>
@@ -456,7 +491,7 @@ export default function AdminSubmissionsPage() {
 
                 <select
                   value={selectedGrade}
-                  onChange={(e) => setSelectedGrade(e.target.value)}
+                  onChange={(e) => { setSelectedGrade(e.target.value); setPage(1); setExpandedTeachers(new Set()); }}
                   className="px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 >
                   <option value="ทั้งหมด">ทุกสายชั้น (อ.1 - ป.6)</option>
@@ -469,7 +504,7 @@ export default function AdminSubmissionsPage() {
 
                 <select
                   value={selectedSubject}
-                  onChange={(e) => setSelectedSubject(e.target.value)}
+                  onChange={(e) => { setSelectedSubject(e.target.value); setPage(1); setExpandedTeachers(new Set()); }}
                   className="px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none max-w-xs"
                 >
                   <option value="ทั้งหมด">ทุกกลุ่มสาระ</option>
@@ -539,20 +574,25 @@ export default function AdminSubmissionsPage() {
               <div className="glass-panel rounded-3xl border border-white bg-white p-12 text-center text-slate-400 font-semibold">
                 ไม่พบรายชื่อครูหรือผลงานตามตัวกรอง
               </div>
-            ) : pagedTeacherGroups.map(({ teacher, items }) => {
-              const teacherKey = (teacher.fullName || "ไม่ระบุชื่อ").replace(/\s+/g, "").toLowerCase();
+            ) : pagedTeacherGroups.map(({ summary, teacher, items }) => {
+              const teacherKey = summary.key;
               const expanded = expandedTeachers.has(teacherKey);
-              const allSelected = items.every((item) => selectedIds.has(item.id));
+              const teacherLoading = loadingTeachers.has(teacherKey);
+              const teacherLoaded = loadedTeachers.has(teacherKey);
+              const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id));
               return (
                 <section key={teacherKey} className="glass-panel rounded-2xl border border-white bg-white shadow-xs overflow-hidden">
                   <header className={`p-3.5 sm:px-4 bg-gradient-to-r from-blue-50/80 to-violet-50/50 flex items-center justify-between gap-3 ${expanded ? "border-b border-blue-100" : ""}`}>
                     <button
                       type="button"
-                      onClick={() => setExpandedTeachers((previous) => {
-                        const next = new Set(previous);
-                        if (next.has(teacherKey)) next.delete(teacherKey); else next.add(teacherKey);
-                        return next;
-                      })}
+                      onClick={() => {
+                        setExpandedTeachers((previous) => {
+                          const next = new Set(previous);
+                          if (next.has(teacherKey)) next.delete(teacherKey); else next.add(teacherKey);
+                          return next;
+                        });
+                        if (!expanded) void loadTeacherWorks(summary);
+                      }}
                       className="flex items-center gap-3 min-w-0 text-left flex-1"
                       aria-expanded={expanded}
                     >
@@ -560,15 +600,15 @@ export default function AdminSubmissionsPage() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <h2 className="font-extrabold text-sm text-slate-900">{teacher.fullName}</h2>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${items.length >= (selectedProject?.maxUpload || 1) ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                            {items.length}/{selectedProject?.maxUpload || items.length} ชิ้น
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${summary.submittedCount >= (selectedProject?.maxUpload || 1) ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                            {summary.submittedCount}/{selectedProject?.maxUpload || summary.submittedCount} ชิ้น
                           </span>
                         </div>
                         <p className="text-[11px] font-semibold text-slate-500 truncate">{teacher.position || "ไม่ระบุตำแหน่ง"} · {teacher.gradeLevel || "-"} · {shortSubject(teacher.subjectGroup || "-")} · ล่าสุด {teacher.uploadDate || "-"}</p>
                       </div>
                       {expanded ? <ChevronDown className="w-4 h-4 text-blue-600 shrink-0" /> : <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />}
                     </button>
-                    <label className="inline-flex items-center gap-2 text-[11px] font-bold text-slate-600 bg-white px-2.5 py-2 rounded-xl border border-slate-200 shrink-0" title="เลือกผลงานทุกชิ้นของครูคนนี้">
+                    {teacherLoaded && <label className="inline-flex items-center gap-2 text-[11px] font-bold text-slate-600 bg-white px-2.5 py-2 rounded-xl border border-slate-200 shrink-0" title="เลือกผลงานทุกชิ้นของครูคนนี้">
                       <input
                         type="checkbox"
                         className="w-4 h-4 accent-red-600"
@@ -580,10 +620,11 @@ export default function AdminSubmissionsPage() {
                         })}
                       />
                       <span className="hidden sm:inline">เลือกทั้งหมด</span>
-                    </label>
+                    </label>}
                   </header>
 
-                  {expanded && <div className="divide-y divide-slate-100">
+                  {expanded && teacherLoading && <div className="p-6 text-center text-xs font-bold text-blue-600"><Loader2 className="w-5 h-5 mx-auto mb-2 animate-spin" />กำลังโหลดผลงานของครูคนนี้...</div>}
+                  {expanded && teacherLoaded && <div className="divide-y divide-slate-100">
                     {items.map((sub, index) => {
                       const isDrive = sub.fileType === "drive" || isGoogleDriveLink(sub.fileURL);
                       return (
@@ -621,9 +662,9 @@ export default function AdminSubmissionsPage() {
 
           {teacherGroups.length > PAGE_SIZE && (
             <nav className="glass-panel rounded-2xl border border-white bg-white p-3 flex items-center justify-between gap-3" aria-label="แบ่งหน้ารายชื่อครู">
-              <button type="button" disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-extrabold disabled:opacity-40">ก่อนหน้า</button>
-              <span className="text-xs font-bold text-slate-600">หน้า {page} จาก {totalPages} · แสดงครั้งละ {PAGE_SIZE} คน</span>
-              <button type="button" disabled={page === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} className="px-4 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs font-extrabold disabled:opacity-40">ถัดไป</button>
+              <button type="button" disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-extrabold disabled:opacity-40">ก่อนหน้า</button>
+              <span className="text-xs font-bold text-slate-600">หน้า {safePage} จาก {totalPages} · แสดงครั้งละ {PAGE_SIZE} คน</span>
+              <button type="button" disabled={safePage === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} className="px-4 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs font-extrabold disabled:opacity-40">ถัดไป</button>
             </nav>
           )}
             </>
