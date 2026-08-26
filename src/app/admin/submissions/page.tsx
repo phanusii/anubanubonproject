@@ -86,16 +86,13 @@ export default function AdminSubmissionsPage() {
     const instant = getInstantGallery();
     if (instant.length) setSubmissions(instant);
 
-    const [subs, gls, sgs, projectData] = await Promise.all([
-      getGallerySubmissions(),
-      getGradeLevels(),
-      getSubjectGroups(),
-      getProjects(),
-    ]);
-
-    if (subs && subs.length > 0) setSubmissions(subs);
-    if (gls && gls.length > 0) setGradeLevels(gls);
-    if (sgs && sgs.length > 0) setSubjectGroups(sgs);
+    // Resolve the lightweight round list first, so the admin's first-ordered
+    // round appears immediately without waiting for ~1,000 works to download.
+    const projectsPromise = getProjects();
+    const submissionsPromise = getGallerySubmissions();
+    const gradesPromise = getGradeLevels();
+    const subjectsPromise = getSubjectGroups();
+    const projectData = await projectsPromise;
     setProjects(projectData);
     // Follow the display order configured by Admin: open the first round
     // immediately, while keeping the round picker available above the results.
@@ -104,6 +101,10 @@ export default function AdminSubmissionsPage() {
       setSelectedKind(firstProject.kind || "project");
       setSelectedProjectId(firstProject.id);
     }
+    const [subs, gls, sgs] = await Promise.all([submissionsPromise, gradesPromise, subjectsPromise]);
+    if (subs && subs.length > 0) setSubmissions(subs);
+    if (gls && gls.length > 0) setGradeLevels(gls);
+    if (sgs && sgs.length > 0) setSubjectGroups(sgs);
   }
 
   const handleDelete = async (sub: Submission) => {
