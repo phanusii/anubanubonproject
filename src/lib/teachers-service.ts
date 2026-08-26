@@ -33,6 +33,72 @@ let memoryTeachersCache: TeacherItem[] | null = null;
 let memoryTeachersCacheAt = 0;
 const TEACHERS_CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 const gradeTeachersCache = new Map<string, TeacherItem[]>();
+const TEACHER_SNAPSHOT_COLLECTION = "teacherSnapshot";
+const TEACHER_SNAPSHOT_CHUNK_SIZE = 400;
+
+export interface TeacherSnapshotInfo {
+  items: TeacherItem[];
+  updatedAt: number;
+  chunks: number;
+}
+
+/** Public roster snapshot: one read for the current 233-person roster instead
+ * of one read per teacher. Chunking keeps the design safe below Firestore's
+ * per-document size ceiling as the roster grows. */
+export async function getTeacherSnapshotRaw(): Promise<TeacherSnapshotInfo | null> {
+  try {
+    const snap = await getDocs(collection(db, TEACHER_SNAPSHOT_COLLECTION));
+    if (snap.empty) return null;
+    const chunks = snap.docs
+      .map((d) => d.data() as { index?: number; items?: TeacherItem[]; updatedAt?: number })
+      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    const items = chunks.flatMap((chunk) => chunk.items || []);
+    const updatedAt = chunks.reduce((latest, chunk) => Math.max(latest, chunk.updatedAt || 0), 0);
+    return items.length ? { items, updatedAt, chunks: chunks.length } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Admin-only rebuild. Passing items avoids rereading the collection after an
+ * admin mutation; omitting them performs a full authoritative rebuild. */
+export async function rebuildTeacherSnapshot(sourceItems?: TeacherItem[]): Promise<TeacherSnapshotInfo> {
+  const items = sourceItems || (await getDocs(collection(db, "teachers"))).docs.map(
+    (d) => ({ id: d.id, ...(d.data() as Omit<TeacherItem, "id">) }),
+  );
+  const clean = JSON.parse(JSON.stringify(items)) as TeacherItem[];
+  const chunks: TeacherItem[][] = [];
+  for (let index = 0; index < clean.length; index += TEACHER_SNAPSHOT_CHUNK_SIZE) {
+    chunks.push(clean.slice(index, index + TEACHER_SNAPSHOT_CHUNK_SIZE));
+  }
+  const existing = await getDocs(collection(db, TEACHER_SNAPSHOT_COLLECTION));
+  const batch = writeBatch(db);
+  const updatedAt = Date.now();
+  chunks.forEach((chunkItems, index) => {
+    batch.set(doc(db, TEACHER_SNAPSHOT_COLLECTION, `chunk_${index}`), {
+      index,
+      items: chunkItems,
+      updatedAt,
+    });
+  });
+  existing.docs.forEach((snapshotDoc) => {
+    const index = Number(snapshotDoc.data().index ?? -1);
+    if (index >= chunks.length) batch.delete(snapshotDoc.ref);
+  });
+  await batch.commit();
+  saveLocalTeachers(clean);
+  return { items: clean, updatedAt, chunks: chunks.length };
+}
+
+async function refreshTeacherSnapshotBestEffort(items: TeacherItem[]): Promise<void> {
+  try {
+    await rebuildTeacherSnapshot(items);
+  } catch (error) {
+    // The authoritative teacher mutation already succeeded. Keep the admin
+    // operation successful and surface the cache problem in the dashboard.
+    console.warn("Teacher snapshot refresh failed:", error);
+  }
+}
 
 /** Normalize a displayed Thai name for duplicate checks without changing what is stored. */
 export function normalizeTeacherName(value: string): string {
@@ -181,6 +247,7 @@ export async function updateTeacherPhoto(id: string, photoUrl: string, photoFile
         const list: TeacherItem[] = JSON.parse(stored);
         const next = list.map((t) => (t.id === id ? { ...t, photoUrl, photoFileId } : t));
         localStorage.setItem("app_teachers", JSON.stringify(next));
+        await refreshTeacherSnapshotBestEffort(next);
       } catch {}
     }
   }
@@ -201,10 +268,18 @@ export async function getTeachers(gradeLevel?: string): Promise<TeacherItem[]> {
   let list = cacheFresh ? [...(memoryTeachersCache as TeacherItem[])] : [];
   if (!cacheFresh) {
     try {
-      const snapshot = await getDocs(collection(db, "teachers"));
-      if (!snapshot.empty) {
-        list = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TeacherItem, "id">) }));
+      const snapshot = await getTeacherSnapshotRaw();
+      if (snapshot?.items.length) {
+        list = snapshot.items;
         saveLocalTeachers(list);
+      } else {
+        // Migration/failure fallback only. Once the snapshot exists, public
+        // sessions no longer pay one read per teacher.
+        const legacy = await getDocs(collection(db, "teachers"));
+        if (!legacy.empty) {
+          list = legacy.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TeacherItem, "id">) }));
+          saveLocalTeachers(list);
+        }
       }
     } catch (err) {
       console.warn("Firestore getTeachers error, fallback to local:", err);
@@ -279,6 +354,7 @@ export async function saveTeacher(item: Omit<TeacherItem, "id"> & { id?: string 
     current.unshift(newItem);
   }
   saveLocalTeachers(current);
+  await refreshTeacherSnapshotBestEffort(current);
   return newItem;
 }
 
@@ -294,6 +370,7 @@ export async function deleteTeacher(id: string): Promise<void> {
 
   const current = getLocalTeachers().filter((t) => t.id !== id);
   saveLocalTeachers(current);
+  await refreshTeacherSnapshotBestEffort(current);
 }
 
 /**
@@ -337,5 +414,6 @@ export async function bulkReplaceTeachers(
   }
 
   saveLocalTeachers(built);
+  await refreshTeacherSnapshotBestEffort(built);
   return built.length;
 }

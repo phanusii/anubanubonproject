@@ -1,6 +1,6 @@
 # Telegram notifier (Firebase Spark / free)
 
-This Apps Script polls Firestore once per minute and sends new submissions to Telegram. No bot token is stored in this repository or shipped to the browser.
+This Apps Script polls Firestore as a fallback and sends new submissions to Telegram. The V2 installer uses a five-minute interval because the web app also requests an immediate notification. No bot token is stored in this repository or shipped to the browser.
 
 1. Create a standalone project at `script.google.com`.
 2. Paste `telegram-notifier.gs` into `Code.gs`.

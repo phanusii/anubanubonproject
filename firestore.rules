@@ -65,6 +65,13 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Chunked public roster cache. Reading this costs one document read for the
+    // current roster instead of one read per teacher; only admins may rebuild it.
+    match /teacherSnapshot/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Grade Levels collection
     match /gradeLevels/{document} {
       allow read: if true;

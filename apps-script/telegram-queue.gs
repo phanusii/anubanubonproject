@@ -8,8 +8,10 @@ function installTelegramNotifierV2() {
     })
     .forEach(function(trigger) { ScriptApp.deleteTrigger(trigger); });
   initializeTelegramCursorV2_();
-  ScriptApp.newTrigger("notifyNewSubmissionsV2").timeBased().everyMinutes(1).create();
-  sendTelegram_("✅ อัปเกรดระบบแจ้งเตือนสำหรับผู้ส่ง 300 คนเรียบร้อยแล้ว");
+  // Immediate notification is sent by the web app. This five-minute poll is a
+  // low-cost safety net and avoids spending two Firestore reads every minute.
+  ScriptApp.newTrigger("notifyNewSubmissionsV2").timeBased().everyMinutes(5).create();
+  sendTelegram_("✅ อัปเกรดระบบแจ้งเตือนสำหรับผู้ส่ง 300 คนเรียบร้อยแล้ว (สำรองทุก 5 นาที)");
 }
 
 /** Manual safe cleanup for obsolete generated certificate PDFs. */
