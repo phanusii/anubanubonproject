@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
-import { getDashboardStats, getStorageUsage } from "@/lib/submission-service";
+import { getDashboardStats, getStorageUsage, getGallerySnapshotRaw, rebuildGallerySnapshot } from "@/lib/submission-service";
 import { DashboardStats } from "@/lib/types";
-import { FileCheck, Users, FileText, Image as ImageIcon, TrendingUp, HardDrive, RefreshCw } from "lucide-react";
+import { FileCheck, Users, FileText, Image as ImageIcon, TrendingUp, HardDrive, RefreshCw, Zap } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 // Firebase Storage free allotment (Spark / the free monthly bucket on Blaze).
@@ -25,6 +25,36 @@ export default function AdminDashboardPage() {
   const [storageBusy, setStorageBusy] = useState(false);
   const [storageCount, setStorageCount] = useState(0);
   const [storageError, setStorageError] = useState("");
+
+  const [snapInfo, setSnapInfo] = useState<{ count: number; updatedAt: number } | null>(null);
+  const [snapBusy, setSnapBusy] = useState(false);
+  const [snapMsg, setSnapMsg] = useState("");
+
+  useEffect(() => {
+    getGallerySnapshotRaw()
+      .then((s) => setSnapInfo(s ? { count: s.items.length, updatedAt: s.updatedAt } : null))
+      .catch(() => {});
+  }, []);
+
+  const rebuildSnapshot = async () => {
+    if (snapBusy) return;
+    setSnapBusy(true);
+    setSnapMsg("");
+    try {
+      const result = await rebuildGallerySnapshot();
+      if (result) {
+        setSnapMsg(`อัปเดตแคชคลังแล้ว ${result.count.toLocaleString()} ชิ้น (${result.chunks} ส่วน)`);
+        const fresh = await getGallerySnapshotRaw();
+        setSnapInfo(fresh ? { count: fresh.items.length, updatedAt: fresh.updatedAt } : null);
+      } else {
+        setSnapMsg("ยังไม่มีผลงานให้สร้างแคช");
+      }
+    } catch {
+      setSnapMsg("อัปเดตแคชไม่สำเร็จ กรุณาลองใหม่");
+    } finally {
+      setSnapBusy(false);
+    }
+  };
 
   const computeStorage = async () => {
     if (storageBusy) return;
@@ -147,6 +177,38 @@ export default function AdminDashboardPage() {
               </div>
             </div>
           )}
+
+          {/* Gallery snapshot — cuts Firestore reads on the public gallery */}
+          <div className="glass-panel p-6 rounded-3xl border border-white bg-white shadow-xs space-y-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2.5">
+                <span className="w-10 h-10 rounded-2xl ios-gradient-emerald text-white flex items-center justify-center shrink-0">
+                  <Zap className="w-5 h-5" />
+                </span>
+                <div>
+                  <h2 className="font-extrabold text-base text-slate-900">แคชคลังผลงาน (ลดการอ่านฐานข้อมูล)</h2>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    {snapInfo
+                      ? `มีแคชแล้ว ${snapInfo.count.toLocaleString()} ชิ้น · อัปเดตล่าสุด ${new Date(snapInfo.updatedAt).toLocaleString("th-TH")}`
+                      : "ยังไม่มีแคช — กดสร้างเพื่อให้หน้าคลังอ่านฐานข้อมูลน้อยลงมาก"}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={rebuildSnapshot}
+                disabled={snapBusy}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl ios-gradient-blue text-white text-xs font-extrabold shadow-sm disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${snapBusy ? "animate-spin" : ""}`} />
+                {snapBusy ? "กำลังอัปเดต…" : snapInfo ? "อัปเดตแคช" : "สร้างแคช"}
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-400 font-medium leading-relaxed">
+              หน้าคลังจะอ่านจากแคชนี้ (ไม่กี่ครั้ง) แทนการอ่านทุกผลงาน · งานที่ส่งใหม่จะขึ้นเองอัตโนมัติ · หลัง<b className="text-slate-500">ลบ/แก้ไข</b>ผลงาน ควรกด &quot;อัปเดตแคช&quot; อีกครั้งเพื่อให้คลังตรงกัน
+            </p>
+            {snapMsg && <p className="text-xs font-bold text-emerald-700">{snapMsg}</p>}
+          </div>
 
           {/* Storage capacity vs free quota */}
           <div className="glass-panel p-6 rounded-3xl border border-white bg-white shadow-xs space-y-3">

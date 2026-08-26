@@ -12,6 +12,7 @@ import {
   getInstantSubmissions,
   getGallerySubmissions,
   getInstantGallery,
+  rebuildGallerySnapshot,
   DEFAULT_GRADE_LEVELS,
   DEFAULT_SUBJECT_GROUPS
 } from "@/lib/submission-service";
@@ -97,6 +98,7 @@ export default function AdminSubmissionsPage() {
   const handleDelete = async (sub: Submission) => {
     if (confirm(`คุณต้องการลบผลงาน "${sub.projectTitle}" ของ ${sub.fullName} ใช่หรือไม่?\n\n(ไฟล์และข้อมูลผลงานทั้งหมดจะถูกลบออกจากระบบและคลาวด์ไดร์ฟอย่างสมบูรณ์)`)) {
       await deleteSubmission(sub.id);
+      await rebuildGallerySnapshot().catch(() => {});
       loadData();
     }
   };
@@ -132,6 +134,7 @@ export default function AdminSubmissionsPage() {
       setBulkProgress({ done: i + 1, total: items.length });
     }
     setSelectedIds(new Set());
+    await rebuildGallerySnapshot().catch(() => {});
     setBulkDeleting(false);
     await loadData();
   };
@@ -203,6 +206,7 @@ export default function AdminSubmissionsPage() {
     if (!editingSubmission) return;
 
     await updateSubmission(editingSubmission.id, editForm);
+    await rebuildGallerySnapshot().catch(() => {});
 
     setEditingSubmission(null);
     loadData();

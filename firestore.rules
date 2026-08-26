@@ -58,6 +58,13 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Pre-aggregated gallery snapshot (chunked). Public read so the gallery can
+    // load in a few reads instead of one-per-work; only the admin may (re)build it.
+    match /gallerySnapshot/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Grade Levels collection
     match /gradeLevels/{document} {
       allow read: if true;

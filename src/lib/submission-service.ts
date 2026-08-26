@@ -303,63 +303,147 @@ export function getInstantPersonWorks(fullName: string): Submission[] {
   return out;
 }
 
-export async function getGallerySubmissions(projectId?: string): Promise<Submission[]> {
-  const key = galleryCacheKey(projectId);
-  const cached = galleryResultCache.get(key);
-  if (cached && Date.now() - cached.timestamp < GALLERY_RESULT_TTL_MS) return cached.data;
+// Pre-aggregated gallery snapshot: the gallery would otherwise read ~1 document
+// per work (hundreds of Firestore reads) on every visit. The snapshot stores the
+// whole projected list in a few chunk documents (admin-writable, public-readable);
+// a visit reads those chunks plus only the works created since the last rebuild.
+const SNAPSHOT_COLLECTION = "gallerySnapshot";
+const SNAPSHOT_CHUNK_SIZE = 600;
 
-  const fallback = () => getSubmissions({
-    ignoreProjectFilter: true,
-    projectId: projectId && projectId !== "all" ? projectId : undefined,
-    limitNum: FETCH_CAP,
-  });
+/** Map raw Firestore REST rows to projected Submission objects. */
+function parseGalleryRows(rows: unknown[]): Submission[] {
+  return (rows as Array<{ document?: { name: string; fields?: Record<string, { stringValue?: string; integerValue?: string; doubleValue?: number }> } }>)
+    .filter((row) => row.document)
+    .map((row) => {
+      const f = row.document!.fields || {};
+      const str = (k: string) => f[k]?.stringValue;
+      const num = (k: string) =>
+        f[k]?.integerValue !== undefined ? Number(f[k]!.integerValue)
+        : f[k]?.doubleValue !== undefined ? Number(f[k]!.doubleValue)
+        : undefined;
+      return {
+        id: String(row.document!.name).split("/").pop(),
+        fullName: str("fullName"), position: str("position"), gradeLevel: str("gradeLevel"),
+        subjectGroup: str("subjectGroup"), school: str("school"), province: str("province"),
+        projectId: str("projectId"), projectName: str("projectName"), projectTitle: str("projectTitle"),
+        workSlotId: str("workSlotId"), description: str("description"),
+        fileType: str("fileType"), fileURL: str("fileURL"), fileName: str("fileName"),
+        driveFileId: str("driveFileId"), driveLink: str("driveLink"), thumbUrl: str("thumbUrl"),
+        createdAt: num("createdAt"), uploadDate: str("uploadDate"),
+      } as Submission;
+    });
+}
+
+/** Projected REST read of submissions, optionally scoped to one round and/or to
+ *  works created after `sinceCreatedAt`. Returns null on any failure. */
+async function fetchGalleryRest(opts: { projectId?: string; sinceCreatedAt?: number }): Promise<Submission[] | null> {
   try {
     const options = (db as unknown as { app?: { options?: { projectId?: string; apiKey?: string } } }).app?.options || {};
     const fbProjectId = options.projectId;
     const apiKey = options.apiKey;
-    if (!fbProjectId || !apiKey) return await fallback();
+    if (!fbProjectId || !apiKey) return null;
+    const filters: unknown[] = [];
+    if (opts.projectId && opts.projectId !== "all") {
+      filters.push({ fieldFilter: { field: { fieldPath: "projectId" }, op: "EQUAL", value: { stringValue: opts.projectId } } });
+    }
+    if (typeof opts.sinceCreatedAt === "number") {
+      filters.push({ fieldFilter: { field: { fieldPath: "createdAt" }, op: "GREATER_THAN", value: { integerValue: String(opts.sinceCreatedAt) } } });
+    }
     const structuredQuery: Record<string, unknown> = {
       from: [{ collectionId: "submissions" }],
       select: { fields: GALLERY_FIELDS.map((fieldPath) => ({ fieldPath })) },
       limit: FETCH_CAP,
     };
-    if (projectId && projectId !== "all") {
-      structuredQuery.where = { fieldFilter: { field: { fieldPath: "projectId" }, op: "EQUAL", value: { stringValue: projectId } } };
-    }
+    if (filters.length === 1) structuredQuery.where = filters[0];
+    else if (filters.length > 1) structuredQuery.where = { compositeFilter: { op: "AND", filters } };
     const res = await fetch(
       `https://firestore.googleapis.com/v1/projects/${fbProjectId}/databases/(default)/documents:runQuery?key=${apiKey}`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ structuredQuery }) },
     );
-    if (!res.ok) return await fallback();
+    if (!res.ok) return null;
     const rows = await res.json();
-    if (!Array.isArray(rows)) return await fallback();
-    const items = rows
-      .filter((row) => row.document)
-      .map((row) => {
-        const f = row.document.fields || {};
-        const str = (k: string) => f[k]?.stringValue as string | undefined;
-        const num = (k: string) =>
-          f[k]?.integerValue !== undefined ? Number(f[k].integerValue)
-          : f[k]?.doubleValue !== undefined ? Number(f[k].doubleValue)
-          : undefined;
-        return {
-          id: String(row.document.name).split("/").pop(),
-          fullName: str("fullName"), position: str("position"), gradeLevel: str("gradeLevel"),
-          subjectGroup: str("subjectGroup"), school: str("school"), province: str("province"),
-          projectId: str("projectId"), projectName: str("projectName"), projectTitle: str("projectTitle"),
-          workSlotId: str("workSlotId"), description: str("description"),
-          fileType: str("fileType"), fileURL: str("fileURL"), fileName: str("fileName"),
-          driveFileId: str("driveFileId"), driveLink: str("driveLink"), thumbUrl: str("thumbUrl"),
-          createdAt: num("createdAt"), uploadDate: str("uploadDate"),
-        } as Submission;
-      });
-    if (items.length === 0) return await fallback();
-    const sorted = items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (!Array.isArray(rows)) return null;
+    return parseGalleryRows(rows);
+  } catch {
+    return null;
+  }
+}
+
+/** Read the pre-aggregated snapshot (few reads). Returns null when none exists. */
+export async function getGallerySnapshotRaw(): Promise<{ items: Submission[]; updatedAt: number } | null> {
+  try {
+    const snap = await getDocs(collection(db, SNAPSHOT_COLLECTION));
+    if (snap.empty) return null;
+    const chunks = snap.docs
+      .map((d) => d.data() as { index?: number; items?: Submission[]; updatedAt?: number })
+      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    const items = chunks.flatMap((c) => c.items || []);
+    const updatedAt = chunks.reduce((mx, c) => Math.max(mx, c.updatedAt || 0), 0);
+    return items.length ? { items, updatedAt } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Rebuild the snapshot from the full projected list. Admin-only (Firestore
+ *  rules gate the write). Returns the counts, or null if there is nothing/failed. */
+export async function rebuildGallerySnapshot(): Promise<{ count: number; chunks: number } | null> {
+  const all = (await fetchGalleryRest({})) || [];
+  if (!all.length) return null;
+  // Strip undefined fields — Firestore rejects them inside arrays/maps.
+  const clean = JSON.parse(JSON.stringify(all)) as Submission[];
+  const updatedAt = Date.now();
+  const chunks: Submission[][] = [];
+  for (let i = 0; i < clean.length; i += SNAPSHOT_CHUNK_SIZE) chunks.push(clean.slice(i, i + SNAPSHOT_CHUNK_SIZE));
+  const batch = writeBatch(db);
+  chunks.forEach((items, index) => batch.set(doc(db, SNAPSHOT_COLLECTION, `chunk_${index}`), { index, items, updatedAt }));
+  // Drop any leftover chunks from a previously larger snapshot.
+  try {
+    const existing = await getDocs(collection(db, SNAPSHOT_COLLECTION));
+    existing.docs.forEach((d) => {
+      const idx = (d.data() as { index?: number }).index ?? -1;
+      if (idx >= chunks.length) batch.delete(d.ref);
+    });
+  } catch {
+    /* best-effort cleanup */
+  }
+  await batch.commit();
+  galleryResultCache.clear();
+  return { count: clean.length, chunks: chunks.length };
+}
+
+export async function getGallerySubmissions(projectId?: string): Promise<Submission[]> {
+  const key = galleryCacheKey(projectId);
+  const cached = galleryResultCache.get(key);
+  if (cached && Date.now() - cached.timestamp < GALLERY_RESULT_TTL_MS) return cached.data;
+
+  // Fast path: pre-aggregated snapshot (a few chunk reads) + only the works
+  // created since the last rebuild (a small delta), instead of reading every work.
+  const snapshot = await getGallerySnapshotRaw();
+  if (snapshot && snapshot.items.length) {
+    const delta = (await fetchGalleryRest({ sinceCreatedAt: snapshot.updatedAt })) || [];
+    const byId = new Map<string, Submission>();
+    for (const s of snapshot.items) if (s.id) byId.set(s.id, s);
+    for (const s of delta) if (s.id) byId.set(s.id, s); // fresher copy wins
+    let items = Array.from(byId.values());
+    if (projectId && projectId !== "all") items = items.filter((s) => s.projectId === projectId);
+    items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    galleryResultCache.set(key, { data: items, timestamp: Date.now() });
+    return items;
+  }
+
+  // No snapshot yet → projected full read; last resort is the SDK (full documents).
+  const full = await fetchGalleryRest({ projectId });
+  if (full && full.length) {
+    const sorted = full.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     galleryResultCache.set(key, { data: sorted, timestamp: Date.now() });
     return sorted;
-  } catch {
-    return await fallback();
   }
+  return getSubmissions({
+    ignoreProjectFilter: true,
+    projectId: projectId && projectId !== "all" ? projectId : undefined,
+    limitNum: FETCH_CAP,
+  });
 }
 
 /**
