@@ -29,7 +29,11 @@ import {
   X,
   Save,
   HardDrive,
-  History
+  History,
+  UserRound,
+  CalendarClock,
+  FolderKanban,
+  CheckCircle2
 } from "lucide-react";
 import { isGoogleDriveLink, extractGoogleDriveFileId } from "@/lib/google-drive-utils";
 import { checkDriveLinkPublic } from "@/lib/certificate-service";
@@ -46,8 +50,8 @@ export default function AdminSubmissionsPage() {
   const [search, setSearch] = useState("");
   const [selectedGrade, setSelectedGrade] = useState("ทั้งหมด");
   const [selectedSubject, setSelectedSubject] = useState("ทั้งหมด");
-  const [selectedKind, setSelectedKind] = useState<"all" | "training" | "project">("all");
-  const [selectedProjectId, setSelectedProjectId] = useState("all");
+  const [selectedKind, setSelectedKind] = useState<"" | "training" | "project">("");
+  const [selectedProjectId, setSelectedProjectId] = useState("");
 
   // Selected Submission Modal for viewing
   const [activeSubmission, setActiveSubmission] = useState<Submission | null>(null);
@@ -93,6 +97,13 @@ export default function AdminSubmissionsPage() {
     if (gls && gls.length > 0) setGradeLevels(gls);
     if (sgs && sgs.length > 0) setSubjectGroups(sgs);
     setProjects(projectData);
+    // Follow the display order configured by Admin: open the first round
+    // immediately, while keeping the round picker available above the results.
+    if (!selectedProjectId && projectData.length > 0) {
+      const firstProject = projectData[0];
+      setSelectedKind(firstProject.kind || "project");
+      setSelectedProjectId(firstProject.id);
+    }
   }
 
   const handleDelete = async (sub: Submission) => {
@@ -145,7 +156,7 @@ export default function AdminSubmissionsPage() {
     setScanning(true);
     setNonPublicSubs(null);
     setScanMessage("กำลังตรวจการแชร์ของลิงก์ Google Drive...");
-    const links = submissions.filter((s) => s.fileType === "drive");
+    const links = submissions.filter((s) => s.projectId === selectedProjectId && s.fileType === "drive");
     const found: Submission[] = [];
     try {
       for (let i = 0; i < links.length; i += 6) {
@@ -233,16 +244,16 @@ export default function AdminSubmissionsPage() {
       const matchesSubject = selectedSubject === "ทั้งหมด" || sub.subjectGroup === selectedSubject;
       const relatedProject = projects.find((project) => project.id === sub.projectId);
       const projectKind = relatedProject?.kind || "project";
-      const matchesKind = selectedKind === "all" || projectKind === selectedKind;
-      const matchesProject = selectedProjectId === "all" || sub.projectId === selectedProjectId;
+      const matchesKind = selectedKind !== "" && projectKind === selectedKind;
+      const matchesProject = selectedProjectId !== "" && sub.projectId === selectedProjectId;
 
       return matchesSearch && matchesGrade && matchesSubject && matchesKind && matchesProject;
     });
   }, [submissions, search, selectedGrade, selectedSubject, selectedKind, selectedProjectId, projects]);
 
-  const projectsForKind = selectedKind === "all"
-    ? projects
-    : projects.filter((project) => project.kind === selectedKind);
+  const projectsForKind = selectedKind
+    ? projects.filter((project) => (project.kind || "project") === selectedKind)
+    : [];
 
   const kindCounts = useMemo(() => {
     const projectKinds = new Map(projects.map((project) => [project.id, project.kind || "project"]));
@@ -254,6 +265,24 @@ export default function AdminSubmissionsPage() {
     }
     return { all: submissions.length, training, project };
   }, [projects, submissions]);
+
+  const selectedProject = projects.find((project) => project.id === selectedProjectId);
+
+  const teacherGroups = useMemo(() => {
+    const groups = new Map<string, Submission[]>();
+    for (const sub of filteredSubmissions) {
+      const key = (sub.fullName || "ไม่ระบุชื่อ").replace(/\s+/g, "").toLowerCase();
+      const list = groups.get(key) || [];
+      list.push(sub);
+      groups.set(key, list);
+    }
+    return Array.from(groups.values())
+      .map((items) => {
+        const sorted = [...items].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        return { teacher: sorted[0], items: sorted, latestAt: sorted[0]?.createdAt || 0 };
+      })
+      .sort((a, b) => b.latestAt - a.latestAt || a.teacher.fullName.localeCompare(b.teacher.fullName, "th"));
+  }, [filteredSubmissions]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -268,9 +297,80 @@ export default function AdminSubmissionsPage() {
               จัดการรายการผลงานทั้งหมด ({filteredSubmissions.length} รายการ)
             </h1>
             <p className="text-xs font-semibold text-slate-500">
-              ค้นหา ตรวจสอบ แก้ไขข้อมูล และลบรายการผลงานพร้อมไฟล์ในระบบและไดร์ฟทั้งหมด
+              เลือกประเภทและรอบก่อน แล้วตรวจผลงานแบบรวมตามรายชื่อครู
             </p>
           </div>
+
+          {/* Required round selection: keep the large submission list hidden until
+              the admin has deliberately chosen its scope. */}
+          <div className="glass-panel p-5 sm:p-6 rounded-3xl border border-blue-100 bg-white shadow-xs space-y-5">
+            <div className="flex items-center gap-3">
+              <span className="w-10 h-10 rounded-2xl ios-gradient-blue text-white flex items-center justify-center shrink-0">
+                <FolderKanban className="w-5 h-5" />
+              </span>
+              <div>
+                <h2 className="font-extrabold text-base text-slate-900">1. เลือกประเภทและรอบที่ต้องการจัดการ</h2>
+                <p className="text-[11px] font-semibold text-slate-500">ระบบจะแสดงเฉพาะครูและผลงานในรอบที่เลือก ป้องกันการแก้ไขหรือลบผิดรอบ</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {([
+                { key: "training", label: "การอบรม", count: kindCounts.training },
+                { key: "project", label: "โครงการ", count: kindCounts.project },
+              ] as const).map((item) => (
+                <button
+                  type="button"
+                  key={item.key}
+                  onClick={() => {
+                    setSelectedKind(item.key);
+                    setSelectedProjectId("");
+                    setSelectedIds(new Set());
+                  }}
+                  className={`p-4 rounded-2xl border text-left transition-all ${selectedKind === item.key ? "border-blue-500 bg-blue-50 ring-2 ring-blue-500/15" : "border-slate-200 bg-slate-50 hover:border-blue-300"}`}
+                >
+                  <span className="block text-sm font-extrabold text-slate-900">{item.label}</span>
+                  <span className="block text-xs font-semibold text-slate-500 mt-1">{projects.filter((project) => (project.kind || "project") === item.key).length} รอบ · {item.count.toLocaleString()} ผลงาน</span>
+                </button>
+              ))}
+            </div>
+
+            {selectedKind && (
+              <div className="space-y-2">
+                <label className="text-xs font-extrabold text-slate-700">2. เลือกรอบ{selectedKind === "training" ? "การอบรม" : "โครงการ"}</label>
+                <select
+                  value={selectedProjectId}
+                  onChange={(event) => {
+                    setSelectedProjectId(event.target.value);
+                    setSelectedIds(new Set());
+                  }}
+                  className="w-full px-4 py-3 rounded-2xl border border-blue-200 bg-blue-50 text-blue-900 text-sm font-extrabold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="">— กรุณาเลือกรอบก่อนแสดงผลงาน —</option>
+                  {projectsForKind.map((project) => (
+                    <option key={project.id} value={project.id}>{project.name}</option>
+                  ))}
+                </select>
+                {projectsForKind.length === 0 && <p className="text-xs font-bold text-amber-600">ยังไม่มีรอบในประเภทนี้</p>}
+              </div>
+            )}
+
+            {selectedProject && (
+              <div className="flex items-center gap-2 p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <p className="text-xs font-bold">กำลังจัดการ: {selectedProject.name}</p>
+              </div>
+            )}
+          </div>
+
+          {!selectedProjectId ? (
+            <div className="glass-panel rounded-3xl border border-dashed border-blue-200 bg-blue-50/40 p-12 text-center">
+              <FolderKanban className="w-10 h-10 mx-auto text-blue-400 mb-3" />
+              <p className="font-extrabold text-slate-700">เลือกรอบด้านบนก่อนแสดงรายชื่อครูและผลงาน</p>
+              <p className="text-xs text-slate-500 mt-1">ยังไม่มีข้อมูลใดถูกเลือกหรือพร้อมลบในตอนนี้</p>
+            </div>
+          ) : (
+            <>
 
           {/* Non-public Drive-link cleanup tool */}
           <div className="glass-panel p-4 sm:p-5 rounded-3xl border border-amber-100 bg-amber-50/40 shadow-xs space-y-3">
@@ -342,21 +442,6 @@ export default function AdminSubmissionsPage() {
 
           {/* Filter & Multi-Field Search Bar */}
           <div className="glass-panel p-4 sm:p-6 rounded-3xl border border-white space-y-4 shadow-xs bg-white">
-            <div className="flex flex-wrap items-center gap-2 pb-4 border-b border-slate-100">
-              {([
-                { key: "all", label: "ทั้งหมด", count: kindCounts.all },
-                { key: "training", label: "การอบรม", count: kindCounts.training },
-                { key: "project", label: "โครงการ", count: kindCounts.project },
-              ] as const).map((item) => (
-                <button
-                  key={item.key}
-                  onClick={() => { setSelectedKind(item.key); setSelectedProjectId("all"); }}
-                  className={`px-4 py-2.5 rounded-xl text-xs font-extrabold transition-colors ${selectedKind === item.key ? "bg-blue-600 text-white shadow-md shadow-blue-500/20" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-                >
-                  {item.label} ({item.count})
-                </button>
-              ))}
-            </div>
             <div className="flex flex-col md:flex-row items-center justify-between gap-4">
               {/* Comprehensive Multi-Field Search Input */}
               <div className="relative w-full md:w-96">
@@ -376,19 +461,6 @@ export default function AdminSubmissionsPage() {
                   <SlidersHorizontal className="w-4 h-4 text-blue-600" />
                   <span>ตัวกรอง:</span>
                 </div>
-
-                <select
-                  value={selectedProjectId}
-                  onChange={(e) => setSelectedProjectId(e.target.value)}
-                  className="w-full sm:w-auto px-3.5 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-800 text-xs font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none sm:max-w-[280px]"
-                >
-                  <option value="all">ทุกรอบในประเภทที่เลือก</option>
-                  {projectsForKind.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.kind === "training" ? "การอบรม" : "โครงการ"} · {project.name}
-                    </option>
-                  ))}
-                </select>
 
                 <select
                   value={selectedGrade}
@@ -464,145 +536,80 @@ export default function AdminSubmissionsPage() {
             </div>
           )}
 
-          {/* Submissions Table */}
-          <div className="glass-panel rounded-3xl border border-white overflow-hidden bg-white shadow-xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-extrabold">
-                    <th className="py-4 pl-4 pr-1 w-8">
+          {/* Teacher-grouped submissions */}
+          <div className="space-y-4">
+            {teacherGroups.length === 0 ? (
+              <div className="glass-panel rounded-3xl border border-white bg-white p-12 text-center text-slate-400 font-semibold">
+                ไม่พบรายชื่อครูหรือผลงานตามตัวกรอง
+              </div>
+            ) : teacherGroups.map(({ teacher, items }) => {
+              const allSelected = items.every((item) => selectedIds.has(item.id));
+              return (
+                <section key={`${teacher.fullName}-${teacher.gradeLevel}-${teacher.subjectGroup}`} className="glass-panel rounded-3xl border border-white bg-white shadow-xs overflow-hidden">
+                  <header className="p-4 sm:p-5 bg-gradient-to-r from-blue-50/80 to-violet-50/50 border-b border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <span className="w-11 h-11 rounded-2xl ios-gradient-blue text-white flex items-center justify-center shrink-0"><UserRound className="w-5 h-5" /></span>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="font-extrabold text-base text-slate-900">{teacher.fullName}</h2>
+                          <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[11px] font-extrabold">ส่งแล้ว {items.length} ชิ้น</span>
+                        </div>
+                        <p className="text-[11px] font-semibold text-slate-500 mt-0.5">{teacher.position || "ไม่ระบุตำแหน่ง"} · ครูสายชั้น{teacher.gradeLevel || "-"} · {shortSubject(teacher.subjectGroup || "-")}</p>
+                        <p className="text-[11px] font-semibold text-blue-600 truncate">{teacher.school}</p>
+                      </div>
+                    </div>
+                    <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-600 bg-white px-3 py-2 rounded-xl border border-slate-200 shrink-0">
                       <input
                         type="checkbox"
-                        aria-label="เลือกทั้งหมดที่แสดง"
-                        className="w-4 h-4 accent-red-600 align-middle"
-                        checked={filteredSubmissions.length > 0 && filteredSubmissions.every((s) => selectedIds.has(s.id))}
-                        onChange={(e) =>
-                          setSelectedIds((prev) => {
-                            const next = new Set(prev);
-                            if (e.target.checked) filteredSubmissions.forEach((s) => next.add(s.id));
-                            else filteredSubmissions.forEach((s) => next.delete(s.id));
-                            return next;
-                          })
-                        }
+                        className="w-4 h-4 accent-red-600"
+                        checked={allSelected}
+                        onChange={(event) => setSelectedIds((previous) => {
+                          const next = new Set(previous);
+                          items.forEach((item) => event.target.checked ? next.add(item.id) : next.delete(item.id));
+                          return next;
+                        })}
                       />
-                    </th>
-                    <th className="py-4 px-4">ชื่อ-สกุล / ตำแหน่ง / โรงเรียน</th>
-                    <th className="py-4 px-4">หัวข้อผลงาน</th>
-                    <th className="py-4 px-4">สายชั้น / กลุ่มสาระ</th>
-                    <th className="py-4 px-4">วันที่ส่ง</th>
-                    <th className="py-4 px-4 text-right">การจัดการ</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-semibold text-slate-800">
-                  {filteredSubmissions.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-400 font-medium">
-                        ไม่พบรายการผลงานตามเงื่อนไข
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredSubmissions.map((sub) => {
+                      เลือกงานของครูคนนี้ทั้งหมด
+                    </label>
+                  </header>
+
+                  <div className="divide-y divide-slate-100">
+                    {items.map((sub, index) => {
                       const isDrive = sub.fileType === "drive" || isGoogleDriveLink(sub.fileURL);
                       return (
-                        <tr key={sub.id} className={`transition-colors ${selectedIds.has(sub.id) ? "bg-red-50/70" : "hover:bg-slate-50/80"}`}>
-                          <td className="py-4 pl-4 pr-1 align-top">
-                            <input
-                              type="checkbox"
-                              aria-label={`เลือก ${sub.fullName}`}
-                              className="w-4 h-4 accent-red-600 mt-0.5"
-                              checked={selectedIds.has(sub.id)}
-                              onChange={() => toggleSelect(sub.id)}
-                            />
-                          </td>
-                          <td className="py-4 px-4 space-y-0.5">
-                            <div className="font-extrabold text-slate-900">{sub.fullName}</div>
-                            <div className="text-[11px] text-slate-500">{sub.position}</div>
-                            <div className="text-[11px] text-blue-600 font-semibold">{sub.school}</div>
-                          </td>
-
-                          <td className="py-4 px-4 space-y-1 max-w-xs">
-                            <div className="font-extrabold text-slate-900 line-clamp-2">{displayWorkTitle(sub.projectTitle)}</div>
-                            {sub.projectName && <div className="text-[10px] text-slate-400 line-clamp-1">{sub.projectName}</div>}
-                            <div className="flex items-center gap-1.5">
-                              {isDrive ? (
-                                <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-100 text-emerald-700 flex items-center gap-1">
-                                  <HardDrive className="w-3 h-3" />
-                                  <span>GOOGLE DRIVE</span>
-                                </span>
-                              ) : (
-                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
-                                  sub.fileType === "pdf" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"
-                                }`}>
-                                  {sub.fileType.toUpperCase()}
-                                </span>
-                              )}
+                        <div key={sub.id} className={`p-4 sm:px-5 grid grid-cols-[auto_1fr] lg:grid-cols-[auto_minmax(0,1fr)_190px_auto] items-start lg:items-center gap-3 ${selectedIds.has(sub.id) ? "bg-red-50/70" : "hover:bg-slate-50/70"}`}>
+                          <input type="checkbox" aria-label={`เลือก ${sub.projectTitle}`} className="w-4 h-4 accent-red-600 mt-1 lg:mt-0" checked={selectedIds.has(sub.id)} onChange={() => toggleSelect(sub.id)} />
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="w-6 h-6 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center text-[10px] font-extrabold">{index + 1}</span>
+                              <h3 className="font-extrabold text-sm text-slate-900">{displayWorkTitle(sub.projectTitle)}</h3>
+                              <span className={`px-2 py-0.5 rounded-md text-[9px] font-extrabold ${isDrive ? "bg-emerald-100 text-emerald-700" : sub.fileType === "pdf" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700"}`}>
+                                {isDrive ? "GOOGLE DRIVE" : sub.fileType.toUpperCase()}
+                              </span>
                             </div>
-                          </td>
-
-                          <td className="py-4 px-4 space-y-1">
-                            <div className="inline-block px-2.5 py-0.5 rounded-lg bg-blue-50 text-blue-700 font-bold">
-                              ครูสายชั้น{sub.gradeLevel}
-                            </div>
-                            <div className="text-[11px] text-slate-500 font-medium line-clamp-1">
-                              {shortSubject(sub.subjectGroup)}
-                            </div>
-                          </td>
-
-                          <td className="py-4 px-4 text-slate-500 text-[11px]">
-                            {sub.uploadDate}
-                          </td>
-
-                          <td className="py-4 px-4 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                onClick={() => setActiveSubmission(sub)}
-                                className="p-2 rounded-xl text-blue-600 hover:bg-blue-50 transition-colors"
-                                title="ดูรายละเอียด"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                              {(sub.driveFileId || isDrive) && (
-                                <button
-                                  onClick={() => setVersionsFor(sub)}
-                                  className="p-2 rounded-xl text-violet-600 hover:bg-violet-50 transition-colors"
-                                  title="ประวัติเวอร์ชัน / กู้คืน"
-                                >
-                                  <History className="w-4 h-4" />
-                                </button>
-                              )}
-                              <button
-                                onClick={() => handleStartEdit(sub)}
-                                className="p-2 rounded-xl text-amber-600 hover:bg-amber-50 transition-colors"
-                                title="แก้ไขข้อมูล"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </button>
-                              <a
-                                href={sub.fileURL}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition-colors"
-                                title="ดาวน์โหลด/เปิดไฟล์"
-                              >
-                                <Download className="w-4 h-4" />
-                              </a>
-                              <button
-                                onClick={() => handleDelete(sub)}
-                                className="p-2 rounded-xl text-red-500 hover:bg-red-50 transition-colors"
-                                title="ลบรายการ"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
+                            {sub.description && <p className="text-[11px] text-slate-500 mt-1 line-clamp-1">{sub.description}</p>}
+                          </div>
+                          <div className="col-start-2 lg:col-start-auto flex items-center gap-2 text-[11px] font-bold text-slate-500">
+                            <CalendarClock className="w-4 h-4 text-blue-500 shrink-0" />
+                            <span>ส่งเมื่อ {sub.uploadDate || "ไม่ระบุวันเวลา"}</span>
+                          </div>
+                          <div className="col-start-2 lg:col-start-auto flex items-center lg:justify-end gap-1">
+                            <button onClick={() => setActiveSubmission(sub)} className="p-2 rounded-xl text-blue-600 hover:bg-blue-50" title="ดูรายละเอียด"><Eye className="w-4 h-4" /></button>
+                            {(sub.driveFileId || isDrive) && <button onClick={() => setVersionsFor(sub)} className="p-2 rounded-xl text-violet-600 hover:bg-violet-50" title="ประวัติเวอร์ชัน / กู้คืน"><History className="w-4 h-4" /></button>}
+                            <button onClick={() => handleStartEdit(sub)} className="p-2 rounded-xl text-amber-600 hover:bg-amber-50" title="แก้ไขข้อมูล"><Edit className="w-4 h-4" /></button>
+                            <a href={sub.fileURL} target="_blank" rel="noreferrer" className="p-2 rounded-xl text-slate-600 hover:bg-slate-100" title="ดาวน์โหลด/เปิดไฟล์"><Download className="w-4 h-4" /></a>
+                            <button onClick={() => handleDelete(sub)} className="p-2 rounded-xl text-red-500 hover:bg-red-50" title="ลบรายการ"><Trash2 className="w-4 h-4" /></button>
+                          </div>
+                        </div>
                       );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    })}
+                  </div>
+                </section>
+              );
+            })}
           </div>
+            </>
+          )}
         </main>
       </div>
 
