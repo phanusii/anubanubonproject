@@ -1090,16 +1090,25 @@ export async function restoreDriveRevision(fileId: string, revisionId: string): 
 /**
  * Submit new work to Firestore & Local Storage
  */
+function cleanSubmissionForFirestore<T extends object>(value: T): T {
+  // Optional submission fields (for example driveFileId on a Storage upload)
+  // can be present as `undefined`. Firestore rejects undefined values instead
+  // of treating them as absent, so remove them before every submission write.
+  return Object.fromEntries(
+    Object.entries(value).filter(([, fieldValue]) => fieldValue !== undefined)
+  ) as T;
+}
+
 export async function createSubmission(submissionData: Omit<Submission, "id" | "uploadDate" | "createdAt">): Promise<Submission> {
   const now = new Date();
   const formattedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   const timestamp = now.getTime();
 
-  const newSub: Omit<Submission, "id"> = {
+  const newSub = cleanSubmissionForFirestore<Omit<Submission, "id">>({
     ...submissionData,
     uploadDate: formattedDate,
     createdAt: timestamp,
-  };
+  });
 
   try {
     let docRef: Awaited<ReturnType<typeof addDoc>> | null = null;
@@ -1155,11 +1164,11 @@ export async function createSubmission(submissionData: Omit<Submission, "id" | "
  */
 export async function replaceSubmission(oldId: string, submissionData: Omit<Submission, "id" | "uploadDate" | "createdAt">): Promise<Submission> {
   const now = new Date();
-  const updated: Omit<Submission, "id"> = {
+  const updated = cleanSubmissionForFirestore<Omit<Submission, "id">>({
     ...submissionData,
     uploadDate: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
     createdAt: now.getTime(),
-  };
+  });
   let saved = false;
   let lastError: unknown;
   for (let attempt = 0; attempt < 5 && !saved; attempt++) {
