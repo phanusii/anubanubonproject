@@ -1,6 +1,6 @@
 "use client";
 
-import { Dispatch, SetStateAction, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Dispatch, SetStateAction, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 // Layout effect on the client, plain effect during the static build so React
 // doesn't warn about useLayoutEffect on the server. Resolved once at module load
@@ -25,14 +25,13 @@ export function useInstantState<T>(readInstant: () => T, serverValue: T): [T, Di
   // Only the mount seed is automatic; once the caller has set its own value we
   // must not clobber it on a later re-run (the effect runs once, but guard anyway).
   const touched = useRef(false);
-  const setTouched: Dispatch<SetStateAction<T>> = (next) => {
+  const setTouched: Dispatch<SetStateAction<T>> = useCallback((next) => {
     touched.current = true;
     setValue(next);
-  };
+  }, []);
   useIsomorphicLayoutEffect(() => {
     if (touched.current) return;
     setValue(readInstant());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return [value, setTouched];
 }

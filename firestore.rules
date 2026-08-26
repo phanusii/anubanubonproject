@@ -21,7 +21,7 @@ service cloud.firestore {
     // fallback writes and cause confusing data loss, so they are intentionally omitted.)
     function isValidSubmission() {
       return request.resource.data.keys().hasOnly([
-               'fullName', 'position', 'school', 'province', 'gradeLevel',
+               'fullName', 'teacherId', 'position', 'school', 'province', 'gradeLevel',
                'subjectGroup', 'projectTitle', 'description', 'projectId',
                'projectName', 'workSlotId', 'fileType', 'fileURL', 'fileName', 'fileSize',
                'thumbnail', 'thumbUrl', 'uploadDate', 'createdAt', 'driveLink',
@@ -30,6 +30,10 @@ service cloud.firestore {
              && request.resource.data.fullName is string
              && request.resource.data.fullName.size() > 0
              && request.resource.data.fullName.size() <= 200
+             && (!('teacherId' in request.resource.data)
+                 || (request.resource.data.teacherId is string
+                     && request.resource.data.teacherId.size() > 0
+                     && request.resource.data.teacherId.size() <= 200))
              && request.resource.data.projectTitle is string
              && request.resource.data.projectTitle.size() <= 500
              && request.resource.data.school is string
@@ -48,6 +52,21 @@ service cloud.firestore {
              && request.resource.data.fileType in ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'drive']
              && request.resource.data.fileURL is string
              && request.resource.data.fileURL.size() <= 3000
+             && (request.resource.data.fileURL.matches('https://drive\\.google\\.com/.*')
+                 || request.resource.data.fileURL.matches('https://firebasestorage\\.googleapis\\.com/.*'))
+             && request.resource.data.projectId is string
+             && request.resource.data.projectId.size() > 0
+             && request.resource.data.workSlotId is string
+             && request.resource.data.createdAt is int
+             && request.resource.data.createdAt >= request.time.toMillis() - 300000
+             && request.resource.data.createdAt <= request.time.toMillis() + 300000
+             && (!('fileSize' in request.resource.data)
+                 || (request.resource.data.fileSize is number
+                     && request.resource.data.fileSize >= 0
+                     && request.resource.data.fileSize <= 25 * 1024 * 1024))
+             && (!('thumbnail' in request.resource.data)
+                 || (request.resource.data.thumbnail is string
+                     && request.resource.data.thumbnail.size() <= 200000))
              && (!('description' in request.resource.data)
                  || request.resource.data.description.size() <= 3000);
     }
@@ -97,14 +116,7 @@ service cloud.firestore {
     // Teachers collection
     match /teachers/{document} {
       allow read: if true;
-      allow create, delete: if isAdmin();
-      // Admins can edit freely; the public submit flow may set ONLY these self-service
-      // fields on an existing teacher: subject group (auto-fill) and profile picture.
-      allow update: if isAdmin()
-                    || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['subjectGroup'])
-                        && request.resource.data.subjectGroup is string
-                        && request.resource.data.subjectGroup.size() > 0
-                        && request.resource.data.subjectGroup.size() <= 300);
+      allow create, update, delete: if isAdmin();
     }
 
     // Submissions collection
@@ -119,7 +131,12 @@ service cloud.firestore {
                     || (isValidSubmission()
                         && request.resource.data.fullName == resource.data.fullName
                         && request.resource.data.projectId == resource.data.projectId
-                        && request.resource.data.workSlotId == resource.data.workSlotId);
+                        && request.resource.data.workSlotId == resource.data.workSlotId
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                          'description', 'fileType', 'fileURL', 'fileName', 'fileSize',
+                          'thumbnail', 'thumbUrl', 'uploadDate', 'createdAt', 'driveLink',
+                          'driveFileId', 'submissionMethod'
+                        ]));
       allow delete: if isAdmin();
     }
 

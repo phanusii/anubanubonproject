@@ -1,6 +1,8 @@
 export interface Submission {
   id: string;
   fullName: string;
+  /** Stable roster identity; legacy records may not have one. */
+  teacherId?: string;
   position: string;
   school: string;
   province?: string;
@@ -31,6 +33,7 @@ export interface AdminSubmissionSummary {
   key: string;
   projectId: string;
   fullName: string;
+  teacherId?: string;
   position: string;
   school: string;
   gradeLevel: string;

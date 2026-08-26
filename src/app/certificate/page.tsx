@@ -111,7 +111,7 @@ export default function CertificatePage() {
         setLoadingLists(false);
       }
     })();
-  }, []);
+  }, [setTeachers]);
 
   useEffect(() => {
     // Show how many certificates have already been issued for the current round.

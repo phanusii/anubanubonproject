@@ -35,6 +35,9 @@ function doPost(e) {
       sendTelegramTestNow_(input.chatId);
       return json_({ ok: true });
     }
+    if (input.action === "telegramNotify") {
+      return json_({ ok: true, notified: notifySubmissionImmediately_(input.submissionId) });
+    }
     return handleCertificatePost_(e);
   } catch (error) {
     console.error(error && error.stack ? error.stack : error);

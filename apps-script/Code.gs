@@ -45,6 +45,9 @@ function handleCertificatePost_(e) {
       sendTelegramTestNow_(input.chatId);
       return json_({ ok: true });
     }
+    if (input.action === "telegramNotify") {
+      return json_({ ok: true, notified: notifySubmissionImmediately_(input.submissionId) });
+    }
     if (input.action === "syncCertificateAdmins") {
       var registryAdmin = assertAdmin_(input.idToken);
       if (registryAdmin.role !== "super_admin") throw new Error("เฉพาะแอดมินสูงสุดเท่านั้น");
@@ -314,14 +317,38 @@ function restoreDriveRevision_(fileId, revisionId) {
 
 /** Short-lived replacement for the reusable upload secret formerly bundled in the browser. */
 function createUploadTicket_(input) {
-  var id = Utilities.getUuid();
   input = input || {};
+  var storageCategory = String(input.storageCategory || "");
+  if (storageCategory === "profile") {
+    assertAdmin_(input.idToken);
+  } else {
+    var projectId = String(input.projectId || "").trim();
+    var recipientKey = normalizeName_(input.recipientKey);
+    var workSlotId = String(input.workSlotId || "").trim();
+    if (!projectId || !recipientKey || !workSlotId) throw new Error("ข้อมูลรอบ ผู้ส่ง หรือชิ้นงานไม่ครบ");
+    var project = getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
+    if (!project || project.status === "closed") throw new Error("รอบนี้ปิดรับผลงานแล้ว");
+    var allowedSlot = (project.workSlotTitles || []).some(function(_, index) {
+      return "slot-" + (index + 1) === workSlotId;
+    });
+    if (!allowedSlot) throw new Error("ไม่พบชิ้นงานนี้ในรอบที่เลือก");
+    enforceUploadTicketRate_(projectId, recipientKey);
+  }
+  var totalBytes = Number(input.totalBytes || 0);
+  if (!totalBytes || totalBytes > 25 * 1024 * 1024) throw new Error("ไฟล์ต้องมีขนาดไม่เกิน 25 MB");
+  if (!/^(application\/pdf|image\/(png|jpeg|jpg|webp))$/i.test(String(input.mimeType || ""))) {
+    throw new Error("รองรับเฉพาะ PDF, PNG, JPG และ WEBP");
+  }
+  var id = Utilities.getUuid();
   var ticket = {
     expiresAt: Date.now() + 10 * 60 * 1000,
     queueId: String(input.queueId || ""),
     projectId: String(input.projectId || ""),
     recipientKey: String(input.recipientKey || ""),
-    workSlotId: String(input.workSlotId || "")
+    workSlotId: String(input.workSlotId || ""),
+    existingFileId: String(input.existingFileId || ""),
+    storageCategory: storageCategory,
+    totalBytes: totalBytes
   };
   PropertiesService.getScriptProperties().setProperty("upload_ticket_" + id, JSON.stringify(ticket));
   return id;
@@ -330,7 +357,6 @@ function createUploadTicket_(input) {
 /** Consume once before a single-shot upload or resumable-upload init request. */
 function consumeUploadTicket_(ticket, input) {
   input = input || {};
-  if (String(input.secret || "") === "anuban-upload-2569") return; // รองรับ secret เดิมของเว็บ
   ticket = String(ticket || "");
   if (!ticket) throw new Error("ไม่พบสิทธิ์อัปโหลด");
   var properties = PropertiesService.getScriptProperties();
@@ -341,12 +367,25 @@ function consumeUploadTicket_(ticket, input) {
   try { saved = JSON.parse(raw); } catch (_) { saved = { expiresAt: Number(raw || 0) }; }
   if (!saved.expiresAt || saved.expiresAt < Date.now()) throw new Error("สิทธิ์อัปโหลดหมดอายุ กรุณาลองใหม่");
   input = input || {};
-  ["queueId", "projectId", "recipientKey", "workSlotId"].forEach(function (field) {
+  ["queueId", "projectId", "recipientKey", "workSlotId", "existingFileId", "storageCategory"].forEach(function (field) {
     if (saved[field] && String(input[field] || "") !== String(saved[field])) {
       throw new Error("ข้อมูลสิทธิ์อัปโหลดไม่ตรงกับรายการที่ส่ง");
     }
   });
   return saved;
+}
+
+function enforceUploadTicketRate_(projectId, recipientKey) {
+  var digest = Utilities.base64EncodeWebSafe(Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    projectId + "|" + normalizeName_(recipientKey).toLowerCase(),
+    Utilities.Charset.UTF_8
+  )).replace(/=+$/g, "").slice(0, 32);
+  var cache = CacheService.getScriptCache();
+  var key = "upload_rate_" + digest;
+  var count = Number(cache.get(key) || 0) + 1;
+  if (count > 12) throw new Error("ขออัปโหลดถี่เกินไป กรุณารอประมาณ 10 นาที");
+  cache.put(key, String(count), 600);
 }
 
 function issueCertificate_(projectId, fullName, forceRetry, renumber, context) {

@@ -40,7 +40,6 @@ export default function PersonWorksView({ name, field = "grade", value }: Person
   const [loading, setLoading] = useState(true);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
   const [avatarIdx, setAvatarIdx] = useState(0);
-  useEffect(() => setAvatarIdx(0), [avatarUrl]);
   const avatarSrc = avatarUrlCandidates(avatarUrl)[avatarIdx] || "";
 
   useEffect(() => {
@@ -117,6 +116,7 @@ export default function PersonWorksView({ name, field = "grade", value }: Person
           });
         setWorks(mine);
         const t = teachers.find((tt) => norm(tt.fullName) === norm(name));
+        setAvatarIdx(0);
         setAvatarUrl(t?.photoUrl || "");
       } catch (err) {
         console.error("PersonWorksView load error:", err);

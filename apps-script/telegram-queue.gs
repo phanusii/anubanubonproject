@@ -1,6 +1,8 @@
 /** High-volume Telegram queue installed in the live Apps Script project. */
 var FIREBASE_PROJECT_ID = "anubanubonproject";
-var FIREBASE_API_KEY = "AIzaSyDJxugqBnlmVeyHBM4Bx4yzmkjGv9PVeyQ";
+function firebaseApiKeyV2_() {
+  return PropertiesService.getScriptProperties().getProperty("FIREBASE_API_KEY") || "";
+}
 var SETTINGS_DOCUMENT = "settings/training";
 var TEST_CURSOR_PROPERTY = "TELEGRAM_LAST_TEST_REQUEST";
 
@@ -142,6 +144,52 @@ sendTelegram_(formatSubmissionSummaryV2(documents) + quotaFooter_(), chatId);
   }
   properties.setProperty("TELEGRAM_LAST_SUBMISSION_MS", String(newest));
   properties.setProperty("TELEGRAM_LAST_SUBMISSION_ID", newestId);
+}
+
+/** Immediate path called by the browser after Firestore confirms the write.
+ * The browser supplies only a document id; every message field is loaded from
+ * Firestore, preventing forged names, links, or project details. */
+function notifySubmissionImmediately_(submissionId) {
+  submissionId = String(submissionId || "").trim();
+  if (!/^[A-Za-z0-9_-]{10,128}$/.test(submissionId)) throw new Error("รหัสผลงานไม่ถูกต้อง");
+  var settings = getDocument_(SETTINGS_DOCUMENT);
+  var chatId = String(settings.telegramChatId || "").trim();
+  if (!settings.telegramNotificationsEnabled || !chatId) return false;
+  var properties = PropertiesService.getScriptProperties();
+  var marker = "telegram_submission_" + submissionId;
+  if (properties.getProperty(marker)) return false;
+  var document = getRawFirestoreDocumentV2_("submissions/" + encodeURIComponent(submissionId));
+  var item = firestoreFields_(document.fields || {});
+  var text = [
+    "📥 มีการส่งงานใหม่",
+    "",
+    "👤 " + String(item.fullName || "ไม่ระบุชื่อ"),
+    "📚 " + String(item.gradeLevel || "ไม่ระบุสายชั้น"),
+    "📁 " + String(item.projectName || "ไม่ระบุการอบรม/โครงการ"),
+    "📝 " + cleanWorkTitleV2_(item.projectTitle)
+  ];
+  var workUrl = String(item.fileURL || item.driveLink || "").trim();
+  if (workUrl) text.push("🔗 ดูงานที่ส่ง: " + workUrl);
+  sendTelegram_(text.join("\n"), chatId);
+  properties.setProperty(marker, String(Date.now()));
+  advanceTelegramCursorV2_(Number(item.createdAt || 0), submissionId, properties);
+  return true;
+}
+
+function getRawFirestoreDocumentV2_(path) {
+  var response = UrlFetchApp.fetch("https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
+    "/databases/(default)/documents/" + path + "?key=" + encodeURIComponent(firebaseApiKeyV2_()), { muteHttpExceptions: true });
+  assertSuccess_(response, "ตรวจสอบผลงาน");
+  return JSON.parse(response.getContentText());
+}
+
+function advanceTelegramCursorV2_(createdAt, submissionId, properties) {
+  var currentTime = Number(properties.getProperty("TELEGRAM_LAST_SUBMISSION_MS") || 0);
+  var currentId = String(properties.getProperty("TELEGRAM_LAST_SUBMISSION_ID") || "");
+  if (createdAt > currentTime || (createdAt === currentTime && submissionId > currentId)) {
+    properties.setProperty("TELEGRAM_LAST_SUBMISSION_MS", String(createdAt));
+    properties.setProperty("TELEGRAM_LAST_SUBMISSION_ID", submissionId);
+  }
 }
 
 /** Notify once when a recipient becomes complete and attach safe action buttons. */
@@ -373,7 +421,7 @@ function listNewSubmissionsV2_(lastTime, lastId) {
 
 function runSubmissionQueryV2_(structuredQuery) {
   var url = "https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
-    "/databases/(default)/documents:runQuery?key=" + encodeURIComponent(FIREBASE_API_KEY);
+    "/databases/(default)/documents:runQuery?key=" + encodeURIComponent(firebaseApiKeyV2_());
   var response = UrlFetchApp.fetch(url, {
     method: "post",
     contentType: "application/json",
@@ -427,7 +475,7 @@ function notifyTelegramTest_(settings, chatId, properties) {
 
 function getDocument_(path) {
   var response = UrlFetchApp.fetch("https://firestore.googleapis.com/v1/projects/" + FIREBASE_PROJECT_ID +
-    "/databases/(default)/documents/" + path + "?key=" + encodeURIComponent(FIREBASE_API_KEY), { muteHttpExceptions: true });
+    "/databases/(default)/documents/" + path + "?key=" + encodeURIComponent(firebaseApiKeyV2_()), { muteHttpExceptions: true });
   assertSuccess_(response, "โหลดการตั้งค่า");
   return firestoreFields_(JSON.parse(response.getContentText()).fields || {});
 }

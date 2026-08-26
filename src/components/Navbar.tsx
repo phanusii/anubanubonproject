@@ -53,7 +53,7 @@ export default function Navbar() {
         window.removeEventListener("hashchange", syncHash);
       }
     };
-  }, []);
+  }, [setSettings]);
 
   // Public views are hash-based (single page); admin is a real route.
   const navItems = [

@@ -161,7 +161,7 @@ export function getInstantStatsWindow(): Submission[] {
  * to bypass the cache (e.g. an admin "refresh stats" button).
  */
 const STATS_FIELDS = [
-  "fullName", "position", "gradeLevel", "subjectGroup", "fileType",
+  "fullName", "teacherId", "position", "gradeLevel", "subjectGroup", "fileType",
   "projectId", "projectName", "projectTitle", "workSlotId", "createdAt", "uploadDate",
 ];
 
@@ -204,6 +204,7 @@ async function fetchStatsSubmissionsViaRest(): Promise<Submission[] | null> {
         return {
           id: String(row.document.name).split("/").pop(),
           fullName: str("fullName"),
+          teacherId: str("teacherId"),
           position: str("position"),
           gradeLevel: str("gradeLevel"),
           subjectGroup: str("subjectGroup"),
@@ -282,7 +283,7 @@ export async function getSubmissionsForStats(forceRefresh = false): Promise<Subm
 // (the heavy field) — cards regenerate a thumbnail from driveFileId — so the whole
 // gallery loads in one small request and can show every page number at once.
 const GALLERY_FIELDS = [
-  "fullName", "position", "gradeLevel", "subjectGroup", "school", "province",
+  "fullName", "teacherId", "position", "gradeLevel", "subjectGroup", "school", "province",
   "projectId", "projectName", "projectTitle", "workSlotId", "description",
   "fileType", "fileURL", "fileName", "driveFileId", "driveLink", "thumbUrl", "createdAt", "uploadDate",
 ];
@@ -328,15 +329,16 @@ const SNAPSHOT_CHUNK_SIZE = 600;
 const ADMIN_SUMMARY_COLLECTION = "adminSubmissionSummary";
 const ADMIN_SUMMARY_CHUNK_SIZE = 300;
 
-function adminSummaryKey(projectId: string, fullName: string): string {
-  return `${projectId}::${String(fullName || "").normalize("NFC").replace(/\s+/g, "").toLowerCase()}`;
+function adminSummaryKey(projectId: string, fullName: string, teacherId?: string): string {
+  const personKey = teacherId || String(fullName || "").normalize("NFC").replace(/\s+/g, "").toLowerCase();
+  return `${projectId}::${personKey}`;
 }
 
 function summarizeAdminSubmissions(items: Submission[]): AdminSubmissionSummary[] {
   const summaries = new Map<string, AdminSubmissionSummary>();
   for (const item of items) {
     if (!item.projectId || !item.fullName) continue;
-    const key = adminSummaryKey(item.projectId, item.fullName);
+    const key = adminSummaryKey(item.projectId, item.fullName, item.teacherId);
     const existing = summaries.get(key);
     const createdAt = item.createdAt || 0;
     if (!existing) {
@@ -344,6 +346,7 @@ function summarizeAdminSubmissions(items: Submission[]): AdminSubmissionSummary[
         key,
         projectId: item.projectId,
         fullName: item.fullName,
+        teacherId: item.teacherId,
         position: item.position || "",
         school: item.school || "",
         gradeLevel: item.gradeLevel || "",
@@ -358,6 +361,7 @@ function summarizeAdminSubmissions(items: Submission[]): AdminSubmissionSummary[
       existing.submittedCount = existing.submissionIds.length;
       if (createdAt >= existing.latestCreatedAt) {
         existing.fullName = item.fullName;
+        existing.teacherId = item.teacherId || existing.teacherId;
         existing.position = item.position || existing.position;
         existing.school = item.school || existing.school;
         existing.gradeLevel = item.gradeLevel || existing.gradeLevel;
@@ -401,7 +405,7 @@ function parseGalleryRows(rows: unknown[]): Submission[] {
         : undefined;
       return {
         id: String(row.document!.name).split("/").pop(),
-        fullName: str("fullName"), position: str("position"), gradeLevel: str("gradeLevel"),
+        fullName: str("fullName"), teacherId: str("teacherId"), position: str("position"), gradeLevel: str("gradeLevel"),
         subjectGroup: str("subjectGroup"), school: str("school"), province: str("province"),
         projectId: str("projectId"), projectName: str("projectName"), projectTitle: str("projectTitle"),
         workSlotId: str("workSlotId"), description: str("description"),
@@ -483,7 +487,7 @@ export async function getAdminSubmissionSummaries(projectId: string): Promise<Ad
       const byKey = new Map(summaries.map((summary) => [summary.key, summary]));
       for (const item of delta) {
         if (!item.projectId || !item.fullName) continue;
-        const key = adminSummaryKey(item.projectId, item.fullName);
+        const key = adminSummaryKey(item.projectId, item.fullName, item.teacherId);
         const current = byKey.get(key);
         if (!current) {
           const created = summarizeAdminSubmissions([item])[0];
@@ -893,12 +897,11 @@ export async function getUserSubmissionCount(fullName: string): Promise<number> 
 }
 
 // Google Apps Script web app that saves uploads into the school's own Google Drive.
-// The /exec URL is a public endpoint (not a secret); the shared secret is a light
-// abuse guard. Both can be overridden by env for a different deployment.
+// The /exec URL is public. Upload authorization is a short-lived, single-use
+// ticket issued by Apps Script; no reusable credential is shipped in the bundle.
 const DRIVE_UPLOAD_URL =
   process.env.NEXT_PUBLIC_DRIVE_UPLOAD_URL ||
   "https://script.google.com/macros/s/AKfycbyagMNd7lH3Q6TpsCZZMx1KvnPl5VHEcWdnDj3bJaxVvWqDIDE2Tw6uwbWcDCmiTLRy/exec";
-const DRIVE_UPLOAD_SECRET = process.env.NEXT_PUBLIC_DRIVE_UPLOAD_SECRET || "anuban-upload-2569";
 
 /** Send a Telegram test immediately through the trusted Apps Script endpoint. */
 export async function sendTelegramTest(chatId: string): Promise<void> {
@@ -914,16 +917,10 @@ export async function sendTelegramTest(chatId: string): Promise<void> {
  * Notification failure must never turn a successfully saved submission into
  * a failed submission for the teacher.
  */
-export async function notifyTelegramUpload(info: {
-  fullName: string;
-  workTitle: string;
-  projectName?: string;
-  gradeLevel?: string;
-  subjectGroup?: string;
-  fileSize?: number;
-}): Promise<void> {
+export async function notifyTelegramUpload(submissionId: string): Promise<void> {
   try {
-    await postDriveJson({ action: "telegramNotify", ...info }, 20000);
+    const result = await postDriveJson({ action: "telegramNotify", submissionId }, 20000);
+    if (!result?.ok) throw new Error(String(result?.error || "แจ้งเตือนไม่สำเร็จ"));
   } catch (error) {
     console.warn("Immediate Telegram notification failed; poller will retry:", error);
   }
@@ -934,6 +931,36 @@ export interface DriveUploadResult {
   id: string;
   name: string;
   provider?: "storage" | "drive";
+}
+
+interface DriveUploadMeta {
+  projectId?: string;
+  projectName?: string;
+  gradeLevel?: string;
+  submitterName?: string;
+  workSlotId?: string;
+  workLabel?: string;
+  existingFileId?: string;
+  storageCategory?: "profile";
+}
+
+async function requestUploadTicket(file: File, meta?: DriveUploadMeta): Promise<string> {
+  const idToken = meta?.storageCategory === "profile" ? await auth.currentUser?.getIdToken() : undefined;
+  const result = await postDriveJson({
+    action: "createUploadTicket",
+    filename: file.name,
+    mimeType: file.type || "application/octet-stream",
+    totalBytes: file.size,
+    projectId: meta?.projectId || "",
+    projectName: meta?.projectName || "",
+    recipientKey: meta?.submitterName || "",
+    workSlotId: meta?.workSlotId || "",
+    existingFileId: meta?.existingFileId || "",
+    storageCategory: meta?.storageCategory || "",
+    idToken,
+  }, 60000);
+  if (!result?.ok || !result.ticket) throw new Error(String(result?.error || "ขอสิทธิ์อัปโหลดไม่สำเร็จ"));
+  return String(result.ticket);
 }
 
 /**
@@ -1057,18 +1084,10 @@ async function postDriveJson(payload: object, timeoutMs: number): Promise<Record
 export async function uploadFileToGoogleDrive(
   file: File,
   onProgress?: (percent: number) => void,
-  meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string; existingFileId?: string; storageCategory?: "profile" }
+  meta?: DriveUploadMeta
 ): Promise<DriveUploadResult> {
-  // Prefer Firebase Storage (direct HTTPS, fast, no Apps Script). If Storage isn't ready
-  // yet — bucket not enabled, or the file exceeds the Storage-rules 10 MB cap — fall back
-  // to the existing Google Drive path so uploads never break during the migration.
-  if (file.size <= 10 * 1024 * 1024) {
-    try {
-      return await uploadToFirebaseStorage(file, onProgress);
-    } catch (err) {
-      console.warn("Firebase Storage upload unavailable, using Google Drive:", err);
-    }
-  }
+  // All new uploads go through the ticketed Drive endpoint. This avoids anonymous
+  // Storage writes and keeps the school-owned Drive as the single source of files.
   if (file.size > SINGLE_SHOT_MAX) {
     return uploadChunkedToGoogleDrive(file, onProgress, meta);
   }
@@ -1078,25 +1097,28 @@ export async function uploadFileToGoogleDrive(
 async function uploadSingleShotToGoogleDrive(
   file: File,
   onProgress?: (percent: number) => void,
-  meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string; existingFileId?: string; storageCategory?: "profile" }
+  meta?: DriveUploadMeta
 ): Promise<DriveUploadResult> {
   if (onProgress) onProgress(5);
   const dataUrl = await fileToDataURL(file);
   const base64 = dataUrl.includes(",") ? dataUrl.slice(dataUrl.indexOf(",") + 1) : dataUrl;
   if (onProgress) onProgress(15);
 
+  const uploadTicket = await requestUploadTicket(file, meta);
   const payload = {
     filename: file.name,
     mimeType: file.type || "application/octet-stream",
     data: base64,
-    secret: DRIVE_UPLOAD_SECRET,
+    uploadTicket,
     // When set, update this existing Drive file's content (new version) instead of creating a new file.
     fileId: meta?.existingFileId || "",
+    projectId: meta?.projectId || "",
     // Work: <project>/ผลงาน/<grade>/<teacher>; profile: รูปประจำตัว/<grade>/<teacher>.
     projectName: meta?.projectName || "",
     gradeLevel: meta?.gradeLevel || "",
     submitterName: meta?.submitterName || "",
     workLabel: meta?.workLabel || "",
+    workSlotId: meta?.workSlotId || "",
     storageCategory: meta?.storageCategory || "",
   };
 
@@ -1128,15 +1150,17 @@ async function uploadSingleShotToGoogleDrive(
 async function uploadChunkedToGoogleDrive(
   file: File,
   onProgress?: (percent: number) => void,
-  meta?: { projectName?: string; gradeLevel?: string; submitterName?: string; workLabel?: string; existingFileId?: string; storageCategory?: "profile" }
+  meta?: DriveUploadMeta
 ): Promise<DriveUploadResult> {
   if (onProgress) onProgress(2);
 
+  const uploadTicket = await requestUploadTicket(file, meta);
   const init = await postDriveJson(
     {
       action: "init",
-      secret: DRIVE_UPLOAD_SECRET,
+      uploadTicket,
       fileId: meta?.existingFileId || "",
+      projectId: meta?.projectId || "",
       filename: file.name,
       mimeType: file.type || "application/octet-stream",
       totalBytes: file.size,
@@ -1144,6 +1168,7 @@ async function uploadChunkedToGoogleDrive(
       gradeLevel: meta?.gradeLevel || "",
       submitterName: meta?.submitterName || "",
       workLabel: meta?.workLabel || "",
+      workSlotId: meta?.workSlotId || "",
       storageCategory: meta?.storageCategory || "",
     },
     60000
@@ -1163,7 +1188,7 @@ async function uploadChunkedToGoogleDrive(
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         res = await postDriveJson(
-          { action: "chunk", secret: DRIVE_UPLOAD_SECRET, sessionId: init.sessionId, start, data },
+          { action: "chunk", sessionId: init.sessionId, start, data },
           180000
         );
         if (res && res.ok) break;
@@ -1271,7 +1296,12 @@ export async function createSubmission(submissionData: Omit<Submission, "id" | "
     let removedDuplicateIds: string[] = [];
     if (submissionData.workSlotId && submissionData.projectId && submissionData.fullName) {
       try {
-        const dupSnap = await getDocs(query(collection(db, "submissions"), where("fullName", "==", submissionData.fullName)));
+        const dupSnap = await getDocs(query(
+          collection(db, "submissions"),
+          where("projectId", "==", submissionData.projectId),
+          where("fullName", "==", submissionData.fullName),
+          where("workSlotId", "==", submissionData.workSlotId),
+        ));
         removedDuplicateIds = dupSnap.docs
           .filter((d) => d.id !== docRef!.id && d.data().projectId === submissionData.projectId && d.data().workSlotId === submissionData.workSlotId)
           .map((d) => d.id);

@@ -171,6 +171,8 @@ export default function SubmitSection() {
     if (!hasAttendeeList) return;
     if (bySubject) {
       const vals = rosterBase.map((t) => t.subjectGroup || "").filter(Boolean);
+      // This effect reconciles form state after the admin changes the attendee scope.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (vals.length && !vals.includes(subjectGroup)) setSubjectGroup(vals[0]);
     } else {
       const vals = rosterBase.map((t) => t.gradeLevel).filter(Boolean);
@@ -395,9 +397,11 @@ export default function SubmitSection() {
           selectedFile,
           (progress) => setUploadProgress(progress),
           {
+            projectId: activeProject?.id || "",
             projectName: activeProject?.name || settings?.trainingName || "ผลงานอบรม",
             gradeLevel: gradeLevel,
             submitterName: fullName.trim(),
+            workSlotId: slotIdAt(selectedSlotIndex),
             // File name: "งานชิ้นที่ N <admin's work title>" (strip a redundant "ชิ้นที่ N:" prefix)
             workLabel: `งานชิ้นที่ ${selectedSlotIndex + 1} ${getSlotTitle(selectedSlotIndex)
               .replace(/^\s*ชิ้นที่\s*\d+\s*[:：]?\s*/, "")
@@ -453,6 +457,7 @@ export default function SubmitSection() {
 
       const subData = {
         fullName: fullName.trim(),
+        ...(selectedTeacherId && selectedTeacherId !== "CUSTOM" ? { teacherId: selectedTeacherId } : {}),
         position: position.trim(),
         school: school.trim(),
         province: province.trim(),
@@ -505,14 +510,7 @@ export default function SubmitSection() {
       });
 
       // Send immediately; the Apps Script minute poller remains the fallback.
-      void notifyTelegramUpload({
-        fullName: fullName.trim(),
-        workTitle: finalTitle,
-        projectName: activeProject?.name,
-        gradeLevel,
-        subjectGroup,
-        fileSize: selectedFile?.size || 0,
-      });
+      void notifyTelegramUpload(savedSubmission.id);
 
       setIsUploading(false);
       setIsSuccess(true);

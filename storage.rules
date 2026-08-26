@@ -20,15 +20,9 @@ service firebase.storage {
       // Allow public read for portfolio showcase
       allow read: if true;
 
-      // Public submissions are capped to 10 MB. Enable Firebase App Check in
-      // enforcement mode to prevent uploads from untrusted clients.
-      allow create: if request.resource.size > 0
-                    && request.resource.size <= 10 * 1024 * 1024
-                    && (request.resource.contentType.matches('application/pdf')
-                        || request.resource.contentType.matches('image/png')
-                        || request.resource.contentType.matches('image/jpeg')
-                        || request.resource.contentType.matches('image/jpg')
-                        || request.resource.contentType.matches('image/webp'));
+      // New files use the ticketed Apps Script → school Drive path. Anonymous
+      // Storage creation is disabled to prevent quota abuse.
+      allow create: if false;
 
       // Delete & Update restricted to the admin account.
       allow update, delete: if isAdmin();
