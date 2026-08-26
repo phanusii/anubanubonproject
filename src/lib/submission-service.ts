@@ -233,8 +233,24 @@ export async function getSubmissionsForStats(forceRefresh = false): Promise<Subm
       }
     } catch {}
   }
-  // Fast path: projected REST query. Fall back to the SDK (full docs) only if it fails.
-  let light = await fetchStatsSubmissionsViaRest();
+  // Prefer the pre-aggregated snapshot shared with the gallery (a few reads)
+  // instead of reading every work — this is what the stats/certificate pages hit.
+  let light: Submission[] | null = null;
+  try {
+    const fromSnapshot = await getGallerySubmissions();
+    if (fromSnapshot && fromSnapshot.length) {
+      light = fromSnapshot.map((s) => ({
+        id: s.id, fullName: s.fullName, position: s.position, gradeLevel: s.gradeLevel,
+        subjectGroup: s.subjectGroup, fileType: s.fileType, projectId: s.projectId,
+        projectName: s.projectName, projectTitle: s.projectTitle, workSlotId: s.workSlotId,
+        createdAt: s.createdAt, uploadDate: s.uploadDate,
+      })) as Submission[];
+    }
+  } catch {
+    /* fall through to the projected REST read below */
+  }
+  // Fallback: projected REST query, then the SDK (full docs) only if that fails.
+  if (!light) light = await fetchStatsSubmissionsViaRest();
   if (!light) {
     const full = await getSubmissions({ limitNum: FETCH_CAP, ignoreProjectFilter: true, forceRefresh });
     light = full.map((s) => ({
