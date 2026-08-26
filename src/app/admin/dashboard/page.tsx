@@ -91,8 +91,13 @@ export default function AdminDashboardPage() {
     try {
       const usage = await getStorageUsage((n) => setStorageCount(n));
       setStorage(usage);
-    } catch {
-      setStorageError("คำนวณความจุไม่สำเร็จ กรุณาลองใหม่");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "";
+      setStorageError(
+        detail.includes("unauth") || detail.includes("permission")
+          ? "สิทธิ์แอดมินหมดอายุ กรุณาออกจากระบบแล้วเข้าสู่ระบบใหม่"
+          : "คำนวณความจุไม่สำเร็จ กรุณาตรวจอินเทอร์เน็ตแล้วลองใหม่",
+      );
     } finally {
       setStorageBusy(false);
     }

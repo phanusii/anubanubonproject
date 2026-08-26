@@ -469,6 +469,10 @@ export async function getGallerySubmissions(projectId?: string): Promise<Submiss
  * page load. `onProgress` reports the running file count for a live readout.
  */
 export async function getStorageUsage(onProgress?: (files: number) => void): Promise<{ bytes: number; files: number }> {
+  // Refresh the admin token before listAll(). This matters immediately after
+  // Storage rules change and avoids Safari reusing an older cached credential.
+  if (!auth.currentUser) throw new Error("storage/unauthenticated");
+  await auth.currentUser.getIdToken(true);
   let bytes = 0;
   let files = 0;
   const walk = async (prefixRef: ReturnType<typeof storageRef>): Promise<void> => {
