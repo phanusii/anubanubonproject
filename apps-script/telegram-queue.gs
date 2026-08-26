@@ -131,15 +131,16 @@ function notifyNewSubmissionsV2() {
     return;
   }
   var documents = listNewSubmissionsV2_(lastTime, lastId);
+  quotaBump_(documents, 1);
+  maybeNotifyFreeQuotaV2_(settings, chatId, properties, false);
   if (!documents.length) return;
-quotaBump_(documents);
   var newestDocument = documents[documents.length - 1];
   var newest = Number(firestoreFields_(newestDocument.fields || {}).createdAt || lastTime);
   var newestId = String(newestDocument.name || "").split("/").pop();
   // Advance only after Telegram accepts the message. When notifications are
   // disabled, advance deliberately so re-enabling does not replay old work.
   if (settings.telegramNotificationsEnabled && chatId) {
-sendTelegram_(formatSubmissionSummaryV2(documents) + quotaFooter_(), chatId);
+    sendTelegram_(formatSubmissionSummaryV2(documents) + quotaFooter_(), chatId);
     notifyCompletedCertificateCandidatesV2_(documents, chatId);
   }
   properties.setProperty("TELEGRAM_LAST_SUBMISSION_MS", String(newest));
@@ -160,6 +161,8 @@ function notifySubmissionImmediately_(submissionId) {
   if (properties.getProperty(marker)) return false;
   var document = getRawFirestoreDocumentV2_("submissions/" + encodeURIComponent(submissionId));
   var item = firestoreFields_(document.fields || {});
+  quotaBump_([document], 1);
+  maybeNotifyFreeQuotaV2_(settings, chatId, properties, false);
   var text = [
     "📥 มีการส่งงานใหม่",
     "",
@@ -174,6 +177,99 @@ function notifySubmissionImmediately_(submissionId) {
   properties.setProperty(marker, String(Date.now()));
   advanceTelegramCursorV2_(Number(item.createdAt || 0), submissionId, properties);
   return true;
+}
+
+var FIRESTORE_FREE_READS_V2 = 50000;
+var FIRESTORE_FREE_WRITES_V2 = 20000;
+
+function quotaDayV2_() {
+  // Firebase free quotas reset around midnight Pacific time.
+  return Utilities.formatDate(new Date(), "America/Los_Angeles", "yyyy-MM-dd");
+}
+
+function quotaStateV2_(properties) {
+  properties = properties || PropertiesService.getScriptProperties();
+  var day = quotaDayV2_();
+  var key = "firestore_quota_estimate_v2_" + day;
+  var raw = properties.getProperty(key) || "";
+  var state;
+  try { state = JSON.parse(raw); } catch (_) { state = {}; }
+  state.day = day;
+  state.reads = Math.max(0, Number(state.reads || 0));
+  state.writes = Math.max(0, Number(state.writes || 0));
+  state.submissions = Math.max(0, Number(state.submissions || 0));
+  return { key: key, value: state };
+}
+
+/** Track a conservative lower-bound estimate from operations visible to this
+ * notifier. Firebase Console remains authoritative because browser/admin reads
+ * cannot be observed by Apps Script. */
+function quotaBump_(documents, fixedReads) {
+  var properties = PropertiesService.getScriptProperties();
+  var wrapped = quotaStateV2_(properties);
+  var count = (documents || []).length;
+  wrapped.value.reads += Math.max(0, Number(fixedReads || 0)) + count;
+  wrapped.value.writes += count;
+  wrapped.value.submissions += count;
+  properties.setProperty(wrapped.key, JSON.stringify(wrapped.value));
+  return wrapped.value;
+}
+
+function quotaFooter_() {
+  var state = quotaStateV2_().value;
+  var readPercent = Math.min(100, state.reads / FIRESTORE_FREE_READS_V2 * 100);
+  return "\n\n📊 โควตา Firestore ที่บอตตรวจนับได้ขั้นต่ำ: " +
+    state.reads.toLocaleString("en-US") + "/" + FIRESTORE_FREE_READS_V2.toLocaleString("en-US") +
+    " reads (" + readPercent.toFixed(1) + "%)";
+}
+
+function freeQuotaMessageV2_(state, title) {
+  var readPercent = state.reads / FIRESTORE_FREE_READS_V2 * 100;
+  var writePercent = state.writes / FIRESTORE_FREE_WRITES_V2 * 100;
+  return [
+    title,
+    "",
+    "📖 Reads ขั้นต่ำ " + state.reads.toLocaleString("en-US") + "/50,000 (" + readPercent.toFixed(1) + "%)",
+    "✍️ Writes โดยประมาณ " + state.writes.toLocaleString("en-US") + "/20,000 (" + writePercent.toFixed(1) + "%)",
+    "📥 งานใหม่ที่บอตพบ " + state.submissions.toLocaleString("en-US") + " รายการ",
+    "",
+    "ℹ️ เป็นค่าขั้นต่ำจากรายการที่บอตตรวจพบ ยอดจริงรวมการเปิดเว็บและหน้าแอดมินให้ตรวจใน Google Cloud Console",
+    "🔗 https://console.cloud.google.com/firestore/quotas?project=" + FIREBASE_PROJECT_ID
+  ].join("\n");
+}
+
+function maybeNotifyFreeQuotaV2_(settings, chatId, properties, force) {
+  if (!settings.telegramNotificationsEnabled || !chatId) return false;
+  properties = properties || PropertiesService.getScriptProperties();
+  var state = quotaStateV2_(properties).value;
+  var percent = Math.max(
+    state.reads / FIRESTORE_FREE_READS_V2 * 100,
+    state.writes / FIRESTORE_FREE_WRITES_V2 * 100
+  );
+  var thresholds = [100, 95, 85, 70];
+  var threshold = thresholds.filter(function(value) { return percent >= value; })[0] || 0;
+  var alertKey = threshold ? "quota_alert_v2_" + state.day + "_" + threshold : "";
+  var bangkokHour = Number(Utilities.formatDate(new Date(), "Asia/Bangkok", "H"));
+  var dailyKey = "quota_daily_v2_" + Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+  if (force || (threshold && !properties.getProperty(alertKey))) {
+    sendTelegram_(freeQuotaMessageV2_(state, threshold >= 100 ? "🚨 โควตาฟรี Firestore ถึงเพดานแล้ว" : "⚠️ โควตาฟรี Firestore ใกล้เต็ม"), chatId);
+    if (alertKey) properties.setProperty(alertKey, String(Date.now()));
+    if (force) properties.setProperty(dailyKey, String(Date.now()));
+    return true;
+  }
+  if (bangkokHour >= 8 && !properties.getProperty(dailyKey)) {
+    sendTelegram_(freeQuotaMessageV2_(state, "📊 สรุปโควตาฟรี Firestore ประจำวัน"), chatId);
+    properties.setProperty(dailyKey, String(Date.now()));
+    return true;
+  }
+  return false;
+}
+
+/** Manual test/report from the Apps Script editor. */
+function runFreeQuotaReportNow() {
+  var settings = getDocument_(SETTINGS_DOCUMENT);
+  var chatId = String(settings.telegramChatId || "").trim();
+  return maybeNotifyFreeQuotaV2_(settings, chatId, PropertiesService.getScriptProperties(), true);
 }
 
 function getRawFirestoreDocumentV2_(path) {
