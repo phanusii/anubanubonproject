@@ -9,7 +9,6 @@ import RevisionModal from "@/components/RevisionModal";
 import {
   deleteSubmission,
   updateSubmission,
-  getInstantSubmissions,
   getGallerySubmissions,
   getInstantGallery,
   rebuildGallerySnapshot,
@@ -33,15 +32,17 @@ import {
   UserRound,
   CalendarClock,
   FolderKanban,
-  CheckCircle2
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Wrench
 } from "lucide-react";
 import { isGoogleDriveLink, extractGoogleDriveFileId } from "@/lib/google-drive-utils";
 import { checkDriveLinkPublic } from "@/lib/certificate-service";
 import { displayWorkTitle, shortSubject } from "@/lib/format";
 
 export default function AdminSubmissionsPage() {
-  // Instant synchronous state initialization (0ms latency!)
-  const [submissions, setSubmissions] = useState<Submission[]>(() => getInstantSubmissions());
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
   const [subjectGroups, setSubjectGroups] = useState<SubjectGroupOption[]>(DEFAULT_SUBJECT_GROUPS);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -52,6 +53,10 @@ export default function AdminSubmissionsPage() {
   const [selectedSubject, setSelectedSubject] = useState("ทั้งหมด");
   const [selectedKind, setSelectedKind] = useState<"" | "training" | "project">("");
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
+  const [showTools, setShowTools] = useState(false);
+  const [expandedTeachers, setExpandedTeachers] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
 
   // Selected Submission Modal for viewing
   const [activeSubmission, setActiveSubmission] = useState<Submission | null>(null);
@@ -74,37 +79,46 @@ export default function AdminSubmissionsPage() {
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
 
   useEffect(() => {
-    loadData();
+    let cancelled = false;
+    Promise.all([getProjects(), getGradeLevels(), getSubjectGroups()]).then(([projectData, gls, sgs]) => {
+      if (cancelled) return;
+      setProjects(projectData);
+      if (gls.length) setGradeLevels(gls);
+      if (sgs.length) setSubjectGroups(sgs);
+      if (projectData.length) {
+        const firstProject = projectData[0];
+        setSelectedKind(firstProject.kind || "project");
+        setSelectedProjectId(firstProject.id);
+      }
+    });
+    return () => { cancelled = true; };
   }, []);
 
-  async function loadData() {
-    // Show the full set from the session cache immediately (instead of only the
-    // ~dozen works this browser submitted), then load the light projected list —
-    // ~1 MB instead of the ~8 MB of full documents with inlined thumbnails, which
-    // was why the page sat on a partial count for so long. The list only needs
-    // metadata fields, all of which the projection includes.
-    const instant = getInstantGallery();
-    if (instant.length) setSubmissions(instant);
-
-    // Resolve the lightweight round list first, so the admin's first-ordered
-    // round appears immediately without waiting for ~1,000 works to download.
-    const projectsPromise = getProjects();
-    const submissionsPromise = getGallerySubmissions();
-    const gradesPromise = getGradeLevels();
-    const subjectsPromise = getSubjectGroups();
-    const projectData = await projectsPromise;
-    setProjects(projectData);
-    // Follow the display order configured by Admin: open the first round
-    // immediately, while keeping the round picker available above the results.
-    if (!selectedProjectId && projectData.length > 0) {
-      const firstProject = projectData[0];
-      setSelectedKind(firstProject.kind || "project");
-      setSelectedProjectId(firstProject.id);
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setSubmissions([]);
+      return;
     }
-    const [subs, gls, sgs] = await Promise.all([submissionsPromise, gradesPromise, subjectsPromise]);
-    if (subs && subs.length > 0) setSubmissions(subs);
-    if (gls && gls.length > 0) setGradeLevels(gls);
-    if (sgs && sgs.length > 0) setSubjectGroups(sgs);
+    let cancelled = false;
+    setLoadingSubmissions(true);
+    setSubmissions(getInstantGallery(selectedProjectId));
+    setExpandedTeachers(new Set());
+    setPage(1);
+    setSelectedIds(new Set());
+    setNonPublicSubs(null);
+    setScanMessage("");
+    getGallerySubmissions(selectedProjectId)
+      .then((items) => { if (!cancelled) setSubmissions(items); })
+      .finally(() => { if (!cancelled) setLoadingSubmissions(false); });
+    return () => { cancelled = true; };
+  }, [selectedProjectId]);
+
+  async function loadData() {
+    if (!selectedProjectId) return;
+    setLoadingSubmissions(true);
+    const items = await getGallerySubmissions(selectedProjectId);
+    setSubmissions(items);
+    setLoadingSubmissions(false);
   }
 
   const handleDelete = async (sub: Submission) => {
@@ -256,17 +270,6 @@ export default function AdminSubmissionsPage() {
     ? projects.filter((project) => (project.kind || "project") === selectedKind)
     : [];
 
-  const kindCounts = useMemo(() => {
-    const projectKinds = new Map(projects.map((project) => [project.id, project.kind || "project"]));
-    let training = 0;
-    let project = 0;
-    for (const submission of submissions) {
-      if (projectKinds.get(submission.projectId || "") === "training") training += 1;
-      else project += 1;
-    }
-    return { all: submissions.length, training, project };
-  }, [projects, submissions]);
-
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
 
   const teacherGroups = useMemo(() => {
@@ -285,6 +288,19 @@ export default function AdminSubmissionsPage() {
       .sort((a, b) => b.latestAt - a.latestAt || a.teacher.fullName.localeCompare(b.teacher.fullName, "th"));
   }, [filteredSubmissions]);
 
+  const PAGE_SIZE = 20;
+  const totalPages = Math.max(1, Math.ceil(teacherGroups.length / PAGE_SIZE));
+  const pagedTeacherGroups = teacherGroups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+    setExpandedTeachers(new Set());
+  }, [search, selectedGrade, selectedSubject]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
@@ -292,76 +308,39 @@ export default function AdminSubmissionsPage() {
       <div className="flex-1 max-w-7xl w-full mx-auto px-4 py-8 flex flex-col md:flex-row gap-6">
         <AdminSidebar />
 
-        <main className="flex-1 space-y-6">
-          <div className="glass-panel p-6 rounded-3xl border border-white bg-white shadow-xs space-y-1">
-            <h1 className="text-2xl font-extrabold text-slate-900">
-              จัดการรายการผลงานทั้งหมด ({filteredSubmissions.length} รายการ)
-            </h1>
-            <p className="text-xs font-semibold text-slate-500">
-              เลือกประเภทและรอบก่อน แล้วตรวจผลงานแบบรวมตามรายชื่อครู
-            </p>
-          </div>
-
-          {/* Required round selection: keep the large submission list hidden until
-              the admin has deliberately chosen its scope. */}
-          <div className="glass-panel p-5 sm:p-6 rounded-3xl border border-blue-100 bg-white shadow-xs space-y-5">
-            <div className="flex items-center gap-3">
-              <span className="w-10 h-10 rounded-2xl ios-gradient-blue text-white flex items-center justify-center shrink-0">
-                <FolderKanban className="w-5 h-5" />
-              </span>
-              <div>
-                <h2 className="font-extrabold text-base text-slate-900">1. เลือกประเภทและรอบที่ต้องการจัดการ</h2>
-                <p className="text-[11px] font-semibold text-slate-500">ระบบจะแสดงเฉพาะครูและผลงานในรอบที่เลือก ป้องกันการแก้ไขหรือลบผิดรอบ</p>
+        <main className="flex-1 space-y-4 min-w-0">
+          <div className="glass-panel p-4 sm:p-5 rounded-3xl border border-white bg-white shadow-xs">
+            <div className="flex flex-col xl:flex-row xl:items-center gap-3">
+              <div className="mr-auto min-w-0">
+                <h1 className="text-xl font-extrabold text-slate-900">จัดการผลงาน</h1>
+                <p className="text-xs font-semibold text-slate-500 truncate">
+                  {selectedProject?.name || "กำลังโหลดรอบ..."} · {teacherGroups.length.toLocaleString()} คน · {filteredSubmissions.length.toLocaleString()} ชิ้น
+                </p>
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {([
-                { key: "training", label: "การอบรม", count: kindCounts.training },
-                { key: "project", label: "โครงการ", count: kindCounts.project },
-              ] as const).map((item) => (
-                <button
-                  type="button"
-                  key={item.key}
-                  onClick={() => {
-                    setSelectedKind(item.key);
-                    setSelectedProjectId("");
-                    setSelectedIds(new Set());
+              <div className="grid grid-cols-1 sm:grid-cols-[150px_minmax(260px,1fr)] gap-2 xl:w-[610px]">
+                <select
+                  value={selectedKind}
+                  onChange={(event) => {
+                    const kind = event.target.value as "training" | "project";
+                    const first = projects.find((project) => (project.kind || "project") === kind);
+                    setSelectedKind(kind);
+                    setSelectedProjectId(first?.id || "");
                   }}
-                  className={`p-4 rounded-2xl border text-left transition-all ${selectedKind === item.key ? "border-blue-500 bg-blue-50 ring-2 ring-blue-500/15" : "border-slate-200 bg-slate-50 hover:border-blue-300"}`}
+                  className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-extrabold focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 >
-                  <span className="block text-sm font-extrabold text-slate-900">{item.label}</span>
-                  <span className="block text-xs font-semibold text-slate-500 mt-1">{projects.filter((project) => (project.kind || "project") === item.key).length} รอบ · {item.count.toLocaleString()} ผลงาน</span>
-                </button>
-              ))}
-            </div>
-
-            {selectedKind && (
-              <div className="space-y-2">
-                <label className="text-xs font-extrabold text-slate-700">2. เลือกรอบ{selectedKind === "training" ? "การอบรม" : "โครงการ"}</label>
+                  <option value="training">การอบรม</option>
+                  <option value="project">โครงการ</option>
+                </select>
                 <select
                   value={selectedProjectId}
-                  onChange={(event) => {
-                    setSelectedProjectId(event.target.value);
-                    setSelectedIds(new Set());
-                  }}
-                  className="w-full px-4 py-3 rounded-2xl border border-blue-200 bg-blue-50 text-blue-900 text-sm font-extrabold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  onChange={(event) => setSelectedProjectId(event.target.value)}
+                  className="min-w-0 px-3.5 py-2.5 rounded-xl border border-blue-200 bg-blue-50 text-blue-900 text-xs font-extrabold focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 >
-                  <option value="">— กรุณาเลือกรอบก่อนแสดงผลงาน —</option>
-                  {projectsForKind.map((project) => (
-                    <option key={project.id} value={project.id}>{project.name}</option>
-                  ))}
+                  {projectsForKind.length === 0 && <option value="">ยังไม่มีรอบในประเภทนี้</option>}
+                  {projectsForKind.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
                 </select>
-                {projectsForKind.length === 0 && <p className="text-xs font-bold text-amber-600">ยังไม่มีรอบในประเภทนี้</p>}
               </div>
-            )}
-
-            {selectedProject && (
-              <div className="flex items-center gap-2 p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <p className="text-xs font-bold">กำลังจัดการ: {selectedProject.name}</p>
-              </div>
-            )}
+            </div>
           </div>
 
           {!selectedProjectId ? (
@@ -373,7 +352,18 @@ export default function AdminSubmissionsPage() {
           ) : (
             <>
 
-          {/* Non-public Drive-link cleanup tool */}
+          <button
+            type="button"
+            onClick={() => setShowTools((value) => !value)}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-xs font-extrabold text-slate-600 hover:bg-slate-50"
+          >
+            <Wrench className="w-4 h-4 text-amber-600" />
+            เครื่องมือเพิ่มเติม
+            {showTools ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          </button>
+
+          {/* Expensive Drive checks stay collapsed until the admin explicitly uses them. */}
+          {showTools && (
           <div className="glass-panel p-4 sm:p-5 rounded-3xl border border-amber-100 bg-amber-50/40 shadow-xs space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-start gap-2.5 min-w-0">
@@ -440,6 +430,7 @@ export default function AdminSubmissionsPage() {
               </div>
             )}
           </div>
+          )}
 
           {/* Filter & Multi-Field Search Bar */}
           <div className="glass-panel p-4 sm:p-6 rounded-3xl border border-white space-y-4 shadow-xs bg-white">
@@ -539,27 +530,45 @@ export default function AdminSubmissionsPage() {
 
           {/* Teacher-grouped submissions */}
           <div className="space-y-4">
-            {teacherGroups.length === 0 ? (
+            {loadingSubmissions && submissions.length === 0 ? (
+              <div className="glass-panel rounded-3xl border border-white bg-white p-12 text-center text-blue-600 font-bold">
+                <Loader2 className="w-7 h-7 mx-auto mb-3 animate-spin" />
+                กำลังโหลดผลงานเฉพาะรอบนี้...
+              </div>
+            ) : teacherGroups.length === 0 ? (
               <div className="glass-panel rounded-3xl border border-white bg-white p-12 text-center text-slate-400 font-semibold">
                 ไม่พบรายชื่อครูหรือผลงานตามตัวกรอง
               </div>
-            ) : teacherGroups.map(({ teacher, items }) => {
+            ) : pagedTeacherGroups.map(({ teacher, items }) => {
+              const teacherKey = (teacher.fullName || "ไม่ระบุชื่อ").replace(/\s+/g, "").toLowerCase();
+              const expanded = expandedTeachers.has(teacherKey);
               const allSelected = items.every((item) => selectedIds.has(item.id));
               return (
-                <section key={`${teacher.fullName}-${teacher.gradeLevel}-${teacher.subjectGroup}`} className="glass-panel rounded-3xl border border-white bg-white shadow-xs overflow-hidden">
-                  <header className="p-4 sm:p-5 bg-gradient-to-r from-blue-50/80 to-violet-50/50 border-b border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-start gap-3 min-w-0">
-                      <span className="w-11 h-11 rounded-2xl ios-gradient-blue text-white flex items-center justify-center shrink-0"><UserRound className="w-5 h-5" /></span>
+                <section key={teacherKey} className="glass-panel rounded-2xl border border-white bg-white shadow-xs overflow-hidden">
+                  <header className={`p-3.5 sm:px-4 bg-gradient-to-r from-blue-50/80 to-violet-50/50 flex items-center justify-between gap-3 ${expanded ? "border-b border-blue-100" : ""}`}>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedTeachers((previous) => {
+                        const next = new Set(previous);
+                        if (next.has(teacherKey)) next.delete(teacherKey); else next.add(teacherKey);
+                        return next;
+                      })}
+                      className="flex items-center gap-3 min-w-0 text-left flex-1"
+                      aria-expanded={expanded}
+                    >
+                      <span className="w-9 h-9 rounded-xl ios-gradient-blue text-white flex items-center justify-center shrink-0"><UserRound className="w-4 h-4" /></span>
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="font-extrabold text-base text-slate-900">{teacher.fullName}</h2>
-                          <span className="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[11px] font-extrabold">ส่งแล้ว {items.length} ชิ้น</span>
+                          <h2 className="font-extrabold text-sm text-slate-900">{teacher.fullName}</h2>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${items.length >= (selectedProject?.maxUpload || 1) ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                            {items.length}/{selectedProject?.maxUpload || items.length} ชิ้น
+                          </span>
                         </div>
-                        <p className="text-[11px] font-semibold text-slate-500 mt-0.5">{teacher.position || "ไม่ระบุตำแหน่ง"} · ครูสายชั้น{teacher.gradeLevel || "-"} · {shortSubject(teacher.subjectGroup || "-")}</p>
-                        <p className="text-[11px] font-semibold text-blue-600 truncate">{teacher.school}</p>
+                        <p className="text-[11px] font-semibold text-slate-500 truncate">{teacher.position || "ไม่ระบุตำแหน่ง"} · {teacher.gradeLevel || "-"} · {shortSubject(teacher.subjectGroup || "-")} · ล่าสุด {teacher.uploadDate || "-"}</p>
                       </div>
-                    </div>
-                    <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-600 bg-white px-3 py-2 rounded-xl border border-slate-200 shrink-0">
+                      {expanded ? <ChevronDown className="w-4 h-4 text-blue-600 shrink-0" /> : <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />}
+                    </button>
+                    <label className="inline-flex items-center gap-2 text-[11px] font-bold text-slate-600 bg-white px-2.5 py-2 rounded-xl border border-slate-200 shrink-0" title="เลือกผลงานทุกชิ้นของครูคนนี้">
                       <input
                         type="checkbox"
                         className="w-4 h-4 accent-red-600"
@@ -570,11 +579,11 @@ export default function AdminSubmissionsPage() {
                           return next;
                         })}
                       />
-                      เลือกงานของครูคนนี้ทั้งหมด
+                      <span className="hidden sm:inline">เลือกทั้งหมด</span>
                     </label>
                   </header>
 
-                  <div className="divide-y divide-slate-100">
+                  {expanded && <div className="divide-y divide-slate-100">
                     {items.map((sub, index) => {
                       const isDrive = sub.fileType === "drive" || isGoogleDriveLink(sub.fileURL);
                       return (
@@ -604,11 +613,19 @@ export default function AdminSubmissionsPage() {
                         </div>
                       );
                     })}
-                  </div>
+                  </div>}
                 </section>
               );
             })}
           </div>
+
+          {teacherGroups.length > PAGE_SIZE && (
+            <nav className="glass-panel rounded-2xl border border-white bg-white p-3 flex items-center justify-between gap-3" aria-label="แบ่งหน้ารายชื่อครู">
+              <button type="button" disabled={page === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-extrabold disabled:opacity-40">ก่อนหน้า</button>
+              <span className="text-xs font-bold text-slate-600">หน้า {page} จาก {totalPages} · แสดงครั้งละ {PAGE_SIZE} คน</span>
+              <button type="button" disabled={page === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} className="px-4 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs font-extrabold disabled:opacity-40">ถัดไป</button>
+            </nav>
+          )}
             </>
           )}
         </main>
