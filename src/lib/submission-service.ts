@@ -405,7 +405,6 @@ export async function getGallerySnapshotRaw(): Promise<{ items: Submission[]; up
  *  rules gate the write). Returns the counts, or null if there is nothing/failed. */
 export async function rebuildGallerySnapshot(): Promise<{ count: number; chunks: number } | null> {
   const all = (await fetchGalleryRest({})) || [];
-  if (!all.length) return null;
   // Strip undefined fields — Firestore rejects them inside arrays/maps.
   const clean = JSON.parse(JSON.stringify(all)) as Submission[];
   const updatedAt = Date.now();
@@ -413,7 +412,8 @@ export async function rebuildGallerySnapshot(): Promise<{ count: number; chunks:
   for (let i = 0; i < clean.length; i += SNAPSHOT_CHUNK_SIZE) chunks.push(clean.slice(i, i + SNAPSHOT_CHUNK_SIZE));
   const batch = writeBatch(db);
   chunks.forEach((items, index) => batch.set(doc(db, SNAPSHOT_COLLECTION, `chunk_${index}`), { index, items, updatedAt }));
-  // Drop any leftover chunks from a previously larger snapshot.
+  // Drop any leftover chunks from a previously larger snapshot. This also
+  // clears every old chunk when the last submission has just been deleted.
   try {
     const existing = await getDocs(collection(db, SNAPSHOT_COLLECTION));
     existing.docs.forEach((d) => {
@@ -1422,6 +1422,12 @@ export async function deleteSubmissionsByProject(projectId: string): Promise<num
 
   const remaining = getLocalSubmissions().filter((item) => item.projectId !== projectId);
   saveLocalSubmissions(remaining);
+  // A project cascade bypasses the page-level single/bulk delete handlers.
+  // Refresh once after all batched deletes so the public gallery cannot retain
+  // stale cards from the deleted round.
+  await rebuildGallerySnapshot().catch((err) => {
+    console.warn("Gallery snapshot rebuild after project deletion failed:", err);
+  });
   return documents.length;
 }
 

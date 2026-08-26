@@ -205,7 +205,7 @@ export default function AdminDashboardPage() {
               </button>
             </div>
             <p className="text-[11px] text-slate-400 font-medium leading-relaxed">
-              หน้าคลังจะอ่านจากแคชนี้ (ไม่กี่ครั้ง) แทนการอ่านทุกผลงาน · งานที่ส่งใหม่จะขึ้นเองอัตโนมัติ · หลัง<b className="text-slate-500">ลบ/แก้ไข</b>ผลงาน ควรกด &quot;อัปเดตแคช&quot; อีกครั้งเพื่อให้คลังตรงกัน
+              หน้าคลังจะอ่านจากแคชนี้ (ไม่กี่ครั้ง) แทนการอ่านทุกผลงาน · เมื่อส่งใหม่ ส่งแทนที่ แก้ไข หรือลบผลงาน ระบบจะอัปเดตแคชให้อัตโนมัติ
             </p>
             {snapMsg && <p className="text-xs font-bold text-emerald-700">{snapMsg}</p>}
           </div>

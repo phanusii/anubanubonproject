@@ -177,6 +177,7 @@ export default function AdminSubmissionsPage() {
   const deleteNonPublicSub = async (sub: Submission) => {
     if (!confirm(`ลบผลงาน "${sub.projectTitle}" ของ ${sub.fullName}?\n(ครูจะต้องส่งใหม่โดยแชร์ลิงก์เป็นสาธารณะ)`)) return;
     await deleteSubmission(sub.id);
+    await rebuildGallerySnapshot().catch(() => {});
     setNonPublicSubs((prev) => (prev ? prev.filter((s) => s.id !== sub.id) : prev));
     loadData();
   };
@@ -190,6 +191,7 @@ export default function AdminSubmissionsPage() {
     for (const sub of nonPublicSubs) {
       await deleteSubmission(sub.id).catch(() => {});
     }
+    await rebuildGallerySnapshot().catch(() => {});
     setScanMessage(`ลบแล้ว ${nonPublicSubs.length} ชิ้น เรียบร้อย`);
     setNonPublicSubs([]);
     setScanning(false);
