@@ -164,16 +164,24 @@ function notifySubmissionImmediately_(submissionId) {
   quotaBump_([document], 1);
   maybeNotifyFreeQuotaV2_(settings, chatId, properties, false);
   var text = [
-    "📥 มีการส่งงานใหม่",
+    "📥 งานใหม่เข้าสู่ระบบ",
+    "━━━━━━━━━━━━━━",
+    "👤 ผู้ส่ง: " + String(item.fullName || "ไม่ระบุชื่อ"),
+    "🏫 โรงเรียน: " + String(item.school || "ไม่ระบุ"),
+    "🎓 สายชั้น: " + String(item.gradeLevel || "ไม่ระบุ"),
+    "📚 กลุ่มสาระ: " + String(item.subjectGroup || "ไม่ระบุ"),
     "",
-    "👤 " + String(item.fullName || "ไม่ระบุชื่อ"),
-    "📚 " + String(item.gradeLevel || "ไม่ระบุสายชั้น"),
-    "📁 " + String(item.projectName || "ไม่ระบุการอบรม/โครงการ"),
-    "📝 " + cleanWorkTitleV2_(item.projectTitle)
+    "📁 รอบ/โครงการ",
+    String(item.projectName || "ไม่ระบุการอบรม/โครงการ"),
+    "",
+    "📝 ชิ้นงาน: " + cleanWorkTitleV2_(item.projectTitle),
+    "🕒 ส่งเมื่อ: " + formatThaiDateTimeV3_(item.createdAt, item.uploadDate),
+    "━━━━━━━━━━━━━━",
+    "✅ บันทึกผลงานเรียบร้อยแล้ว"
   ];
   var workUrl = String(item.fileURL || item.driveLink || "").trim();
-  if (workUrl) text.push("🔗 ดูงานที่ส่ง: " + workUrl);
-  sendTelegram_(text.join("\n"), chatId);
+  var workKeyboard = workUrl ? { inline_keyboard: [[{ text: "📄 เปิดผลงานที่ส่ง", url: workUrl }]] } : undefined;
+  sendTelegram_(text.join("\n"), chatId, workKeyboard);
   properties.setProperty(marker, String(Date.now()));
   advanceTelegramCursorV2_(Number(item.createdAt || 0), submissionId, properties);
   return true;
@@ -288,6 +296,12 @@ function advanceTelegramCursorV2_(createdAt, submissionId, properties) {
   }
 }
 
+function formatThaiDateTimeV3_(createdAt, fallback) {
+  var timestamp = Number(createdAt || 0);
+  if (timestamp > 0) return Utilities.formatDate(new Date(timestamp), "Asia/Bangkok", "dd/MM/yyyy HH:mm น.");
+  return String(fallback || "ไม่ระบุเวลา");
+}
+
 /** Notify once when a recipient becomes complete and attach safe action buttons. */
 function notifyCompletedCertificateCandidatesV2_(documents, chatId) {
   var pairs = {}, properties = PropertiesService.getScriptProperties();
@@ -311,15 +325,22 @@ function notifyCompletedCertificateCandidatesV2_(documents, chatId) {
       if (properties.getProperty(notifiedKey)) return;
       var callback = telegramCertificateCallback_(pair.projectId, pair.fullName);
       var folderUrl = recipientWorkFolderUrlV2_(pair.projectId, project, progress.latest || {});
-      var rows = [[{ text: "✅ อนุมัติออกเกียรติบัตร", callback_data: callback }]];
-      if (folderUrl) rows.push([{ text: "📁 ดูโฟลเดอร์ผลงาน", url: folderUrl }]);
+      var rows = [[{ text: "✅ ตรวจแล้ว ออกเกียรติบัตร", callback_data: callback }]];
+      if (folderUrl) rows.push([{ text: "📂 เปิดโฟลเดอร์ผลงาน", url: folderUrl }]);
       var text = [
-        "🎓 ส่งงานครบแล้ว รออนุมัติเกียรติบัตร",
+        "🎓 พร้อมตรวจออกเกียรติบัตร",
+        "━━━━━━━━━━━━━━",
+        "👤 ผู้รับ: " + pair.fullName,
+        "🎓 สายชั้น: " + String((progress.latest || {}).gradeLevel || "ไม่ระบุ"),
+        "📚 กลุ่มสาระ: " + String((progress.latest || {}).subjectGroup || "ไม่ระบุ"),
         "",
-        "👤 " + pair.fullName,
-        "📚 " + String((progress.latest || {}).gradeLevel || "ไม่ระบุสายชั้น"),
-        "📁 " + String(project.name || "ไม่ระบุการอบรม/โครงการ"),
-        "✅ ส่งครบ " + progress.submitted + "/" + progress.required + " ชิ้น"
+        "📁 รอบ/โครงการ",
+        String(project.name || "ไม่ระบุการอบรม/โครงการ"),
+        "",
+        "📊 ความคืบหน้า: " + progress.submitted + "/" + progress.required + " ชิ้น",
+        "✅ สถานะ: ส่งงานครบแล้ว",
+        "━━━━━━━━━━━━━━",
+        "⚠️ โปรดตรวจผลงานก่อนกดออกเกียรติบัตร"
       ].join("\n");
       sendTelegram_(text, chatId, { inline_keyboard: rows });
       properties.setProperty(notifiedKey, String(Date.now()));
@@ -428,18 +449,25 @@ function handleTelegramWebhook_(update) {
   try {
     var record = issueCertificate_(action.projectId, action.fullName, false, false);
     properties.deleteProperty("telegram_cert_" + id);
-    answerTelegramCallbackV2_(query.id, "ออกเกียรติบัตรเรียบร้อยแล้ว", false);
-    var text = "✅ อนุมัติและออกเกียรติบัตรแล้ว\n\n👤 " + record.recipientName + "\n🔢 เลขที่ " + record.certificateNumber;
-    var keyboard = record.pdfUrl ? { inline_keyboard: [[{ text: "📄 เปิดเกียรติบัตร", url: record.pdfUrl }]] } : undefined;
+    answerTelegramCallbackV2_(query.id, "✅ ออกเกียรติบัตรเรียบร้อยแล้ว", false);
+    var text = [
+      "🏅 ออกเกียรติบัตรสำเร็จ",
+      "━━━━━━━━━━━━━━",
+      "👤 ผู้รับ: " + record.recipientName,
+      "🔢 เลขที่: " + record.certificateNumber,
+      "🕒 ออกเมื่อ: " + formatThaiDateTimeV3_(record.issuedAt, ""),
+      "━━━━━━━━━━━━━━",
+      "✅ สถานะ: อนุมัติและจัดทำไฟล์แล้ว"
+    ].join("\n");
+    var keyboard = record.pdfUrl ? { inline_keyboard: [[{ text: "📜 เปิดเกียรติบัตร", url: record.pdfUrl }]] } : undefined;
     sendTelegram_(text, actualChatId, keyboard);
-        sendTelegram_(text, actualChatId, keyboard);
     // แก้ข้อความเดิม: ต่อท้าย "อนุมัติแล้ว" + ลบเฉพาะปุ่มอนุมัติ (เก็บปุ่มดูโฟลเดอร์ไว้)
     var origText = (query.message && query.message.text) || "";
     var keptButtons = ((query.message && query.message.reply_markup && query.message.reply_markup.inline_keyboard) || [])
       .map(function (row) { return row.filter(function (b) { return String(b.callback_data || "").indexOf("cert:") !== 0; }); })
       .filter(function (row) { return row.length; });
     editTelegramMessage_(actualChatId, query.message.message_id,
-      origText + "\n\n✅ อนุมัติแล้ว — เลขที่ " + record.certificateNumber,
+      origText + "\n\n━━━━━━━━━━━━━━\n🏅 ออกเกียรติบัตรแล้ว\n🔢 เลขที่: " + record.certificateNumber,
       keptButtons.length ? { inline_keyboard: keptButtons } : null);
   } catch (error) {
     answerTelegramCallbackV2_(query.id, String(error && error.message || error).slice(0, 180), true);
@@ -539,17 +567,21 @@ function formatSubmissionSummaryV2_(documents) {
     var grade = String(item.gradeLevel || "ไม่ระบุ");
     grades[grade] = (grades[grade] || 0) + 1;
   });
-  var lines = ["📥 มีการส่งงานใหม่ " + items.length + " รายการ", ""];
+  var lines = [
+    "📥 สรุปงานใหม่ " + items.length + " รายการ",
+    "━━━━━━━━━━━━━━",
+    "📊 แยกตามสายชั้น"
+  ];
   Object.keys(grades).sort().forEach(function(grade) {
-    lines.push("• " + grade + " จำนวน " + grades[grade] + " รายการ");
+    lines.push("• " + grade + ": " + grades[grade] + " รายการ");
   });
-  lines.push("", "รายการล่าสุด:");
-  items.slice(-15).reverse().forEach(function(item) {
-    lines.push("• " + (item.fullName || "ไม่ระบุชื่อ") + " — " + cleanWorkTitleV2_(item.projectTitle));
-    var workUrl = String(item.fileURL || item.driveLink || "").trim();
-    if (workUrl) lines.push("  🔗 ดูงานที่ส่ง: " + workUrl);
+  lines.push("", "📝 รายการล่าสุด");
+  items.slice(-10).reverse().forEach(function(item, index) {
+    lines.push((index + 1) + ". " + (item.fullName || "ไม่ระบุชื่อ"));
+    lines.push("   └ " + cleanWorkTitleV2_(item.projectTitle));
   });
-  if (items.length > 15) lines.push("…และอีก " + (items.length - 15) + " รายการ");
+  if (items.length > 10) lines.push("", "➕ และอีก " + (items.length - 10) + " รายการ");
+  lines.push("━━━━━━━━━━━━━━", "✅ ระบบบันทึกทุกรายการแล้ว");
   return lines.join("\n");
 }
 
@@ -565,7 +597,7 @@ function cleanWorkTitleV2_(value) {
 function notifyTelegramTest_(settings, chatId, properties) {
   var requestedAt = String(settings.telegramTestRequestedAt || "");
   if (!requestedAt || properties.getProperty(TEST_CURSOR_PROPERTY) === requestedAt) return;
-  sendTelegram_("✅ ทดสอบการแจ้งเตือนสำเร็จ\n\nระบบพร้อมแจ้งเตือนเมื่อมีครูส่งงานหรือผลงานใหม่", chatId);
+  sendTelegram_(["🔔 ทดสอบการแจ้งเตือน", "━━━━━━━━━━━━━━", "✅ เชื่อมต่อ Telegram สำเร็จ", "📥 พร้อมแจ้งเมื่อมีการส่งงานใหม่", "🎓 พร้อมแจ้งเมื่อครบเกณฑ์เกียรติบัตร"].join("\n"), chatId);
   properties.setProperty(TEST_CURSOR_PROPERTY, requestedAt);
 }
 
@@ -611,7 +643,7 @@ function sendTelegram_(text, explicitChatId, replyMarkup) {
 function sendTelegramTestNow_(chatId) {
   chatId = String(chatId || "").trim();
   if (!chatId) throw new Error("กรุณากรอก Telegram Chat ID");
-  sendTelegram_("✅ ทดสอบการแจ้งเตือนสำเร็จ\n\nระบบพร้อมแจ้งเตือนเมื่อมีครูส่งงานหรือผลงานใหม่", chatId);
+  sendTelegram_(["🔔 ทดสอบการแจ้งเตือน", "━━━━━━━━━━━━━━", "✅ เชื่อมต่อ Telegram สำเร็จ", "📥 พร้อมแจ้งเมื่อมีการส่งงานใหม่", "🎓 พร้อมแจ้งเมื่อครบเกณฑ์เกียรติบัตร"].join("\n"), chatId);
   return true;
 }
 
