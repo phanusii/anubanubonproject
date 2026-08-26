@@ -1,46 +1,28 @@
-# Telegram notifier (Firebase Spark / free)
+# Apps Script production source
 
-This Apps Script polls Firestore as a fallback and sends new submissions to Telegram. The V2 installer uses a five-minute interval because the web app also requests an immediate notification. No bot token is stored in this repository or shipped to the browser.
+This directory mirrors the live `anubanubonproject` Apps Script project. Keep
+all four files together because Apps Script evaluates every `.gs` file in one
+shared global scope.
 
-1. Create a standalone project at `script.google.com`.
-2. Paste `telegram-notifier.gs` into `Code.gs`.
-3. Open **Project Settings → Script Properties** and add `TELEGRAM_BOT_TOKEN`.
-4. Run `installTelegramNotifier` once and approve the requested permissions.
-5. Enable Telegram and set the Chat ID from `/admin/telegram` in the website.
+- `drive-upload.gs` owns the single public `doPost(e)` dispatcher.
+- `Code.gs` contains upload, Drive revision, certificate, and shared helpers.
+- `telegram-queue.gs` contains the five-minute Telegram fallback, certificate
+  approval callbacks, and one-off Drive maintenance utilities.
+- `appsscript.json` is the production manifest.
 
-The first installation records the current newest submission, so old submissions are not sent. A confirmation message is sent after installation.
+Do not add another `doPost`, duplicate a helper name, or deploy one `.gs` file
+in isolation. Deploy as a new Apps Script version while preserving the existing
+web-app URL, execution owner, Script Properties, and triggers.
 
-For a high-volume round (for example, 300 teachers), also add `telegram-queue.gs`
-to the live Apps Script project and run `installTelegramNotifierV2` once. It
-replaces the old trigger, queries only records newer than its cursor, processes
-up to 200 records per minute without dropping older records, and sends one
-grouped Telegram summary instead of flooding the chat.
+Required Script Properties include `TELEGRAM_BOT_TOKEN`,
+`FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY`, and `CERTIFICATE_FOLDER_ID`.
+Secrets must remain in Script Properties and must never be committed.
 
-## Certificate service
+## Safe release order
 
-1. Add `certificate-service.gs` to the existing Drive upload Apps Script project. If that project already has `doPost`, keep it and route certificate actions to `handleCertificateAction_` as shown in the deployed merged source.
-2. Add the scopes from `appsscript.json` to the existing manifest while preserving its current `webapp` settings.
-3. In **Project Settings → Script Properties**, add `FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY`, `CERTIFICATE_FOLDER_ID`, `ADMIN_EMAIL`, and `PUBLIC_SITE_URL`.
-4. Update the existing Web app deployment, execute as the owner, with access set to **Anyone**.
-5. Put the existing `/exec` URL in `NEXT_PUBLIC_CERTIFICATE_SERVICE_URL` before building the website.
-
-The endpoint does not accept a client-provided completion flag or certificate number. It reloads the project and submissions, locks number allocation, and returns the existing certificate on repeated requests. The certificate registry and counters are stored in `certificate-registry.json` inside the configured Drive folder, avoiding paid Cloud Functions and Workspace restrictions on linking a standard Cloud project.
-
-The certificate template is a native Google Slides presentation owned by, or shared with, the Apps Script owner. Paste the presentation URL in `/admin/certificates`, scan its text boxes, then choose the sample-name box and sample-number box. The service copies the presentation, replaces only those two selected boxes, exports PDF, then trashes the temporary copy. Legacy templates using `{{FULL_NAME}}` and `{{CERTIFICATE_NUMBER}}` remain supported.
-
-Issued PDFs and submissions share the upload root and are organized as
-`<project name>/เกียรติบัตร/<grade level>/<certificate number> - <recipient name>.pdf`
-and `<project name>/ผลงาน/<grade level>/<recipient name>/<work file>`.
-The minute worker also moves legacy PDFs into this structure without changing
-their Drive file IDs or download links.
-Run `runOrganizeDriveStructureV3` once to move legacy grade and teacher folders
-into the new `ผลงาน` and `เกียรติบัตร` sections.
-Profile pictures are shared across all rounds under
-`รูปประจำตัว/<grade level>/<teacher name>`. Run
-`runMoveProfilePicturesToSharedFolderV3` once to merge legacy profile folders
-from individual projects into this shared location without changing file IDs.
-
-Run `runCertificateStorageCleanupV2` to permanently remove generated PDFs that
-are no longer referenced by the certificate registry. Reissued certificates
-also permanently delete the replaced PDF automatically, with Drive trash used
-only as a temporary fallback when the delete API is unavailable.
+1. Keep the previous Apps Script version available for rollback.
+2. Push all files in this directory to a staging copy first.
+3. Test upload, resumable upload, Telegram test/fallback, Drive revisions,
+   certificate preview, batch issue, recipient lookup, and revoke.
+4. Create a new production version and update the existing deployment to it.
+5. Test one non-destructive request for each action family before closing the release.

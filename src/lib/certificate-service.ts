@@ -92,7 +92,8 @@ async function getAdminIdToken(): Promise<string> {
 }
 
 export async function issueCertificate(projectId: string, fullName: string): Promise<CertificateRecord> {
-  const result = await callService({ action: "issue", projectId, fullName: fullName.trim() });
+  const idToken = await getAdminIdToken();
+  const result = await callService({ action: "issue", projectId, fullName: fullName.trim(), idToken });
   return result.certificate as CertificateRecord;
 }
 
