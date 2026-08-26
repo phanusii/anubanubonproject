@@ -55,6 +55,7 @@ export default function SubmitSection() {
   // File state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [thumbnailDataUrl, setThumbnailDataUrl] = useState<string>("");
+  const [isPreparingFile, setIsPreparingFile] = useState(false);
 
   // Google Drive state
   const [driveUrl, setDriveUrl] = useState<string>("");
@@ -353,7 +354,11 @@ export default function SubmitSection() {
     }
 
     if (submissionMethod === 'file' && !selectedFile) {
-      setErrorMessage("กรุณาอัปโหลดไฟล์ผลงาน (รองรับไฟล์ PDF หรือ รูปภาพ PNG, JPG, WEBP)");
+      setErrorMessage(
+        isPreparingFile
+          ? "กำลังเตรียมไฟล์ PDF และสร้างภาพตัวอย่าง กรุณารอสักครู่"
+          : "กรุณาอัปโหลดไฟล์ผลงาน (รองรับไฟล์ PDF หรือ รูปภาพ PNG, JPG, WEBP)"
+      );
       return;
     }
 
@@ -527,6 +532,7 @@ export default function SubmitSection() {
     setDescription("");
     setSelectedFile(null);
     setThumbnailDataUrl("");
+    setIsPreparingFile(false);
     setDriveUrl("");
     setDriveFileId(null);
     setUserExistingSubmissions([]);
@@ -922,6 +928,14 @@ export default function SubmitSection() {
                                 onFileSelect={(file, thumb) => {
                                   setSelectedFile(file);
                                   setThumbnailDataUrl(thumb);
+                                  // A user can press submit while PDF compression/thumbnail
+                                  // generation is still finishing. Clear that now-stale
+                                  // "please upload a file" error as soon as the file is ready.
+                                  if (file) setErrorMessage("");
+                                }}
+                                onProcessingChange={(processing) => {
+                                  setIsPreparingFile(processing);
+                                  if (processing) setErrorMessage("");
                                 }}
                                 uploadProgress={uploadProgress}
                                 isUploading={isUploading}
@@ -966,11 +980,17 @@ export default function SubmitSection() {
 
                             <button
                               type="submit"
-                              disabled={isUploading}
+                              disabled={isUploading || isPreparingFile}
                               className="w-full px-6 py-3 rounded-2xl ios-gradient-blue text-white font-extrabold text-sm shadow-md shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
                               <Send className="w-4 h-4" />
-                              {isUploading ? "กำลังส่ง..." : replacingSubmissionId ? "อัปเดตแทนที่ไฟล์เดิม" : `${verb}ชิ้นที่ ${idx + 1}`}
+                              {isPreparingFile
+                                ? "กำลังเตรียม PDF กรุณารอสักครู่..."
+                                : isUploading
+                                ? "กำลังอัปโหลดและบันทึก..."
+                                : replacingSubmissionId
+                                ? "อัปเดตแทนที่ไฟล์เดิม"
+                                : `${verb}ชิ้นที่ ${idx + 1}`}
                             </button>
                           </div>
                         )}

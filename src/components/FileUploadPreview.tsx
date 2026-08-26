@@ -43,12 +43,14 @@ async function compressImage(file: File): Promise<File> {
 
 interface FileUploadPreviewProps {
   onFileSelect: (file: File | null, thumbnail: string) => void;
+  onProcessingChange?: (processing: boolean) => void;
   uploadProgress?: number;
   isUploading?: boolean;
 }
 
 export default function FileUploadPreview({
   onFileSelect,
+  onProcessingChange,
   uploadProgress = 0,
   isUploading = false,
 }: FileUploadPreviewProps) {
@@ -65,6 +67,7 @@ export default function FileUploadPreview({
     setErrorMessage("");
     setCompressionNote("");
     if (!rawFile) {
+      onProcessingChange?.(false);
       setSelectedFile(null);
       setPreviewUrl("");
       onFileSelect(null, "");
@@ -84,6 +87,7 @@ export default function FileUploadPreview({
 
     // Compress supported files before upload. Compression falls back to the
     // original whenever it cannot produce a meaningfully smaller file.
+    onProcessingChange?.(true);
     setIsGeneratingThumbnail(true);
     let file = rawFile;
     if (isImage) {
@@ -108,6 +112,7 @@ export default function FileUploadPreview({
 
     // Direct upload has a size ceiling; larger files must use a Google Drive link.
     if (file.size > DIRECT_UPLOAD_MAX_MB * 1024 * 1024) {
+      onProcessingChange?.(false);
       setIsGeneratingThumbnail(false);
       setSelectedFile(null);
       setPreviewUrl("");
@@ -134,6 +139,7 @@ export default function FileUploadPreview({
 
     setIsGeneratingThumbnail(false);
     onFileSelect(file, thumb);
+    onProcessingChange?.(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -144,6 +150,7 @@ export default function FileUploadPreview({
   };
 
   const removeFile = () => {
+    onProcessingChange?.(false);
     setSelectedFile(null);
     setPreviewUrl("");
     setErrorMessage("");
@@ -209,6 +216,12 @@ export default function FileUploadPreview({
                 </p>
                 {compressionNote && (
                   <p className="text-[11px] text-emerald-600 font-bold">{compressionNote}</p>
+                )}
+                {!isGeneratingThumbnail && !isUploading && uploadProgress < 100 && (
+                  <p className="text-[11px] text-blue-600 font-extrabold flex items-center gap-1 mt-0.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    ไฟล์พร้อมส่ง — กดปุ่มส่งงานด้านล่างได้เลย
+                  </p>
                 )}
               </div>
             </div>
