@@ -8,7 +8,8 @@ import {
   uploadFileToGoogleDrive,
   uploadThumbnailToStorage,
   createSubmission,
-  replaceSubmission
+  replaceSubmission,
+  notifyTelegramUpload
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups, getInstantGradeLevels, getInstantSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
@@ -501,6 +502,16 @@ export default function SubmitSection() {
         position: position.trim(),
         gradeLevel,
         subjectGroup,
+      });
+
+      // Send immediately; the Apps Script minute poller remains the fallback.
+      void notifyTelegramUpload({
+        fullName: fullName.trim(),
+        workTitle: finalTitle,
+        projectName: activeProject?.name,
+        gradeLevel,
+        subjectGroup,
+        fileSize: selectedFile?.size || 0,
       });
 
       setIsUploading(false);

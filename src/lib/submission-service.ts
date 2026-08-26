@@ -790,6 +790,27 @@ export async function sendTelegramTest(chatId: string): Promise<void> {
   if (!result?.ok) throw new Error(String(result?.error || "ส่งข้อความทดสอบไม่สำเร็จ"));
 }
 
+/**
+ * Notify Telegram immediately after Firestore accepts a submission. The
+ * minute-based Apps Script poller remains a fallback if this request fails.
+ * Notification failure must never turn a successfully saved submission into
+ * a failed submission for the teacher.
+ */
+export async function notifyTelegramUpload(info: {
+  fullName: string;
+  workTitle: string;
+  projectName?: string;
+  gradeLevel?: string;
+  subjectGroup?: string;
+  fileSize?: number;
+}): Promise<void> {
+  try {
+    await postDriveJson({ action: "telegramNotify", ...info }, 20000);
+  } catch (error) {
+    console.warn("Immediate Telegram notification failed; poller will retry:", error);
+  }
+}
+
 export interface DriveUploadResult {
   url: string;
   id: string;
