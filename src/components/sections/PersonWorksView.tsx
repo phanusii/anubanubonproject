@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getPersonSubmissions, getInstantPersonWorks } from "@/lib/submission-service";
 import { getTeachers } from "@/lib/teachers-service";
 import { getProjects } from "@/lib/projects-service";
-import { Submission } from "@/lib/types";
+import { Project, Submission } from "@/lib/types";
 import { displayWorkTitle, gradeLabel, normalizeGradeKey } from "@/lib/format";
 import {
   extractGoogleDriveFileId,
@@ -23,6 +23,8 @@ import {
   Download,
   HardDrive,
   FileText,
+  FolderKanban,
+  ChevronDown,
 } from "lucide-react";
 
 interface PersonWorksViewProps {
@@ -37,6 +39,7 @@ interface PersonWorksViewProps {
 /** Full-page view listing every work submitted by one teacher (replaces the modal). */
 export default function PersonWorksView({ name, field = "grade", value }: PersonWorksViewProps) {
   const [works, setWorks] = useState<Submission[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
   const [avatarIdx, setAvatarIdx] = useState(0);
@@ -72,6 +75,7 @@ export default function PersonWorksView({ name, field = "grade", value }: Person
         ]);
         if (!alive) return;
         const visibleProjects = projects.filter((project) => project.showInGallery !== false);
+        setProjects(visibleProjects);
         const visibleIds = new Set(visibleProjects.map((project) => project.id));
         const projectOrder = new Map(visibleProjects.map((project, index) => [project.id, index]));
         const projectByName = new Map(visibleProjects.map((project) => [project.name.trim(), project]));
@@ -141,6 +145,25 @@ export default function PersonWorksView({ name, field = "grade", value }: Person
       return workTime > latestTime ? work : latest;
     }, undefined);
   }, [works]);
+
+  const workGroups = useMemo(() => {
+    const projectById = new Map(projects.map((project) => [project.id, project]));
+    const projectByName = new Map(projects.map((project) => [project.name.trim(), project]));
+    const groups = new Map<string, { project?: Project; name: string; works: Submission[] }>();
+
+    for (const work of works) {
+      const project = work.projectId
+        ? projectById.get(work.projectId)
+        : projectByName.get((work.projectName || "").trim());
+      const name = project?.name || work.projectName?.trim() || "ผลงานเดิมที่ไม่ระบุรอบ";
+      const key = project?.id || work.projectId || `legacy:${name}`;
+      const group = groups.get(key);
+      if (group) group.works.push(work);
+      else groups.set(key, { project, name, works: [work] });
+    }
+
+    return Array.from(groups.values());
+  }, [projects, works]);
 
   return (
     <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-8 space-y-6">
@@ -216,8 +239,37 @@ export default function PersonWorksView({ name, field = "grade", value }: Person
         </div>
       ) : (
         <div className="space-y-6">
-          {works.map((w, idx) => (
-            <WorkPreviewCard key={w.id} work={w} index={idx} latestSender={person} />
+          {workGroups.map((group, groupIndex) => (
+            <details
+              key={group.project?.id || group.name}
+              open={groupIndex === 0}
+              className="group/round glass-panel rounded-3xl border border-white bg-white/80 shadow-sm overflow-hidden"
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 sm:px-6 [&::-webkit-details-marker]:hidden">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                    <FolderKanban className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-[10px] font-extrabold text-blue-700">
+                        {group.project?.kind === "project" ? "โครงการ" : group.project ? "การอบรม" : "ไม่ระบุรอบ"}
+                      </span>
+                      <span className="text-xs font-bold text-slate-500">{group.works.length} ชิ้น</span>
+                    </div>
+                    <h2 className="text-sm font-extrabold leading-snug text-slate-900 sm:text-base">
+                      {group.name}
+                    </h2>
+                  </div>
+                </div>
+                <ChevronDown className="h-5 w-5 shrink-0 text-slate-400 transition-transform group-open/round:rotate-180" />
+              </summary>
+              <div className="space-y-5 border-t border-slate-100 bg-slate-50/60 p-3 sm:p-5">
+                {group.works.map((work, index) => (
+                  <WorkPreviewCard key={work.id} work={work} index={index} latestSender={person} />
+                ))}
+              </div>
+            </details>
           ))}
         </div>
       )}
@@ -275,12 +327,14 @@ function WorkPreviewCard({ work, index, latestSender }: { work: Submission; inde
         {isDrive && driveId ? (
           <iframe
             src={getGoogleDrivePreviewUrl(driveId)}
+            loading="lazy"
             className="w-full h-[55dvh] sm:h-[70vh] min-h-[260px] sm:min-h-[420px] rounded-2xl border border-slate-200 bg-white"
             title={`ผลงานชิ้นที่ ${index + 1}`}
           />
         ) : isPdf ? (
           <iframe
             src={work.fileURL}
+            loading="lazy"
             className="w-full h-[55dvh] sm:h-[70vh] min-h-[260px] sm:min-h-[420px] rounded-2xl border border-slate-200 bg-white"
             title={`ผลงานชิ้นที่ ${index + 1}`}
           />
