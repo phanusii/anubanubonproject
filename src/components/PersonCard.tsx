@@ -86,6 +86,7 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
   const [avatarIdx, setAvatarIdx] = useState(0);
   const [touchX, setTouchX] = useState<number | null>(null);
   const [hovered, setHovered] = useState(false);
+  const [slideDirection, setSlideDirection] = useState<1 | -1>(1);
   const avatarCandidates = avatarUrlCandidates(avatarUrl);
   const avatarSrc = avatarCandidates[avatarIdx] || "";
 
@@ -102,9 +103,13 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
     if (count <= 1 || hovered) return;
     let interval: ReturnType<typeof setInterval> | undefined;
     const kickoff = setTimeout(() => {
+      setSlideDirection(1);
       setIndex((i) => (i + 1) % count);
-      interval = setInterval(() => setIndex((i) => (i + 1) % count), 3800);
-    }, offsetRef.current);
+      interval = setInterval(() => {
+        setSlideDirection(1);
+        setIndex((i) => (i + 1) % count);
+      }, 5200);
+    }, 4800 + offsetRef.current);
     return () => {
       clearTimeout(kickoff);
       if (interval) clearInterval(interval);
@@ -114,10 +119,12 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
   const current = works[Math.min(index, count - 1)];
   const step = (delta: number) => (e: React.MouseEvent) => {
     e.stopPropagation();
+    setSlideDirection(delta < 0 ? -1 : 1);
     setIndex((i) => (i + delta + count) % count);
   };
   const jump = (i: number) => (e: React.MouseEvent) => {
     e.stopPropagation();
+    setSlideDirection(i < index ? -1 : 1);
     setIndex(i);
   };
 
@@ -138,13 +145,16 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
               ? (e) => {
                   if (touchX === null) return;
                   const dx = e.changedTouches[0].clientX - touchX;
-                  if (Math.abs(dx) > 40) setIndex((i) => (i + (dx < 0 ? 1 : -1) + count) % count);
+                  if (Math.abs(dx) > 40) {
+                    setSlideDirection(dx < 0 ? 1 : -1);
+                    setIndex((i) => (i + (dx < 0 ? 1 : -1) + count) % count);
+                  }
                   setTouchX(null);
                 }
               : undefined
           }
         >
-          <SlidePreview submission={current} zoom={hovered} />
+          <SlidePreview submission={current} zoom={hovered} direction={slideDirection} />
 
           {/* Soft zoom overlay to signal the preview is interactive on hover */}
           <div className="pointer-events-none absolute inset-0 z-10 rounded-2xl ring-0 group-hover:ring-2 group-hover:ring-blue-400/40 transition-all duration-300" />
@@ -248,21 +258,48 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
 }
 
 /** Renders a single work's thumbnail with graceful fallbacks (mirrors MasonryCard). */
-function SlidePreview({ submission, zoom }: { submission: Submission; zoom?: boolean }) {
+function SlidePreview({
+  submission,
+  zoom,
+  direction,
+}: {
+  submission: Submission;
+  zoom?: boolean;
+  direction: 1 | -1;
+}) {
   const [displayedSubmission, setDisplayedSubmission] = useState(submission);
+  const [incomingSubmission, setIncomingSubmission] = useState<Submission | null>(null);
   const [pendingCandidates, setPendingCandidates] = useState<Record<string, number>>({});
   const requestedCandidates = previewCandidates(submission);
   const pendingIndex = pendingCandidates[submission.id] || 0;
   const pendingThumb = requestedCandidates[pendingIndex] || "";
   const isPending = displayedSubmission.id !== submission.id;
-  // Files without a usable thumbnail show their explicit PDF / Drive / image
-  // fallback immediately; no network request is necessary.
-  const paintedSubmission = isPending && !pendingThumb ? submission : displayedSubmission;
+  const loadedIncoming = incomingSubmission?.id === submission.id ? incomingSubmission : null;
+  // A fallback has nothing to download, so it can enter immediately. Images
+  // join only after the hidden one-at-a-time loader confirms they are ready.
+  const activeIncoming = loadedIncoming || (isPending && !pendingThumb ? submission : null);
+  const needsHiddenLoader = isPending && Boolean(pendingThumb) && !loadedIncoming;
 
   return (
     <>
-      <PreviewVisual submission={paintedSubmission} zoom={zoom} />
-      {isPending && pendingThumb && (
+      <PreviewVisual submission={displayedSubmission} zoom={zoom} />
+      {activeIncoming && (
+        <div
+          key={`${activeIncoming.id}-${direction}`}
+          aria-hidden="true"
+          className={`absolute inset-0 z-[1] flex items-center justify-center will-change-transform ${
+            direction < 0 ? "card-slide-enter-prev" : "card-slide-enter-next"
+          }`}
+          onAnimationEnd={() => {
+            if (activeIncoming.id !== submission.id) return;
+            setDisplayedSubmission(activeIncoming);
+            setIncomingSubmission(null);
+          }}
+        >
+          <PreviewVisual submission={activeIncoming} zoom={zoom} />
+        </div>
+      )}
+      {needsHiddenLoader && (
         <Image
           src={pendingThumb}
           alt=""
@@ -270,7 +307,7 @@ function SlidePreview({ submission, zoom }: { submission: Submission; zoom?: boo
           aria-hidden="true"
           sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 25vw, 20vw"
           className="pointer-events-none invisible"
-          onLoad={() => setDisplayedSubmission(submission)}
+          onLoad={() => setIncomingSubmission(submission)}
           onError={() =>
             setPendingCandidates((current) => ({
               ...current,

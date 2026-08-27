@@ -296,10 +296,29 @@ select option {
 }
 .card-slide-progress {
   transform-origin: left;
-  animation: card-slide-progress 3.8s linear forwards;
+  animation: card-slide-progress 5.2s linear forwards;
+}
+
+/* The next preview glides over the current one only after its image is ready.
+   Keeping the old layer underneath prevents white flashes on slow networks. */
+@keyframes card-slide-enter-next {
+  0% { opacity: 0; transform: translate3d(9%, 0, 0) scale(.992); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes card-slide-enter-prev {
+  0% { opacity: 0; transform: translate3d(-9%, 0, 0) scale(.992); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+.card-slide-enter-next {
+  animation: card-slide-enter-next 1.05s cubic-bezier(.22, 1, .36, 1) both;
+}
+.card-slide-enter-prev {
+  animation: card-slide-enter-prev 1.05s cubic-bezier(.22, 1, .36, 1) both;
 }
 @media (prefers-reduced-motion: reduce) {
   .card-slide-progress { animation: none; }
+  .card-slide-enter-next,
+  .card-slide-enter-prev { animation-duration: .01ms; }
 }
 
 /* Mobile ergonomics shared by public and admin pages. */
