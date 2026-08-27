@@ -179,8 +179,38 @@ export default function CertificatesAdminPage() {
   useEffect(() => {
     if (!project) return;
     // A selected round owns its own editor draft; reset that draft when the selection changes.
+    let draft: CertificateSettings = {
+      ...defaults(project),
+      ...(project.certificate || {}),
+    };
+    const hasSavedSlides = Boolean(
+      extractSlidesId(draft.slideTemplateId || draft.slideTemplateUrl || "") &&
+      draft.slideNameField &&
+      draft.slideNumberField,
+    );
+    if (!hasSavedSlides) {
+      const reusable = projects.find((item) =>
+        item.id !== project.id &&
+        Boolean(
+          extractSlidesId(item.certificate?.slideTemplateId || item.certificate?.slideTemplateUrl || "") &&
+          item.certificate?.slideNameField &&
+          item.certificate?.slideNumberField,
+        ),
+      )?.certificate;
+      if (reusable) {
+        draft = {
+          ...draft,
+          slideTemplateId: reusable.slideTemplateId,
+          slideTemplateUrl: reusable.slideTemplateUrl,
+          templateType: "google-slides",
+          slideNameField: reusable.slideNameField,
+          slideNumberField: reusable.slideNumberField,
+          slideDateField: reusable.slideDateField,
+        };
+      }
+    }
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setConfig(project.certificate || defaults(project));
+    setConfig(draft);
     setSlideFields([]);
     let cancelled = false;
     // Paint the last snapshot for this round instantly (the live data comes from a
@@ -252,7 +282,7 @@ export default function CertificatesAdminPage() {
       cancelled = true;
       window.clearInterval(refreshTimer);
     };
-  }, [project]);
+  }, [project, projects]);
 
   const save = async () => {
     if (!project || !config) return;
@@ -578,6 +608,11 @@ export default function CertificatesAdminPage() {
   const templatePreview = slideId
     ? `https://docs.google.com/presentation/d/${slideId}/preview?rm=minimal`
     : "";
+  const usingReusableTemplate = Boolean(
+    project &&
+    !extractSlidesId(project.certificate?.slideTemplateId || project.certificate?.slideTemplateUrl || "") &&
+    slideId,
+  );
   const fieldsReady = Boolean(
     config?.slideNameField && config?.slideNumberField,
   );
@@ -748,6 +783,11 @@ export default function CertificatesAdminPage() {
                         placeholder="วางลิงก์ Google Slides"
                         className="w-full px-3 py-2.5 rounded-xl border border-blue-200 bg-white text-sm"
                       />
+                      {usingReusableTemplate && (
+                        <p className="text-[11px] font-bold text-emerald-700">
+                          ✓ ใช้แม่แบบล่าสุดที่เคยบันทึกไว้ — กด “บันทึก” เพื่อผูกกับรอบนี้
+                        </p>
+                      )}
                       <div className="flex gap-2">
                         <button
                           type="button"

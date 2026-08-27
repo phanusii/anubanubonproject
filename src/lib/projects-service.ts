@@ -1,6 +1,6 @@
 import { db } from "./firebase";
-import { collection, getDocs, doc, setDoc, deleteDoc } from "firebase/firestore";
-import { Project } from "./types";
+import { collection, getDocs, doc, setDoc, deleteDoc, updateDoc } from "firebase/firestore";
+import { CertificateSettings, Project } from "./types";
 import { getTrainingSettings, updateTrainingSettings } from "./submission-service";
 
 // High-performance in-memory cache (mirrors masters-service pattern)
@@ -85,6 +85,29 @@ export async function saveProject(project: Project): Promise<Project[]> {
     console.warn("Firestore saveProject error, saved to local cache:", err);
   }
 
+  return sorted;
+}
+
+/** Update only the per-round enabled flag without replacing its saved template. */
+export async function setProjectCertificateEnabled(id: string, enabled: boolean): Promise<Project[]> {
+  await updateDoc(doc(db, "projects", id), { "certificate.enabled": enabled });
+  const current = await getProjects();
+  const next = current.map((project) =>
+    project.id === id
+      ? {
+          ...project,
+          certificate: {
+            ...(project.certificate || ({} as CertificateSettings)),
+            enabled,
+          },
+        }
+      : project,
+  );
+  const sorted = sortProjects(next);
+  cachedProjects = sorted;
+  if (typeof window !== "undefined") {
+    localStorage.setItem("app_projects", JSON.stringify(sorted));
+  }
   return sorted;
 }
 

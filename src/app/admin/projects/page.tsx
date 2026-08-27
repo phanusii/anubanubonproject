@@ -4,45 +4,12 @@ import { useEffect, useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
-import { getInstantProjects, getProjects, saveProject, deleteProject, setActiveProject, saveProjectsOrder } from "@/lib/projects-service";
+import { getInstantProjects, getProjects, saveProject, deleteProject, setActiveProject, saveProjectsOrder, setProjectCertificateEnabled } from "@/lib/projects-service";
 import { countSubmissions, deleteSubmissionsByProject, getTrainingSettings, getSubmissions, updateSubmission, updateTrainingSettings } from "@/lib/submission-service";
 import { getTeachers, getInstantTeachers, saveTeacher, TeacherItem } from "@/lib/teachers-service";
-import { CertificateSettings, Project, TrainingSettings } from "@/lib/types";
+import { Project, TrainingSettings } from "@/lib/types";
 import { budgetYearOf, gradeLabel, normalizeGradeKey } from "@/lib/format";
 import { CalendarRange, Plus, Save, Trash2, CheckCircle2, Star, ListOrdered, Link2, X, Pencil, ChevronUp, ChevronDown, ToggleLeft, ToggleRight, Eye, EyeOff, Users, Search, Award } from "lucide-react";
-
-function defaultCertificateSettings(project: Project): CertificateSettings {
-  const textField = (y: number, fontSize: number) => ({
-    x: 15,
-    y,
-    width: 70,
-    fontFamily: "Sarabun",
-    fontSize,
-    minFontSize: 18,
-    fontWeight: "bold" as const,
-    color: "#15304f",
-    align: "center" as const,
-  });
-  return {
-    enabled: false,
-    certificateFinalizeAt: "",
-    issueForComplete: true,
-    issueForPartial: false,
-    title: "เกียรติบัตร",
-    description: "",
-    issueDateText: "",
-    budgetYear: project.budgetYear || project.academicYear || "2569",
-    numberPrefix: "",
-    numberStart: 1,
-    numberDigits: 1,
-    templateVersion: 1,
-    templateType: "google-slides",
-    orientation: "landscape",
-    nameField: textField(47, 34),
-    numberField: { ...textField(13, 14), x: 72, width: 23, fontWeight: "normal" },
-    dateField: { ...textField(70, 16), fontWeight: "normal" },
-  };
-}
 
 function blankProject(settings: TrainingSettings | null): Project {
   const titles = settings?.workSlotTitles || [
@@ -323,15 +290,7 @@ export default function AdminProjectsPage() {
   // the certificate page and Telegram, so all three surfaces stay in sync.
   const toggleCertificateEnabled = async (p: Project) => {
     const willEnable = !p.certificate?.enabled;
-    const updated: Project = {
-      ...p,
-      certificate: {
-        ...(p.certificate || defaultCertificateSettings(p)),
-        enabled: willEnable,
-      },
-    };
-    setProjects((items) => items.map((item) => (item.id === p.id ? updated : item)));
-    const updatedProjects = await saveProject(updated);
+    const updatedProjects = await setProjectCertificateEnabled(p.id, willEnable);
     setProjects(updatedProjects);
     setMessage(
       willEnable
