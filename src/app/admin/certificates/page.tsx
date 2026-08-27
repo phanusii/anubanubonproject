@@ -523,6 +523,17 @@ export default function CertificatesAdminPage() {
   };
 
   const confirmBatch = async () => {
+    const ready = Boolean(
+      config?.enabled &&
+      extractSlidesId(config.slideTemplateId || config.slideTemplateUrl || "") &&
+      config.slideNameField &&
+      config.slideNumberField,
+    );
+    if (!ready) {
+      setMessage("ยังออกเกียรติบัตรไม่ได้: กรุณาตั้งค่า Google Slides เลือกช่องชื่อและเลขที่ เปิดระบบ แล้วกดบันทึกก่อน");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
     if (
       !project ||
       !confirm("ยืนยันออกเกียรติบัตรให้ผู้มีสิทธิ์ที่ยังไม่มีบัตร?")
@@ -564,6 +575,7 @@ export default function CertificatesAdminPage() {
   const fieldsReady = Boolean(
     config?.slideNameField && config?.slideNumberField,
   );
+  const certificateReady = Boolean(config?.enabled && slideId && fieldsReady);
   const sampleNumber = config
     ? toThaiDigits(
         `${config.numberPrefix || ""}${config.numberStart}/${config.budgetYear}`,
@@ -936,6 +948,14 @@ export default function CertificatesAdminPage() {
                 อัปเดตรายชื่อ
               </button>
             </div>
+            {!certificateReady && (
+              <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
+                <p className="font-extrabold">ยังออกเกียรติบัตรไม่ได้ — การตั้งค่ารอบนี้ยังไม่ครบ</p>
+                <p className="mt-1 text-sm font-semibold">
+                  ด้านบนต้องวางลิงก์ Google Slides เลือกช่องชื่อและช่องเลขที่ เปิดระบบเกียรติบัตร แล้วกด “บันทึก” ก่อน
+                </p>
+              </div>
+            )}
             <div className="grid grid-cols-3 rounded-2xl bg-slate-100 p-1 gap-1">
               {([
                 ["waiting", `ส่งครบ ${waiting.length}`],
@@ -974,8 +994,8 @@ export default function CertificatesAdminPage() {
                     <input type="checkbox" checked={allVisibleSelected} onChange={() => setSelectedNames(allVisibleSelected ? selectedNames.filter((name) => !visibleNames.includes(name)) : Array.from(new Set([...selectedNames, ...visibleNames])))} className="w-5 h-5 accent-blue-600" />
                     เลือกทั้งหมดเฉพาะผลลัพธ์ที่กรอง
                   </label>
-                  <button onClick={confirmBatch} disabled={busy || !selectedNames.length} className="rounded-2xl bg-emerald-600 text-white px-5 py-3 text-sm font-extrabold disabled:opacity-40">
-                    ออกเกียรติบัตรให้ผู้ที่เลือก ({selectedNames.length})
+                  <button onClick={confirmBatch} disabled={busy || !selectedNames.length || !certificateReady} title={!certificateReady ? "ตั้งค่าและเปิดระบบเกียรติบัตรด้านบนก่อน" : ""} className="rounded-2xl bg-emerald-600 text-white px-5 py-3 text-sm font-extrabold disabled:opacity-40 disabled:cursor-not-allowed">
+                    {certificateReady ? `ออกเกียรติบัตรให้ผู้ที่เลือก (${selectedNames.length})` : "ตั้งค่าเกียรติบัตรก่อน"}
                   </button>
                 </div>
                 {tab === "incomplete" && <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">กลุ่มนี้ยังส่งงานไม่ครบ แอดมินสามารถเลือกออกเกียรติบัตรให้เป็นรายบุคคลได้</p>}
