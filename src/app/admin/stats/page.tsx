@@ -8,6 +8,7 @@ import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { getInstantSubmissions, getSubmissionsForStats } from "@/lib/submission-service";
 import { getInstantTeachers, getTeachers, mergeTeachersWithSubmitters, TeacherItem } from "@/lib/teachers-service";
 import { gradeLabel, gradeOrder, normalizeGradeKey, shortSubject } from "@/lib/format";
+import { slotIdAt } from "@/lib/certificate-service";
 import { Project, Submission } from "@/lib/types";
 import { BarChart3, CheckCircle2, Clipboard, Clock3, FileStack, Users } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -31,7 +32,6 @@ export default function AdminStatsPage() {
   const [projectId, setProjectId] = useState(instantProjects[0]?.id || "");
   const [loading, setLoading] = useState(instantTeachers.length === 0 && instantProjects.length === 0 && instantSubmissions.length === 0);
   const [copiedGroup, setCopiedGroup] = useState("");
-  const [incompleteGroupBy, setIncompleteGroupBy] = useState<"grade" | "subject">("grade");
   const [teacherListStatus, setTeacherListStatus] = useState<"incomplete" | "complete">("incomplete");
 
   useEffect(() => {
@@ -53,9 +53,39 @@ export default function AdminStatsPage() {
     () => submissions.filter((item) => item.projectId === projectId),
     [projectId, submissions],
   );
+  const groupBy = project?.groupBy === "subjectGroup" ? "subject" : "grade";
+  const groupLabel = groupBy === "subject" ? "กลุ่มสาระ" : "สายชั้น";
   const statisticalTeachers = useMemo(
-    () => mergeTeachersWithSubmitters(teachers, projectSubmissions),
-    [teachers, projectSubmissions],
+    () => {
+      const attendeeIds = project?.attendeeIds || [];
+      if (attendeeIds.length === 0) {
+        // Older rounds did not save a participant roster. Counting only actual
+        // submitters keeps their statistics scoped to that round instead of
+        // accidentally counting every teacher in the school.
+        return mergeTeachersWithSubmitters([], projectSubmissions);
+      }
+
+      const teachersById = new Map(teachers.map((teacher) => [teacher.id, teacher]));
+      return attendeeIds.flatMap((id) => {
+        const master = teachersById.get(id);
+        const profile = project?.attendeeProfiles?.[id];
+        const fullName = profile?.fullName || master?.fullName || "";
+        if (!fullName) return [];
+        return [{
+          id,
+          fullName,
+          position: profile?.position || master?.position || "",
+          gradeLevel: profile?.gradeLevel || master?.gradeLevel || "ไม่ระบุ",
+          subjectGroup: profile?.subjectGroup || master?.subjectGroup || "ไม่ระบุ",
+          email: master?.email,
+          phone: master?.phone,
+          createdAt: master?.createdAt,
+          photoUrl: master?.photoUrl,
+          photoFileId: master?.photoFileId,
+        } satisfies TeacherItem];
+      });
+    },
+    [project, projectSubmissions, teachers],
   );
 
   const progress = useMemo<TeacherProgress[]>(() => {
@@ -64,11 +94,13 @@ export default function AdminStatsPage() {
     for (const item of projectSubmissions) {
       const key = norm(item.fullName);
       if (!works.has(key)) works.set(key, new Set());
-      works.get(key)?.add(item.projectTitle.trim());
+      const legacyIndex = requiredTitles.findIndex((title) => title.trim() === item.projectTitle.trim());
+      const slotId = item.workSlotId || (legacyIndex >= 0 ? slotIdAt(legacyIndex) : "");
+      if (slotId) works.get(key)?.add(slotId);
     }
     return statisticalTeachers.map((teacher) => {
-      const submittedTitles = works.get(norm(teacher.fullName)) || new Set<string>();
-      const missing = requiredTitles.filter((title) => !submittedTitles.has(title.trim()));
+      const submittedSlots = works.get(norm(teacher.fullName)) || new Set<string>();
+      const missing = requiredTitles.filter((_, index) => !submittedSlots.has(slotIdAt(index)));
       const matched = requiredTitles.length - missing.length;
       return { teacher, submitted: matched, missing, complete: requiredTitles.length > 0 && missing.length === 0 };
     });
@@ -80,33 +112,40 @@ export default function AdminStatsPage() {
     return { total: progress.length, submitted, complete, incomplete: progress.length - complete, works: projectSubmissions.length };
   }, [progress, projectSubmissions]);
 
-  const gradeRows = useMemo(() => {
-    const groups = new Map<string, { grade: string; total: number; complete: number; submitted: number; works: number }>();
-    for (const item of progress) {
-      const grade = normalizeGradeKey(item.teacher.gradeLevel) || "ไม่ระบุ";
-      const row = groups.get(grade) || { grade, total: 0, complete: 0, submitted: 0, works: 0 };
-      row.total += 1;
-      row.works += item.submitted;
-      if (item.submitted > 0) row.submitted += 1;
-      if (item.complete) row.complete += 1;
-      groups.set(grade, row);
-    }
-    return [...groups.values()].sort((a, b) => gradeOrder(a.grade) - gradeOrder(b.grade));
-  }, [progress]);
-
   const subjectByTeacher = useMemo(() => {
     const map = new Map<string, string>();
-    for (const submission of projectSubmissions) {
+    for (const submission of [...projectSubmissions].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))) {
       if (submission.subjectGroup) map.set(norm(submission.fullName), submission.subjectGroup);
     }
     return map;
   }, [projectSubmissions]);
 
+  const groupRows = useMemo(() => {
+    const groups = new Map<string, { key: string; label: string; total: number; complete: number; submitted: number; works: number }>();
+    for (const item of progress) {
+      const key = groupBy === "grade"
+        ? normalizeGradeKey(item.teacher.gradeLevel) || "ไม่ระบุ"
+        : shortSubject(subjectByTeacher.get(norm(item.teacher.fullName)) || item.teacher.subjectGroup) || "ไม่ระบุ";
+      const label = groupBy === "grade" ? gradeLabel(key) : key;
+      const row = groups.get(key) || { key, label, total: 0, complete: 0, submitted: 0, works: 0 };
+      row.total += 1;
+      row.works += item.submitted;
+      if (item.submitted > 0) row.submitted += 1;
+      if (item.complete) row.complete += 1;
+      groups.set(key, row);
+    }
+    return [...groups.values()].sort((a, b) => {
+      if (a.key === "ไม่ระบุ") return 1;
+      if (b.key === "ไม่ระบุ") return -1;
+      return groupBy === "grade" ? gradeOrder(a.key) - gradeOrder(b.key) : a.label.localeCompare(b.label, "th");
+    });
+  }, [groupBy, progress, subjectByTeacher]);
+
 
   const displayedTeacherGroups = useMemo(() => {
     const groups = new Map<string, TeacherProgress[]>();
     for (const item of progress.filter((row) => teacherListStatus === "complete" ? row.complete : !row.complete)) {
-      const key = incompleteGroupBy === "grade"
+      const key = groupBy === "grade"
         ? normalizeGradeKey(item.teacher.gradeLevel) || "ไม่ระบุ"
         : shortSubject(subjectByTeacher.get(norm(item.teacher.fullName)) || item.teacher.subjectGroup) || "ไม่ระบุ";
       if (!groups.has(key)) groups.set(key, []);
@@ -115,14 +154,14 @@ export default function AdminStatsPage() {
     return [...groups.entries()].sort(([a], [b]) => {
       if (a === "ไม่ระบุ") return 1;
       if (b === "ไม่ระบุ") return -1;
-      return incompleteGroupBy === "grade" ? gradeOrder(a) - gradeOrder(b) : a.localeCompare(b, "th");
+      return groupBy === "grade" ? gradeOrder(a) - gradeOrder(b) : a.localeCompare(b, "th");
     });
-  }, [incompleteGroupBy, progress, subjectByTeacher, teacherListStatus]);
+  }, [groupBy, progress, subjectByTeacher, teacherListStatus]);
 
   const copyIncompleteGroup = async (group: string, items: TeacherProgress[]) => {
     if (!project) return;
-    const groupLabel = incompleteGroupBy === "grade" ? gradeLabel(group) : group;
-    const lines = [`📋 รายชื่อครูที่ส่งงานไม่ครบ`, project.name, `【${groupLabel}】`, `เกณฑ์ครบ ${project.workSlotTitles.length} ชิ้น`, ""];
+    const copiedGroupLabel = groupBy === "grade" ? gradeLabel(group) : group;
+    const lines = [`📋 รายชื่อครูที่ส่งงานไม่ครบ`, project.name, `【${copiedGroupLabel}】`, `เกณฑ์ครบ ${project.workSlotTitles.length} ชิ้น`, ""];
     for (const item of items) {
       lines.push(`• ${item.teacher.fullName} — ส่ง ${item.submitted}/${project.workSlotTitles.length} ชิ้น`);
       item.missing.forEach((title) => lines.push(`  - ขาด: ${title}`));
@@ -145,7 +184,7 @@ export default function AdminStatsPage() {
         <main className="flex-1 min-w-0 space-y-6">
           <section className="p-6 rounded-3xl bg-white border border-slate-100 shadow-xs">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div><h1 className="text-2xl font-extrabold text-slate-900">สถิติการส่งงานแบบละเอียด</h1><p className="text-xs font-semibold text-slate-500">ติดตามความครบถ้วนรายคนและสายชั้น</p></div>
+              <div><h1 className="text-2xl font-extrabold text-slate-900">สถิติการส่งงานแบบละเอียด</h1><p className="text-xs font-semibold text-slate-500">ยึดรายชื่อผู้เข้าอบรมของรอบ และแสดงตาม{groupLabel}</p></div>
               <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="w-full lg:w-auto px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-bold lg:min-w-[260px]">
                 {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
@@ -163,19 +202,16 @@ export default function AdminStatsPage() {
 
             <div className="grid lg:grid-cols-2 gap-4">
               <ChartCard title="สัดส่วนความครบถ้วน"><ResponsiveContainer width="100%" height={280}><PieChart><Pie data={pieData} dataKey="value" nameKey="name" innerRadius={65} outerRadius={95} paddingAngle={3}>{pieData.map((item) => <Cell key={item.name} fill={item.color} />)}</Pie><Tooltip /><Legend /></PieChart></ResponsiveContainer></ChartCard>
-              <ChartCard title="ความคืบหน้าตามสายชั้น"><ResponsiveContainer width="100%" height={280}><BarChart data={gradeRows}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="grade" /><YAxis allowDecimals={false} /><Tooltip /><Legend /><Bar dataKey="complete" name="ส่งครบ" fill="#10b981" radius={[6,6,0,0]} /><Bar dataKey="total" name="ครูทั้งหมด" fill="#bfdbfe" radius={[6,6,0,0]} /></BarChart></ResponsiveContainer></ChartCard>
+              <ChartCard title={`ความคืบหน้าตาม${groupLabel}`}><ResponsiveContainer width="100%" height={280}><BarChart data={groupRows}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" /><YAxis allowDecimals={false} /><Tooltip /><Legend /><Bar dataKey="complete" name="ส่งครบ" fill="#10b981" radius={[6,6,0,0]} /><Bar dataKey="total" name="ครูทั้งหมด" fill="#bfdbfe" radius={[6,6,0,0]} /></BarChart></ResponsiveContainer></ChartCard>
             </div>
 
-            <ProgressTable title="สรุปตามสายชั้น" required={project?.workSlotTitles.length || project?.maxUpload || 1} rows={gradeRows.map((row) => ({ label: gradeLabel(row.grade), total: row.total, complete: row.complete, works: row.works }))} />
+            <ProgressTable title={`สรุปตาม${groupLabel}`} required={project?.workSlotTitles.length || project?.maxUpload || 1} rows={groupRows.map((row) => ({ label: row.label, total: row.total, complete: row.complete, works: row.works }))} />
 
             <section className="rounded-3xl bg-white border border-slate-100 shadow-xs overflow-hidden">
               <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
                 <div><h2 className="font-extrabold text-slate-900">รายชื่อครูตามสถานะการส่งงาน</h2><p className="text-xs text-slate-500">ตรวจสอบผู้ที่ส่งครบและยังส่งไม่ครบ แยกเป็นหมวดหมู่</p></div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex p-1 rounded-xl bg-slate-100">
-                    <button onClick={() => setIncompleteGroupBy("grade")} className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-colors ${incompleteGroupBy === "grade" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>ตามสายชั้น</button>
-                    <button onClick={() => setIncompleteGroupBy("subject")} className={`px-3 py-2 rounded-lg text-xs font-extrabold transition-colors ${incompleteGroupBy === "subject" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>ตามกลุ่มสาระ</button>
-                  </div>
+                  <span className="px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-extrabold">จัดกลุ่มตาม{groupLabel} · จากการตั้งค่ารอบ</span>
                 </div>
               </div>
               <div className="px-5 pt-4 bg-white">
@@ -187,10 +223,10 @@ export default function AdminStatsPage() {
               <div className="max-h-[640px] overflow-y-auto">
                 {displayedTeacherGroups.map(([group, items]) => <div key={group}>
                   <div className="sticky top-0 z-10 px-3 sm:px-4 py-2.5 bg-blue-50/95 backdrop-blur border-y border-blue-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <h3 className="text-xs font-extrabold text-blue-800">{incompleteGroupBy === "grade" ? gradeLabel(group) : group}</h3>
+                    <h3 className="text-xs font-extrabold text-blue-800">{groupBy === "grade" ? gradeLabel(group) : group}</h3>
                     <div className="flex items-center gap-2">
                       <span className="px-2 py-0.5 rounded-full bg-white text-[11px] font-bold text-blue-700">{items.length} คน</span>
-                      {teacherListStatus === "incomplete" && <button onClick={() => copyIncompleteGroup(group, items)} disabled={!project} className="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[11px] font-extrabold flex items-center gap-1.5 disabled:opacity-50"><Clipboard className="w-3.5 h-3.5" />{copiedGroup === group ? "คัดลอกแล้ว" : incompleteGroupBy === "grade" ? "คัดลอกสายชั้นนี้" : "คัดลอกกลุ่มนี้"}</button>}
+                      {teacherListStatus === "incomplete" && <button onClick={() => copyIncompleteGroup(group, items)} disabled={!project} className="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-[11px] font-extrabold flex items-center gap-1.5 disabled:opacity-50"><Clipboard className="w-3.5 h-3.5" />{copiedGroup === group ? "คัดลอกแล้ว" : groupBy === "grade" ? "คัดลอกสายชั้นนี้" : "คัดลอกกลุ่มนี้"}</button>}
                     </div>
                   </div>
                   <div className="divide-y divide-slate-100">{items.map((item) => <div key={item.teacher.id} className="p-4 grid sm:grid-cols-[220px_110px_1fr] gap-2"><div><p className="font-bold text-sm text-slate-900">{item.teacher.fullName}</p><p className="text-[11px] text-slate-500">{gradeLabel(item.teacher.gradeLevel)} · {shortSubject(subjectByTeacher.get(norm(item.teacher.fullName)) || item.teacher.subjectGroup) || "ไม่ระบุ"}</p></div><p className={`text-xs font-extrabold ${item.complete ? "text-emerald-600" : "text-amber-600"}`}>{item.complete ? "ส่งครบ" : "ส่ง"} {item.submitted}/{project?.workSlotTitles.length || 0}</p><div className="flex flex-wrap gap-1.5">{item.complete ? <span className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-semibold">ครบทุกชิ้นงานแล้ว</span> : item.missing.map((title) => <span key={title} className="px-2 py-1 rounded-lg bg-rose-50 text-rose-700 text-[11px] font-semibold">ขาด: {title}</span>)}</div></div>)}</div>
