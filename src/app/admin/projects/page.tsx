@@ -33,6 +33,7 @@ function blankProject(settings: TrainingSettings | null): Project {
     createdAt: Date.now(),
     order: 0,
     attendeeIds: [],
+    attendeeProfiles: {},
   };
 }
 
@@ -108,14 +109,52 @@ export default function AdminProjectsPage() {
   const toggleAttendee = (id: string) => {
     if (!editing) return;
     const set = new Set(editing.attendeeIds || []);
-    if (set.has(id)) set.delete(id);
-    else set.add(id);
-    setEditing({ ...editing, attendeeIds: Array.from(set) });
+    const profiles = { ...(editing.attendeeProfiles || {}) };
+    if (set.has(id)) {
+      set.delete(id);
+      delete profiles[id];
+    } else {
+      set.add(id);
+      const teacher = allTeachers.find((item) => item.id === id);
+      if (teacher) profiles[id] = {
+        fullName: teacher.fullName,
+        position: teacher.position,
+        gradeLevel: attendeeGradeFilter !== "ทั้งหมด" ? attendeeGradeFilter : teacher.gradeLevel,
+        subjectGroup: attendeeSubjectFilter !== "ทั้งหมด" ? attendeeSubjectFilter : teacher.subjectGroup,
+      };
+    }
+    setEditing({ ...editing, attendeeIds: Array.from(set), attendeeProfiles: profiles });
   };
 
   const setAttendees = (ids: string[]) => {
     if (!editing) return;
-    setEditing({ ...editing, attendeeIds: ids });
+    const profiles = { ...(editing.attendeeProfiles || {}) };
+    const keep = new Set(ids);
+    Object.keys(profiles).forEach((id) => { if (!keep.has(id)) delete profiles[id]; });
+    ids.forEach((id) => {
+      if (profiles[id]) return;
+      const teacher = allTeachers.find((item) => item.id === id);
+      if (teacher) profiles[id] = {
+        fullName: teacher.fullName,
+        position: teacher.position,
+        gradeLevel: attendeeGradeFilter !== "ทั้งหมด" ? attendeeGradeFilter : teacher.gradeLevel,
+        subjectGroup: attendeeSubjectFilter !== "ทั้งหมด" ? attendeeSubjectFilter : teacher.subjectGroup,
+      };
+    });
+    setEditing({ ...editing, attendeeIds: ids, attendeeProfiles: profiles });
+  };
+
+  const updateAttendeeProfile = (id: string, field: "fullName" | "position" | "gradeLevel" | "subjectGroup", value: string) => {
+    if (!editing) return;
+    const teacher = allTeachers.find((item) => item.id === id);
+    const current = editing.attendeeProfiles?.[id] || teacher || {};
+    setEditing({
+      ...editing,
+      attendeeProfiles: {
+        ...(editing.attendeeProfiles || {}),
+        [id]: { ...current, [field]: value },
+      },
+    });
   };
 
   // Add a teacher who isn't in the roster yet, into the currently filtered grade
@@ -147,7 +186,14 @@ export default function AdminProjectsPage() {
       // Tick the new teacher for this round straight away.
       const set = new Set(editing.attendeeIds || []);
       set.add(saved.id);
-      setEditing({ ...editing, attendeeIds: Array.from(set) });
+      setEditing({
+        ...editing,
+        attendeeIds: Array.from(set),
+        attendeeProfiles: {
+          ...(editing.attendeeProfiles || {}),
+          [saved.id]: { fullName: saved.fullName, position: saved.position, gradeLevel: grade, subjectGroup: subject },
+        },
+      });
       setNewTeacherName("");
       setNewTeacherPosition("");
       setAttendeeMsg(`เพิ่ม "${saved.fullName}" แล้ว`);
@@ -479,6 +525,38 @@ export default function AdminProjectsPage() {
                   ถ้าไม่เลือกใครเลย = ฟอร์มส่งงานจะแสดงครูทั้ง{editing.groupBy === "subjectGroup" ? "กลุ่มสาระ" : "สายชั้น"}ตามปกติ ·
                   เลือกเฉพาะผู้ที่เข้าอบรมจริง เพื่อจำกัดรายชื่อในฟอร์ม (ครูยังพิมพ์ชื่อเองได้เสมอ)
                 </p>
+
+                {(editing.attendeeIds || []).length > 0 && (
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-3 space-y-2">
+                    <p className="text-xs font-extrabold text-emerald-800">รายชื่อผู้เข้าอบรมที่เลือกแล้ว — ตรวจสอบและแก้ไขข้อมูลประจำรอบ</p>
+                    <div className="max-h-80 overflow-y-auto space-y-2">
+                      {(editing.attendeeIds || []).map((id, index) => {
+                        const teacher = allTeachers.find((item) => item.id === id);
+                        if (!teacher) return null;
+                        const profile = editing.attendeeProfiles?.[id] || teacher;
+                        return (
+                          <div key={id} className="rounded-xl border border-emerald-100 bg-white p-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div className="sm:col-span-2 flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-extrabold text-emerald-700">ลำดับ {index + 1}</span>
+                              <button type="button" onClick={() => toggleAttendee(id)} className="text-[10px] font-bold text-red-500 hover:text-red-700">นำออกจากรอบ</button>
+                            </div>
+                            <input value={profile.fullName || ""} onChange={(e) => updateAttendeeProfile(id, "fullName", e.target.value)} placeholder="ชื่อ-สกุล" className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-bold text-slate-900" />
+                            <input value={profile.position || ""} onChange={(e) => updateAttendeeProfile(id, "position", e.target.value)} placeholder="ตำแหน่ง" className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-900" />
+                            <select value={profile.gradeLevel || ""} onChange={(e) => updateAttendeeProfile(id, "gradeLevel", e.target.value)} className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-900 bg-white">
+                              <option value="">ไม่ระบุสายชั้น</option>
+                              {Array.from(new Set(allTeachers.map((item) => item.gradeLevel).filter(Boolean))).sort((a, b) => normalizeGradeKey(a).localeCompare(normalizeGradeKey(b), "th")).map((grade) => <option key={grade} value={grade}>{gradeLabel(grade)}</option>)}
+                            </select>
+                            <select value={profile.subjectGroup || ""} onChange={(e) => updateAttendeeProfile(id, "subjectGroup", e.target.value)} className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-semibold text-slate-900 bg-white">
+                              <option value="">ไม่ระบุกลุ่มสาระ</option>
+                              {Array.from(new Set(allTeachers.map((item) => item.subjectGroup).filter(Boolean))).sort((a, b) => a.localeCompare(b, "th")).map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+                            </select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] font-semibold text-slate-500">ข้อมูลนี้ใช้เฉพาะรอบนี้ และจะถูกใช้เป็นข้อมูลผู้ส่งเมื่อครูส่งงาน</p>
+                  </div>
+                )}
 
                 {/* Narrow the roster by grade and/or subject, then tick names */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

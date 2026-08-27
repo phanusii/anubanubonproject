@@ -117,15 +117,16 @@ export default function SubmitSection() {
       if (requestedName && proj) {
         const normalized = normalizeTeacherName(requestedName);
         const teacher = ts.find((item) => normalizeTeacherName(item.fullName) === normalized);
+        const roundProfile = teacher ? proj.attendeeProfiles?.[teacher.id] : undefined;
         const personSubmissions = await getUserProjectSubmissions(requestedName, proj.id);
         const latestProfile = [...personSubmissions].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
-        setFullName(teacher?.fullName || latestProfile?.fullName || requestedName);
+        setFullName(roundProfile?.fullName || teacher?.fullName || latestProfile?.fullName || requestedName);
         setConfirmedExistingName(normalized);
         setSelectedTeacherId(teacher?.id || "CUSTOM");
         setIsCustomName(!teacher);
-        setPosition(latestProfile?.position || teacher?.position || "");
-        setGradeLevel(latestProfile?.gradeLevel || teacher?.gradeLevel || defaultGrade);
-        setSubjectGroup(latestProfile?.subjectGroup || teacher?.subjectGroup || sgs[0]?.name || "");
+        setPosition(roundProfile?.position || latestProfile?.position || teacher?.position || "");
+        setGradeLevel(roundProfile?.gradeLevel || latestProfile?.gradeLevel || teacher?.gradeLevel || defaultGrade);
+        setSubjectGroup(roundProfile?.subjectGroup || latestProfile?.subjectGroup || teacher?.subjectGroup || sgs[0]?.name || "");
         setTeacherPhotoUrl(teacher?.photoUrl || "");
         setUserExistingSubmissions(personSubmissions);
         const safeSlot = Math.min(requestedSlot, Math.max(0, (proj.workSlotTitles?.length || 1) - 1));
@@ -151,8 +152,11 @@ export default function SubmitSection() {
   const rosterBase = useMemo(() => {
     if (!hasAttendeeList) return teacherList;
     const set = new Set(attendeeIds);
-    return teacherList.filter((t) => set.has(t.id));
-  }, [teacherList, attendeeIds, hasAttendeeList]);
+    return teacherList.filter((t) => set.has(t.id)).map((teacher) => ({
+      ...teacher,
+      ...(activeProject?.attendeeProfiles?.[teacher.id] || {}),
+    }));
+  }, [teacherList, attendeeIds, hasAttendeeList, activeProject?.attendeeProfiles]);
   const rosterInScope = bySubject
     ? rosterBase.filter((t) => (t.subjectGroup || "") === subjectGroup)
     : rosterBase.filter((t) => normalizeGradeKey(t.gradeLevel) === normalizeGradeKey(gradeLevel));
@@ -249,11 +253,12 @@ export default function SubmitSection() {
     setIsCustomName(false);
     setSelectedTeacherId(value);
 
-    const selected = teacherList.find((t) => t.id === value);
+    const selected = rosterBase.find((t) => t.id === value) || teacherList.find((t) => t.id === value);
     if (selected) {
       setFullName(selected.fullName);
       setConfirmedExistingName(normalizeTeacherName(selected.fullName));
       setPosition(selected.position);
+      if (selected.gradeLevel) setGradeLevel(selected.gradeLevel);
       if (selected.subjectGroup) setSubjectGroup(selected.subjectGroup);
       setTeacherPhotoUrl(selected.photoUrl || "");
       handleCheckUserSubmissions(selected.fullName);
@@ -301,8 +306,10 @@ export default function SubmitSection() {
       if (!position) setPosition(last.position);
       if (last.school) setSchool(last.school);
       if (last.province && !province) setProvince(last.province);
-      if (last.gradeLevel) setGradeLevel(last.gradeLevel);
-      if (last.subjectGroup) setSubjectGroup(last.subjectGroup);
+      const matchingTeacher = teacherList.find((teacher) => normalizeTeacherName(teacher.fullName) === normalizeTeacherName(nameVal));
+      const roundProfile = matchingTeacher ? activeProject.attendeeProfiles?.[matchingTeacher.id] : undefined;
+      if (!roundProfile?.gradeLevel && last.gradeLevel) setGradeLevel(last.gradeLevel);
+      if (!roundProfile?.subjectGroup && last.subjectGroup) setSubjectGroup(last.subjectGroup);
     }
 
     const max = maxUpload;
@@ -384,6 +391,14 @@ export default function SubmitSection() {
       setIsUploading(true);
       setUploadProgress(10);
 
+      const roundProfile = selectedTeacherId && selectedTeacherId !== "CUSTOM"
+        ? activeProject?.attendeeProfiles?.[selectedTeacherId]
+        : undefined;
+      const effectiveFullName = (roundProfile?.fullName || fullName).trim();
+      const effectivePosition = (roundProfile?.position || position).trim();
+      const effectiveGradeLevel = roundProfile?.gradeLevel || gradeLevel;
+      const effectiveSubjectGroup = roundProfile?.subjectGroup || subjectGroup;
+
       let fileURL = "";
       let ext = "drive";
       let thumb = thumbnailDataUrl;
@@ -399,8 +414,8 @@ export default function SubmitSection() {
           {
             projectId: activeProject?.id || "",
             projectName: activeProject?.name || settings?.trainingName || "ผลงานอบรม",
-            gradeLevel: gradeLevel,
-            submitterName: fullName.trim(),
+            gradeLevel: effectiveGradeLevel,
+            submitterName: effectiveFullName,
             workSlotId: slotIdAt(selectedSlotIndex),
             // File name: "งานชิ้นที่ N <admin's work title>" (strip a redundant "ชิ้นที่ N:" prefix)
             workLabel: `งานชิ้นที่ ${selectedSlotIndex + 1} ${getSlotTitle(selectedSlotIndex)
@@ -456,13 +471,13 @@ export default function SubmitSection() {
       const finalTitle = getSlotTitle(selectedSlotIndex);
 
       const subData = {
-        fullName: fullName.trim(),
+        fullName: effectiveFullName,
         ...(selectedTeacherId && selectedTeacherId !== "CUSTOM" ? { teacherId: selectedTeacherId } : {}),
-        position: position.trim(),
+        position: effectivePosition,
         school: school.trim(),
         province: province.trim(),
-        gradeLevel,
-        subjectGroup,
+        gradeLevel: effectiveGradeLevel,
+        subjectGroup: effectiveSubjectGroup,
         projectTitle: finalTitle,
         workSlotId: slotIdAt(selectedSlotIndex),
         description: description.trim(),
@@ -496,17 +511,17 @@ export default function SubmitSection() {
 
       // Keep the roster's subject group aligned with the teacher's latest
       // submission. This is best-effort and never blocks a successful upload.
-      if (selectedTeacherId && subjectGroup) {
-        void updateTeacherSubject(selectedTeacherId, subjectGroup);
+      if (selectedTeacherId && effectiveSubjectGroup && !roundProfile) {
+        void updateTeacherSubject(selectedTeacherId, effectiveSubjectGroup);
       }
 
       // A name typed via "เพิ่มชื่อใหม่" is only on the submission; register it in the
       // roster so it appears in the dropdown next time. Idempotent for known names.
       void ensureTeacherFromSubmission({
-        fullName: fullName.trim(),
-        position: position.trim(),
-        gradeLevel,
-        subjectGroup,
+        fullName: effectiveFullName,
+        position: effectivePosition,
+        gradeLevel: effectiveGradeLevel,
+        subjectGroup: effectiveSubjectGroup,
       });
 
       // Send immediately; the Apps Script minute poller remains the fallback.

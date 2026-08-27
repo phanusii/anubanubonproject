@@ -213,6 +213,15 @@ export interface Project {
   // stay available). Empty / undefined means "no restriction" — the whole
   // grade/subject roster is offered, as before.
   attendeeIds?: string[];
+  // Per-round attendee details. These values deliberately do not overwrite the
+  // master teacher roster: the same teacher may teach a different grade/subject
+  // in another training round.
+  attendeeProfiles?: Record<string, {
+    fullName?: string;
+    position?: string;
+    gradeLevel?: string;
+    subjectGroup?: string;
+  }>;
   academicYear?: string;
   budgetYear?: string;
   description?: string;
