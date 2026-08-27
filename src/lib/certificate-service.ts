@@ -158,8 +158,19 @@ export async function removeCertificateScheduler(): Promise<void> {
   await callService({ action: "removeCertificateScheduler", idToken });
 }
 
-export async function findCertificateForRecipient(projectId: string, fullName: string): Promise<CertificateRecord | null> {
-  const result = await callService({ action: "recipientLookup", projectId, fullName: fullName.trim() });
+export async function findCertificateForRecipient(
+  projectId: string,
+  fullName: string,
+  teacherId = "",
+  projectSnapshot?: Project,
+): Promise<CertificateRecord | null> {
+  const result = await callService({
+    action: "recipientLookup",
+    projectId,
+    fullName: fullName.trim(),
+    teacherId,
+    projectSnapshot,
+  });
   return (result.certificate as CertificateRecord | null) || null;
 }
 

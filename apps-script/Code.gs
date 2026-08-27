@@ -108,6 +108,14 @@ function handleCertificatePost_(e) {
       assertAdmin_(input.idToken); removeCertificateScheduler_(); return json_({ ok: true });
     }
     if (input.action === "recipientLookup") {
+      var recipientProject = validProjectSnapshot_(input.projectId, input.projectSnapshot || {});
+      if (recipientProject && !projectAllowsCertificateRecipient_(
+        recipientProject,
+        input.fullName,
+        String(input.teacherId || "")
+      )) {
+        return json_({ ok: true, certificate: null });
+      }
       var recipient = getCertificateRecord_(certificateId_(String(input.projectId || ""), normalizeName_(input.fullName).toLowerCase()));
       return json_({ ok: true, certificate: recipient && recipient.status === "issued" ? recipient : null });
     }

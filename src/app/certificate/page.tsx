@@ -12,6 +12,7 @@ import {
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import {
+  certificateRecipientKey,
   certificateProgress,
   findCertificateForRecipient,
   latestSubmissionPerSlot,
@@ -22,11 +23,9 @@ import { getActiveProject, getProjects } from "@/lib/projects-service";
 import {
   DEFAULT_GRADE_LEVELS,
   getPersonSubmissions,
-  getSubmissionsForStats,
-  getInstantStatsWindow,
 } from "@/lib/submission-service";
 import { getGradeLevels } from "@/lib/masters-service";
-import { getTeachers, getInstantTeachers, mergeTeachersWithSubmitters, TeacherItem } from "@/lib/teachers-service";
+import { getTeachers, getInstantTeachers, TeacherItem } from "@/lib/teachers-service";
 import { normalizeGradeKey } from "@/lib/format";
 import { useInstantState } from "@/lib/use-instant";
 import { CertificateRecord, GradeLevelOption, Project } from "@/lib/types";
@@ -73,7 +72,7 @@ export default function CertificatePage() {
   // Seed the name list from cache after mount (SSR-safe) so the certificate
   // lookup dropdown is usable immediately instead of waiting for the network.
   const [teachers, setTeachers] = useInstantState<TeacherItem[]>(
-    () => mergeTeachersWithSubmitters(getInstantTeachers(), getInstantStatsWindow()),
+    () => getInstantTeachers(),
     [],
   );
   const [loadingLists, setLoadingLists] = useState(true);
@@ -90,15 +89,15 @@ export default function CertificatePage() {
   useEffect(() => {
     (async () => {
       try {
-        // Include anyone who SUBMITTED (not just the registered roster), so a teacher who
-        // typed their own name at submit time — and may hold a certificate — is findable.
-        const [levels, roster, subs] = await Promise.all([
+        // Newly typed names are persisted to the teacher snapshot by the submit
+        // flow, so this page does not need to read every submission merely to
+        // build its selector.
+        const [levels, roster] = await Promise.all([
           getGradeLevels(),
           getTeachers(),
-          getSubmissionsForStats(),
         ]);
         setGradeLevels(levels);
-        setTeachers(mergeTeachersWithSubmitters(roster, subs));
+        setTeachers(roster);
         const initialGrade = levels[0]?.name || "";
         if (initialGrade) setGradeLevel(initialGrade);
       } catch {
@@ -153,7 +152,7 @@ export default function CertificatePage() {
     resetResult();
   };
 
-  const search = async (selectedName: string) => {
+  const search = async (selectedName: string, selectedTeacherId = "") => {
     const fullName = selectedName.trim();
     if (!fullName) return;
     setLoading(true);
@@ -167,21 +166,43 @@ export default function CertificatePage() {
       ]);
       if (!projects.length) throw new Error("ยังไม่มีรอบการอบรมหรือโครงการ");
       setActiveProjectId(active?.id || "");
-      const roundResults = projects.map((round): RoundResult => {
+      const selectedTeacher = teachers.find((teacher) =>
+        selectedTeacherId
+          ? teacher.id === selectedTeacherId
+          : certificateRecipientKey(teacher.fullName) === certificateRecipientKey(fullName),
+      );
+      const roundResults = projects.flatMap((round): RoundResult[] => {
         const current = all.filter((item) => item.projectId === round.id);
+        const attendeeIds = round.attendeeIds || [];
+        const attendeeNameKeys = new Set(
+          attendeeIds
+            .map((id) => round.attendeeProfiles?.[id]?.fullName || "")
+            .filter(Boolean)
+            .map(certificateRecipientKey),
+        );
+        // A configured attendee roster is authoritative. Legacy rounds without
+        // one remain visible only when this teacher actually submitted there;
+        // this preserves old data without exposing every round to every teacher.
+        const belongsToRound = attendeeIds.length > 0
+          ? Boolean(
+              (selectedTeacher?.id && attendeeIds.includes(selectedTeacher.id)) ||
+              attendeeNameKeys.has(certificateRecipientKey(fullName)),
+            )
+          : current.length > 0;
+        if (!belongsToRound) return [];
         const status = certificateProgress(current, round);
         const latest = latestSubmissionPerSlot(current, round);
         const missingItems = round.workSlotTitles
           .map((title, index) => ({ title, index }))
           .filter(({ index }) => !latest.has(slotIdAt(index)));
-        return {
+        return [{
           project: round,
           record: null,
           missing: status.complete ? [] : missingItems,
           submitted: status.submitted,
           required: status.required,
           certificateLoading: Boolean(round.certificate?.enabled),
-        };
+        }];
       });
       setResults(roundResults);
       setSearched(true);
@@ -191,7 +212,12 @@ export default function CertificatePage() {
       roundResults
         .filter((item) => item.certificateLoading)
         .forEach((item) => {
-          findCertificateForRecipient(item.project.id, fullName)
+          findCertificateForRecipient(
+            item.project.id,
+            fullName,
+            selectedTeacher?.id || selectedTeacherId,
+            item.project,
+          )
             .then((certificate) =>
               setResults((current) =>
                 current.map((row) =>
@@ -299,7 +325,10 @@ export default function CertificatePage() {
                 const value = e.target.value;
                 setName(value);
                 resetResult();
-                if (value) void search(value);
+                const teacherId = teachersInGrade.find(
+                  (teacher) => teacher.fullName === value,
+                )?.id || "";
+                if (value) void search(value, teacherId);
               }}
               disabled={!gradeLevel || loadingLists || loading}
               className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white font-bold outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-60"
@@ -346,6 +375,17 @@ export default function CertificatePage() {
                 ทั้งหมด {results.length} รอบ
               </p>
             </div>
+            {results.length === 0 && (
+              <div className="rounded-3xl border border-amber-200 bg-amber-50 p-6 text-center">
+                <FileWarning className="w-8 h-8 text-amber-600 mx-auto mb-2" />
+                <h3 className="font-extrabold text-amber-900">
+                  ไม่พบรายชื่อในรอบการอบรมหรือโครงการ
+                </h3>
+                <p className="text-sm font-semibold text-amber-700 mt-1">
+                  กรุณาติดต่อผู้ดูแล หากควรมีชื่ออยู่ในรอบใดรอบหนึ่ง
+                </p>
+              </div>
+            )}
             {results.map((result) => (
               <article
                 key={result.project.id}
