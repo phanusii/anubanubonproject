@@ -21,6 +21,7 @@ import {
 } from "@/lib/certificate-service";
 import { getActiveProject, getProjects } from "@/lib/projects-service";
 import {
+  getGallerySubmissions,
   getUserProjectSubmissions,
 } from "@/lib/submission-service";
 import {
@@ -102,7 +103,11 @@ export default function CertificatePage() {
     } else {
       // A legacy round without a saved roster must not expose the whole-school
       // directory. Its actual submitters are the safest backwards-compatible list.
-      const submissions = await getProjectStatsSubmissions(project.id);
+      let submissions = await getProjectStatsSubmissions(project.id);
+      // Safe rollout fallback before the one-time compact-index migration.
+      // This preserves correct membership, though it is intentionally slower
+      // and disappears as soon as the derived index exists.
+      if (!submissions.length) submissions = await getGallerySubmissions(project.id);
       participants = mergeTeachersWithSubmitters([], submissions);
     }
     participants.sort((a, b) => a.fullName.localeCompare(b.fullName, "th"));

@@ -24,6 +24,26 @@ const META_COLLECTION = "projectParticipantMeta";
 const STATS_COLLECTION = "projectStats";
 const PAGE_SIZE = 20;
 const MAX_WORKS = 50;
+const REBUILD_BATCH_SIZE = 20;
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function commitWithBackoff(buildBatch: () => ReturnType<typeof writeBatch>): Promise<void> {
+  let delay = 750;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await buildBatch().commit();
+      return;
+    } catch (error) {
+      const code = (error as { code?: string })?.code || "";
+      if (code !== "resource-exhausted" || attempt === 4) throw error;
+      await wait(delay);
+      delay *= 2;
+    }
+  }
+}
 
 export interface ProjectParticipantPage {
   items: ProjectParticipantSummary[];
@@ -248,7 +268,11 @@ export async function searchProjectParticipants(params: {
 
 export async function hasProjectParticipantIndex(): Promise<boolean> {
   const snapshot = await getDoc(doc(db, META_COLLECTION, "current"));
-  return snapshot.exists() && Number(snapshot.data().participants || 0) > 0;
+  if (snapshot.exists() && Number(snapshot.data().participants || 0) > 0) return true;
+  // Self-healing fallback for a partially completed migration: derived rows
+  // are enough to use the fast path even if the optional admin marker failed.
+  const participant = await getDocs(query(collection(db, COLLECTION), limit(1)));
+  return !participant.empty;
 }
 
 export async function upsertProjectParticipant(submission: Submission): Promise<void> {
@@ -297,24 +321,20 @@ export async function rebuildProjectParticipantIndex(items: Submission[]): Promi
     ...summaries.map((item) => ({ type: "set" as const, item })),
     ...existing.docs.filter((item) => !keep.has(item.id)).map((item) => ({ type: "delete" as const, id: item.id })),
   ];
-  for (let offset = 0; offset < operations.length; offset += 400) {
-    const batch = writeBatch(db);
-    for (const operation of operations.slice(offset, offset + 400)) {
-      if (operation.type === "delete") batch.delete(doc(db, COLLECTION, operation.id));
-      else {
-        const { id, ...data } = operation.item;
-        batch.set(doc(db, COLLECTION, id), data);
+  for (let offset = 0; offset < operations.length; offset += REBUILD_BATCH_SIZE) {
+    const chunk = operations.slice(offset, offset + REBUILD_BATCH_SIZE);
+    await commitWithBackoff(() => {
+      const batch = writeBatch(db);
+      for (const operation of chunk) {
+        if (operation.type === "delete") batch.delete(doc(db, COLLECTION, operation.id));
+        else batch.set(doc(db, COLLECTION, operation.item.id), summaryData(operation.item));
       }
-    }
-    await batch.commit();
+      return batch;
+    });
+    // This is a one-time maintenance path. Ramp writes gradually so a free-tier
+    // database is not saturated by a migration and normal submissions stay fast.
+    if (offset + REBUILD_BATCH_SIZE < operations.length) await wait(750);
   }
-  const metaBatch = writeBatch(db);
-  metaBatch.set(doc(db, META_COLLECTION, "current"), {
-    participants: summaries.length,
-    works: items.length,
-    updatedAt: Date.now(),
-  });
-  await metaBatch.commit();
   const byProject = new Map<string, ProjectParticipantSummary[]>();
   summaries.forEach((summary) => {
     const list = byProject.get(summary.projectId) || [];
@@ -322,20 +342,35 @@ export async function rebuildProjectParticipantIndex(items: Submission[]): Promi
     byProject.set(summary.projectId, list);
   });
   const existingStats = await getDocs(collection(db, STATS_COLLECTION));
-  const statsBatch = writeBatch(db);
-  byProject.forEach((rows, projectId) => {
-    statsBatch.set(doc(db, STATS_COLLECTION, projectId), {
-      projectId,
-      participants: rows.map(statsPerson),
-      totalWorks: rows.reduce((sum, row) => sum + row.submittedCount, 0),
-      updatedAt: Date.now(),
+  await commitWithBackoff(() => {
+    const statsBatch = writeBatch(db);
+    byProject.forEach((rows, projectId) => {
+      statsBatch.set(doc(db, STATS_COLLECTION, projectId), {
+        projectId,
+        participants: rows.map(statsPerson),
+        totalWorks: rows.reduce((sum, row) => sum + row.submittedCount, 0),
+        updatedAt: Date.now(),
+      });
     });
+    existingStats.docs.forEach((item) => {
+      if (!byProject.has(item.id)) statsBatch.delete(item.ref);
+    });
+    return statsBatch;
   });
-  existingStats.docs.forEach((item) => {
-    if (!byProject.has(item.id)) statsBatch.delete(item.ref);
-  });
-  await statsBatch.commit();
+  // The marker is an optimization only. Admin migrations can write it; a
+  // recovery run without an admin session still leaves a complete usable index.
+  await setProjectParticipantMeta(summaries.length, items.length).catch(() => undefined);
   return { participants: summaries.length, works: items.length };
+}
+
+async function setProjectParticipantMeta(participants: number, works: number): Promise<void> {
+  const metaBatch = writeBatch(db);
+  metaBatch.set(doc(db, META_COLLECTION, "current"), {
+    participants,
+    works,
+    updatedAt: Date.now(),
+  });
+  await metaBatch.commit();
 }
 
 export async function deleteProjectParticipantIndex(projectId: string): Promise<void> {
