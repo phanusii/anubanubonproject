@@ -54,7 +54,7 @@ export default function AdminProjectsPage() {
   const [addingTeacher, setAddingTeacher] = useState(false);
   const [attendeeMsg, setAttendeeMsg] = useState("");
 
-  const reload = async () => {
+  const reload = () => {
     // Seed the roster from cache so the grade/subject filters and attendee list
     // are usable immediately instead of waiting on the network.
     const instantRoster = getInstantTeachers();
@@ -72,16 +72,17 @@ export default function AdminProjectsPage() {
       })
       .catch(() => {});
 
-    try {
-      const allSubmissions = await getSubmissions({ ignoreProjectFilter: true });
-      const counts: Record<string, number> = {};
-      for (const submission of allSubmissions) {
-        if (submission.projectId) counts[submission.projectId] = (counts[submission.projectId] || 0) + 1;
-      }
-      setSubmissionCounts(counts);
-    } catch {
-      /* counts are non-critical */
-    }
+    // Counts are decorative and can take several seconds for ~1,000 works.
+    // Never keep Save/toggle buttons waiting for this background refresh.
+    void getSubmissions({ ignoreProjectFilter: true })
+      .then((allSubmissions) => {
+        const counts: Record<string, number> = {};
+        for (const submission of allSubmissions) {
+          if (submission.projectId) counts[submission.projectId] = (counts[submission.projectId] || 0) + 1;
+        }
+        setSubmissionCounts(counts);
+      })
+      .catch(() => { /* counts are non-critical */ });
   };
 
   useEffect(() => {
@@ -214,14 +215,15 @@ export default function AdminProjectsPage() {
     setMessage("");
     try {
       const isFirst = projects.length === 0;
-      await saveProject({ ...editing, name: editing.name.trim() });
+      const updatedProjects = await saveProject({ ...editing, name: editing.name.trim() });
+      setProjects(updatedProjects);
       // activeProjectId is only the default round shown first. Multiple rounds
       // can be open simultaneously, so editing another open round must not
       // silently replace the admin's chosen default.
       if (isFirst || !activeId) {
         await setActiveProject(editing.id);
       }
-      await reload();
+      reload();
       setEditing(null);
       setMessage("บันทึกรอบ/โครงการเรียบร้อยแล้ว");
     } catch (err) {
@@ -252,8 +254,9 @@ export default function AdminProjectsPage() {
 
   // Toggle whether this round shows in the public "คลังผลงานครู" dropdown.
   const toggleGalleryVisible = async (p: Project) => {
-    await saveProject({ ...p, showInGallery: p.showInGallery === false });
-    await reload();
+    const updatedProjects = await saveProject({ ...p, showInGallery: p.showInGallery === false });
+    setProjects(updatedProjects);
+    reload();
     setMessage(p.showInGallery === false ? "เปิดแสดงโครงการในคลังผลงานแล้ว" : "ปิดการแสดงโครงการในคลังผลงานแล้ว");
   };
 
@@ -261,7 +264,8 @@ export default function AdminProjectsPage() {
   // which of the open rounds is selected first on the public form.
   const toggleSubmissionOpen = async (p: Project) => {
     const willOpen = p.status === "closed";
-    await saveProject({ ...p, status: willOpen ? "active" : "closed" });
+    const updatedProjects = await saveProject({ ...p, status: willOpen ? "active" : "closed" });
+    setProjects(updatedProjects);
     if (willOpen && !activeId) {
       await setActiveProject(p.id);
     } else if (!willOpen && activeId === p.id) {
@@ -269,7 +273,7 @@ export default function AdminProjectsPage() {
       if (nextOpen) await setActiveProject(nextOpen.id);
       else await updateTrainingSettings({ activeProjectId: "", allowSubmissions: false });
     }
-    await reload();
+    reload();
     setMessage(willOpen ? "เปิดรับส่งงานสำหรับรอบนี้แล้ว" : "ปิดรับส่งงานสำหรับรอบนี้แล้ว");
   };
 
