@@ -199,6 +199,7 @@ function notifySubmissionImmediately_(submissionId) {
     "━━━━━━━━━━━━━━",
     "✅ บันทึกผลงานเรียบร้อยแล้ว"
   ];
+  text = text.concat(quotaTelegramLinesV3_());
   var workUrl = String(item.fileURL || item.driveLink || "").trim();
   var workKeyboard = workUrl ? { inline_keyboard: [[{ text: "📄 เปิดผลงานที่ส่ง", url: workUrl }]] } : undefined;
   sendTelegram_(text.join("\n"), chatId, workKeyboard);
@@ -245,25 +246,57 @@ function quotaBump_(documents, fixedReads) {
 }
 
 function quotaFooter_() {
+  return "\n" + quotaTelegramLinesV3_().join("\n");
+}
+
+/** Compact quota block appended to every submission notification. This is a
+ * lower-bound estimate: browser/admin reads and delayed Cloud Billing data are
+ * not observable by Apps Script. */
+function quotaTelegramLinesV3_() {
   var state = quotaStateV2_().value;
-  var readPercent = Math.min(100, state.reads / FIRESTORE_FREE_READS_V2 * 100);
-  return "\n\n📊 โควตา Firestore ที่บอตตรวจนับได้ขั้นต่ำ: " +
-    state.reads.toLocaleString("en-US") + "/" + FIRESTORE_FREE_READS_V2.toLocaleString("en-US") +
-    " reads (" + readPercent.toFixed(1) + "%)";
+  var readPercent = state.reads / FIRESTORE_FREE_READS_V2 * 100;
+  var writePercent = state.writes / FIRESTORE_FREE_WRITES_V2 * 100;
+  var highestPercent = Math.max(readPercent, writePercent);
+  var status = highestPercent >= 100 ? "🔴 เกินโควตาฟรีที่บอตตรวจพบ" :
+    highestPercent >= 95 ? "🔴 ใกล้ถึงเพดานมาก" :
+    highestPercent >= 85 ? "🟠 เหลือน้อย" :
+    highestPercent >= 70 ? "🟡 ควรเฝ้าระวัง" : "🟢 ยังอยู่ในช่วงปกติ";
+  var billing = highestPercent >= 100
+    ? "💳 ค่าใช้จ่าย: อาจเริ่มคิดค่าบริการแล้ว — กรุณาตรวจ Billing"
+    : highestPercent >= 95
+      ? "💳 ค่าใช้จ่าย: ยังไม่ถึงเพดานที่บอตนับ แต่ใกล้มาก"
+      : "💳 ค่าใช้จ่าย: ยังไม่พบความเสี่ยงจากตัวนับของบอต";
+  return [
+    "",
+    "💠 โควตาฟรีหลังรับงานนี้",
+    status,
+    "📖 Reads ≥ " + state.reads.toLocaleString("en-US") + "/50,000 (" + readPercent.toFixed(1) + "%)" +
+      "  •  ✍️ Writes ≥ " + state.writes.toLocaleString("en-US") + "/20,000 (" + writePercent.toFixed(1) + "%)",
+    billing,
+    "ℹ️ เป็นยอดขั้นต่ำ ยอดจริงและ Billing ของ Google อาจแสดงล่าช้า"
+  ];
 }
 
 function freeQuotaMessageV2_(state, title) {
   var readPercent = state.reads / FIRESTORE_FREE_READS_V2 * 100;
   var writePercent = state.writes / FIRESTORE_FREE_WRITES_V2 * 100;
+  var highestPercent = Math.max(readPercent, writePercent);
+  var billingLine = highestPercent >= 100
+    ? "💳 อาจเริ่มมีค่าใช้จ่ายแล้ว กรุณาเปิด Billing ตรวจยอดจริงทันที"
+    : highestPercent >= 95
+      ? "💳 ใกล้ถึงเพดานฟรีมาก ควรลดการเปิดหน้าแอดมินและการรีเฟรช"
+      : "💳 ยังไม่พบความเสี่ยงค่าใช้จ่ายจากตัวนับของบอต";
   return [
     title,
     "",
     "📖 Reads ขั้นต่ำ " + state.reads.toLocaleString("en-US") + "/50,000 (" + readPercent.toFixed(1) + "%)",
     "✍️ Writes โดยประมาณ " + state.writes.toLocaleString("en-US") + "/20,000 (" + writePercent.toFixed(1) + "%)",
     "📥 งานใหม่ที่บอตพบ " + state.submissions.toLocaleString("en-US") + " รายการ",
+    billingLine,
     "",
     "ℹ️ เป็นค่าขั้นต่ำจากรายการที่บอตตรวจพบ ยอดจริงรวมการเปิดเว็บและหน้าแอดมินให้ตรวจใน Google Cloud Console",
-    "🔗 https://console.cloud.google.com/firestore/quotas?project=" + FIREBASE_PROJECT_ID
+    "🔗 โควตา: https://console.cloud.google.com/firestore/quotas?project=" + FIREBASE_PROJECT_ID,
+    "💳 ค่าใช้จ่ายจริง: https://console.cloud.google.com/billing?project=" + FIREBASE_PROJECT_ID
   ].join("\n");
 }
 
@@ -281,7 +314,7 @@ function maybeNotifyFreeQuotaV2_(settings, chatId, properties, force) {
   var bangkokHour = Number(Utilities.formatDate(new Date(), "Asia/Bangkok", "H"));
   var dailyKey = "quota_daily_v2_" + Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
   if (force || (threshold && !properties.getProperty(alertKey))) {
-    sendTelegram_(freeQuotaMessageV2_(state, threshold >= 100 ? "🚨 โควตาฟรี Firestore ถึงเพดานแล้ว" : "⚠️ โควตาฟรี Firestore ใกล้เต็ม"), chatId);
+    sendTelegram_(freeQuotaMessageV2_(state, threshold >= 100 ? "🚨 เกินโควตาฟรี — อาจเริ่มมีค่าใช้จ่าย" : "⚠️ โควตาฟรี Firestore ใกล้เต็ม"), chatId);
     if (alertKey) properties.setProperty(alertKey, String(Date.now()));
     if (force) properties.setProperty(dailyKey, String(Date.now()));
     return true;
@@ -671,7 +704,7 @@ function cleanWorkTitleV2_(value) {
 function notifyTelegramTest_(settings, chatId, properties) {
   var requestedAt = String(settings.telegramTestRequestedAt || "");
   if (!requestedAt || properties.getProperty(TEST_CURSOR_PROPERTY) === requestedAt) return;
-  sendTelegram_(["🔔 ทดสอบการแจ้งเตือน", "━━━━━━━━━━━━━━", "✅ เชื่อมต่อ Telegram สำเร็จ", "📥 พร้อมแจ้งเมื่อมีการส่งงานใหม่", "🎓 พร้อมแจ้งเมื่อครบเกณฑ์เกียรติบัตร"].join("\n"), chatId);
+  sendTelegram_(["🔔 ทดสอบการแจ้งเตือน", "━━━━━━━━━━━━━━", "✅ เชื่อมต่อ Telegram สำเร็จ", "📥 พร้อมแจ้งเมื่อมีการส่งงานใหม่", "🎓 พร้อมแจ้งเมื่อครบเกณฑ์เกียรติบัตร", "💠 พร้อมแนบสถานะโควตาฟรีทุกครั้ง", "💳 พร้อมเตือนเมื่อเสี่ยงเริ่มมีค่าใช้จ่าย"].join("\n"), chatId);
   properties.setProperty(TEST_CURSOR_PROPERTY, requestedAt);
 }
 
@@ -717,7 +750,7 @@ function sendTelegram_(text, explicitChatId, replyMarkup) {
 function sendTelegramTestNow_(chatId) {
   chatId = String(chatId || "").trim();
   if (!chatId) throw new Error("กรุณากรอก Telegram Chat ID");
-  sendTelegram_(["🔔 ทดสอบการแจ้งเตือน", "━━━━━━━━━━━━━━", "✅ เชื่อมต่อ Telegram สำเร็จ", "📥 พร้อมแจ้งเมื่อมีการส่งงานใหม่", "🎓 พร้อมแจ้งเมื่อครบเกณฑ์เกียรติบัตร"].join("\n"), chatId);
+  sendTelegram_(["🔔 ทดสอบการแจ้งเตือน", "━━━━━━━━━━━━━━", "✅ เชื่อมต่อ Telegram สำเร็จ", "📥 พร้อมแจ้งเมื่อมีการส่งงานใหม่", "🎓 พร้อมแจ้งเมื่อครบเกณฑ์เกียรติบัตร", "💠 พร้อมแนบสถานะโควตาฟรีทุกครั้ง", "💳 พร้อมเตือนเมื่อเสี่ยงเริ่มมีค่าใช้จ่าย"].join("\n"), chatId);
   return true;
 }
 

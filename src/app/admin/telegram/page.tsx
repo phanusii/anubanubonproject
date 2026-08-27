@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Send, ShieldCheck, Timer, CheckCircle2, BellRing } from "lucide-react";
+import { Send, ShieldCheck, Timer, CheckCircle2, BellRing, Gauge, WalletCards } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
@@ -106,6 +106,14 @@ export default function TelegramSettingsPage() {
                   <div className="flex gap-2 p-3 rounded-2xl bg-blue-50 border border-blue-100">
                     <Timer className="w-4 h-4 text-blue-600 shrink-0" />
                     <span>ทำงานด้วยบริการฟรี จึงอาจหน่วงจากเวลาส่งจริงไม่เกินประมาณ 1 นาที</span>
+                  </div>
+                  <div className="flex gap-2 p-3 rounded-2xl bg-violet-50 border border-violet-100">
+                    <Gauge className="w-4 h-4 text-violet-600 shrink-0" />
+                    <span>ทุกข้อความส่งงานจะแสดง Reads/Writes และเปอร์เซ็นต์โควตาฟรีแบบย่อ</span>
+                  </div>
+                  <div className="flex gap-2 p-3 rounded-2xl bg-amber-50 border border-amber-100">
+                    <WalletCards className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>แจ้งเตือนแยกเมื่อใช้ถึง 70%, 85%, 95% และเมื่อเสี่ยงเริ่มมีค่าใช้จ่าย พร้อมลิงก์ตรวจ Billing จริง</span>
                   </div>
                 </div>
 
