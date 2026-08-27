@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -72,17 +74,6 @@ jobs:
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
           npx firebase-tools deploy --only firestore:rules --project anubanubonproject --non-interactive
 
-      - name: Deploy Storage rules
-        # Fail the release if security rules cannot be updated; shipping a new
-        # client against stale Storage rules would leave anonymous uploads open.
-        if: steps.check_secret.outputs.has_secret == 'true'
-        env:
-          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUBANUBONPROJECT }}
-        run: |
-          printf '%s' "$SA_JSON" > "$RUNNER_TEMP/sa.json"
-          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
-          npx firebase-tools deploy --only storage --project anubanubonproject --non-interactive
-
       - name: Deploy Firestore indexes
         if: steps.check_secret.outputs.has_secret == 'true'
         env:
@@ -91,3 +82,24 @@ jobs:
           printf '%s' "$SA_JSON" > "$RUNNER_TEMP/sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
           npx firebase-tools deploy --only firestore:indexes --project anubanubonproject --non-interactive
+
+      - name: Check whether Storage rules changed
+        id: storage_changes
+        run: |
+          if git diff --quiet HEAD^ HEAD -- storage.rules; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy Storage rules
+        # Storage permissions are checked only when its rule file changes. A
+        # normal website release must not fail or skip indexes for an unchanged
+        # Storage configuration.
+        if: steps.check_secret.outputs.has_secret == 'true' && steps.storage_changes.outputs.changed == 'true'
+        env:
+          SA_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUBANUBONPROJECT }}
+        run: |
+          printf '%s' "$SA_JSON" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx firebase-tools deploy --only storage --project anubanubonproject --non-interactive
