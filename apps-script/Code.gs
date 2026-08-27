@@ -86,7 +86,7 @@ function handleCertificatePost_(e) {
     }
     if (input.action === "certificateCandidates") {
       assertAdmin_(input.idToken);
-      return json_({ ok: true, candidates: certificateCandidates_(input.projectId, Boolean(input.refresh)) });
+      return json_({ ok: true, candidates: certificateCandidates_(input.projectId, Boolean(input.refresh), input.projectSnapshot || {}) });
     }
     if (input.action === "driveCertificateCandidates") {
       assertAdmin_(input.idToken);
@@ -136,6 +136,12 @@ function handleCertificatePost_(e) {
     }
     if (input.action === "issuedCount") {
       var issuedRecords = listCertificateRecords_(String(input.projectId || "")).filter(function (r) { return r.status === "issued"; });
+      var countProject = validProjectSnapshot_(input.projectId, input.projectSnapshot || {});
+      if (countProject && Array.isArray(countProject.attendeeIds) && countProject.attendeeIds.length) {
+        issuedRecords = issuedRecords.filter(function (record) {
+          return projectAllowsCertificateRecipient_(countProject, record.recipientName || (record.snapshot && record.snapshot.fullName), "");
+        });
+      }
       return json_({ ok: true, issued: issuedRecords.length });
     }
     return json_({ ok: false, error: "Unknown action" });
@@ -426,6 +432,11 @@ function issueCertificate_(projectId, fullName, forceRetry, renumber, context) {
     var submissions = cachedCandidate ? [] : (context && context.submissions ? context.submissions : querySubmissions_(projectId)).filter(function (item) {
       return normalizeName_(item.fullName) === fullName;
     });
+    var recipientTeacherId = cachedCandidate && cachedCandidate.teacherId || "";
+    if (!recipientTeacherId && submissions.length) recipientTeacherId = submissions[0].teacherId || "";
+    if (!projectAllowsCertificateRecipient_(project, fullName, recipientTeacherId)) {
+      throw new Error("รายชื่อนี้ไม่ได้อยู่ในผู้เข้าอบรม/โครงการรอบที่เลือก");
+    }
     var completion = cachedCandidate ? {
       complete: cachedCandidate.qualificationType === "complete",
       required: Number(cachedCandidate.required || 0),
@@ -1187,24 +1198,57 @@ function submissionsByRecipient_(submissions) {
   return groups;
 }
 
-function certificateCandidates_(projectId, useCurrent) {
+function projectAttendeeRecipientLookup_(project) {
+  if (!project || !Array.isArray(project.attendeeIds) || !project.attendeeIds.length) return null;
+  var lookup = { ids: {}, names: {} };
+  project.attendeeIds.forEach(function (id) {
+    id = String(id || "");
+    if (!id) return;
+    lookup.ids[id] = true;
+    var profile = project.attendeeProfiles && project.attendeeProfiles[id];
+    var nameKey = normalizeName_(profile && profile.fullName).toLowerCase();
+    if (nameKey) lookup.names[nameKey] = true;
+  });
+  return lookup;
+}
+
+function projectAllowsCertificateRecipient_(project, fullName, teacherId) {
+  var lookup = projectAttendeeRecipientLookup_(project);
+  if (!lookup) return true; // Legacy rounds without a roster keep old behaviour.
+  return Boolean(
+    (teacherId && lookup.ids[String(teacherId)]) ||
+    lookup.names[normalizeName_(fullName).toLowerCase()]
+  );
+}
+
+function certificateCandidates_(projectId, useCurrent, projectSnapshot) {
   var registry = loadCertificateRegistry_();
   var cached = registry.candidateCache && registry.candidateCache[projectId];
+  var snapshotProject = validProjectSnapshot_(projectId, projectSnapshot || {});
   // Opening the page must never start a full Firestore scan. Return the last
   // successful snapshot (or an empty list on the first visit); only the
   // explicit refresh button is allowed to consume submission reads.
-  if (!useCurrent) return cached && cached.items ? cached.items : [];
+  if (!useCurrent) {
+    var cachedProject = snapshotProject || (cached && cached.project);
+    return (cached && cached.items || []).filter(function (item) {
+      return projectAllowsCertificateRecipient_(cachedProject, item.fullName, item.teacherId);
+    });
+  }
   try {
-  var project = getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
+  var project = snapshotProject || getFirestoreDocument_("projects/" + encodeURIComponent(projectId));
   var issued = issuedRecipientLookup_(projectId);
   var groups = submissionsByRecipient_(querySubmissions_(projectId));
-  var items = Object.keys(groups).sort().map(function (key) {
+  var items = Object.keys(groups).sort().filter(function (key) {
+    return groups[key].some(function (submission) {
+      return projectAllowsCertificateRecipient_(project, submission.fullName || key, submission.teacherId);
+    });
+  }).map(function (key) {
     var progress = completion_(project, groups[key]);
     var type = progress.complete ? "complete" : progress.submitted > 0 ? "partial" : "none";
     var latest = progress.latest || {};
     var fullName = latest.fullName || key;
     var alreadyIssued = isIssuedRecipient_(issued, fullName);
-    return { fullName: fullName, qualificationType: type, submitted: progress.submitted, required: progress.required, eligible: progress.submitted > 0 && !alreadyIssued, reason: alreadyIssued ? "ออกแล้ว" : progress.complete ? "" : "ยังส่งไม่ครบ (อนุมัติได้)", position: latest.position || "", gradeLevel: latest.gradeLevel || "", subjectGroup: latest.subjectGroup || "", missingTitles: completionMissingTitles_(project, groups[key]), submissionIds: progress.submissionIds || [] };
+    return { fullName: fullName, teacherId: latest.teacherId || "", qualificationType: type, submitted: progress.submitted, required: progress.required, eligible: progress.submitted > 0 && !alreadyIssued, reason: alreadyIssued ? "ออกแล้ว" : progress.complete ? "" : "ยังส่งไม่ครบ (อนุมัติได้)", position: latest.position || "", gradeLevel: latest.gradeLevel || "", subjectGroup: latest.subjectGroup || "", missingTitles: completionMissingTitles_(project, groups[key]), submissionIds: progress.submissionIds || [] };
   });
   items.forEach(function (item) { item.source = "firestore"; });
   saveCandidateCache_(projectId, { items: items, project: project, updatedAt: Date.now() });
@@ -1272,6 +1316,7 @@ function driveCertificateCandidates_(projectId, projectSnapshot) {
 
   var items = Object.keys(recipients).map(function (key) {
     var recipient = recipients[key];
+    if (!projectAllowsCertificateRecipient_(project, recipient.fullName, "")) return null;
     var matchedSlots = recipient.matchedSlots;
     var submitted = Object.keys(matchedSlots).length;
     if (!submitted) return null;
@@ -1532,6 +1577,7 @@ function startCertificateBatch_(projectId, selectedNames, projectSnapshot) {
   var issued = issuedRecipientLookup_(projectId);
   var candidates = (cachedBlock && cachedBlock.items || []).filter(function (item) {
     return item.eligible &&
+      projectAllowsCertificateRecipient_(project, item.fullName, item.teacherId) &&
       wanted[normalizeName_(item.fullName).toLowerCase()] &&
       !isIssuedRecipient_(issued, item.fullName);
   });

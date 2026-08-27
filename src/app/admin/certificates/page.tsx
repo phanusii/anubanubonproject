@@ -223,14 +223,14 @@ export default function CertificatesAdminPage() {
     }
     // Fast, standalone issued-count for the summary card (doesn't wait on the full list).
     if (!cached || typeof cached.issued !== "number") setIssuedTotal(null);
-    void getIssuedCertificateCount(project.id).then((n) => {
+    void getIssuedCertificateCount(project.id, project).then((n) => {
       if (!cancelled) setIssuedTotal(n);
       mergeCertCache(project.id, { issued: n });
     });
     void Promise.allSettled([
       getCertificates(project.id),
       getCertificateBatchStatus(project.id),
-      getCertificateCandidates(project.id),
+      getCertificateCandidates(project.id, false, project),
     ])
       .then(([certificateResult, jobResult, candidateResult]) => {
         if (cancelled) return;
@@ -266,7 +266,7 @@ export default function CertificatesAdminPage() {
       void Promise.all([
         getCertificates(project.id),
         getCertificateBatchStatus(project.id),
-        getCertificateCandidates(project.id),
+        getCertificateCandidates(project.id, false, project),
       ])
         .then(([items, currentJob, currentCandidates]) => {
           if (!cancelled) {
@@ -513,7 +513,7 @@ export default function CertificatesAdminPage() {
     setMessage("กำลังตรวจผู้ที่ยังไม่มีเกียรติบัตร...");
     try {
       // refresh=true forces the Apps Script to re-scan Firestore (not serve its cache).
-      const items = await getCertificateCandidates(project.id, true);
+      const items = await getCertificateCandidates(project.id, true, project);
       setCandidates(items);
       setMessage(`ตรวจแล้ว ${items.length} คน กรุณาตรวจรายชื่อก่อนยืนยัน`);
     } catch (error) {
@@ -582,7 +582,7 @@ export default function CertificatesAdminPage() {
       setJob(current);
       const [freshRecords, freshCandidates] = await Promise.all([
         getCertificates(project.id),
-        getCertificateCandidates(project.id),
+        getCertificateCandidates(project.id, false, currentProject),
       ]);
       setRecords(freshRecords);
       setCandidates(freshCandidates);
@@ -654,18 +654,29 @@ export default function CertificatesAdminPage() {
       .filter(Boolean),
   );
   const notIssued = (name: string) => !issuedKeys.has(certificateRecipientKey(name));
-  const waiting = candidates.filter((item) => item.eligible && item.qualificationType === "complete" && notIssued(item.fullName) && matchesFilters(item));
-  const incomplete = candidates.filter(
+  // A configured attendee roster is authoritative. Candidate caches can outlive
+  // roster edits, so also filter in the browser while Apps Script refreshes.
+  const attendeeKeys = new Set(
+    (project?.attendeeIds || [])
+      .map((id) => project?.attendeeProfiles?.[id]?.fullName || "")
+      .map(certificateRecipientKey)
+      .filter(Boolean),
+  );
+  const isCurrentAttendee = (name: string) =>
+    !project?.attendeeIds?.length || attendeeKeys.has(certificateRecipientKey(name));
+  const rosterCandidates = candidates.filter((item) => isCurrentAttendee(item.fullName));
+  const waiting = rosterCandidates.filter((item) => item.eligible && item.qualificationType === "complete" && notIssued(item.fullName) && matchesFilters(item));
+  const incomplete = rosterCandidates.filter(
     (item) => item.eligible && item.qualificationType === "partial" && notIssued(item.fullName) && matchesFilters(item),
   );
   const issuedRecords = records.filter(
-    (item) => item.status === "issued" && matchesFilters(item),
+    (item) => isCurrentAttendee(item.recipientName || item.snapshot?.fullName || "") && item.status === "issued" && matchesFilters(item),
   );
   const gradeOptions = Array.from(
-    new Set(candidates.map((item) => item.gradeLevel).filter((value): value is string => Boolean(value))),
+    new Set(rosterCandidates.map((item) => item.gradeLevel).filter((value): value is string => Boolean(value))),
   ).sort();
   const subjectOptions = Array.from(
-    new Set(candidates.map((item) => item.subjectGroup).filter((value): value is string => Boolean(value))),
+    new Set(rosterCandidates.map((item) => item.subjectGroup).filter((value): value is string => Boolean(value))),
   ).sort((a, b) => (a === "ไม่ระบุ" ? 1 : b === "ไม่ระบุ" ? -1 : a.localeCompare(b, "th")));
   const visibleCandidates = tab === "incomplete" ? incomplete : waiting;
   const visibleNames = visibleCandidates.map((item) => item.fullName);

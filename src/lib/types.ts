@@ -142,6 +142,7 @@ export interface CertificateRevision {
 
 export interface CertificateCandidate {
   fullName: string;
+  teacherId?: string;
   qualificationType: "complete" | "partial" | "none";
   submitted: number;
   required: number;

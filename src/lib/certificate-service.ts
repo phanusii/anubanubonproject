@@ -20,9 +20,9 @@ export async function checkDriveLinkPublic(fileId: string): Promise<{ isPublic: 
 
 /** Public (no-auth) count of issued certificates for a project — used on the
  *  certificate-lookup page so visitors can see how many have been issued. */
-export async function getIssuedCertificateCount(projectId: string): Promise<number> {
+export async function getIssuedCertificateCount(projectId: string, projectSnapshot?: Project): Promise<number> {
   try {
-    const res = await callService({ action: "issuedCount", projectId });
+    const res = await callService({ action: "issuedCount", projectId, projectSnapshot });
     return Number(res.issued || 0);
   } catch {
     return 0;
@@ -129,9 +129,9 @@ export async function getCertificates(projectId: string): Promise<CertificateRec
 /** Pass refresh=true only for the explicit "อัปเดตรายชื่อ" button: the Apps Script
  *  re-scans Firestore only when input.refresh is true, otherwise it returns the last
  *  cached snapshot (which never reflects newly-completed submitters). */
-export async function getCertificateCandidates(projectId: string, refresh = false): Promise<CertificateCandidate[]> {
+export async function getCertificateCandidates(projectId: string, refresh = false, projectSnapshot?: Project): Promise<CertificateCandidate[]> {
   const idToken = await getAdminIdToken();
-  const result = await callService({ action: "certificateCandidates", projectId, refresh, idToken });
+  const result = await callService({ action: "certificateCandidates", projectId, refresh, projectSnapshot, idToken });
   return (result.candidates || []) as CertificateCandidate[];
 }
 
