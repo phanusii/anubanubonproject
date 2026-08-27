@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
-import { getProjects, saveProject, deleteProject, setActiveProject, saveProjectsOrder } from "@/lib/projects-service";
-import { deleteSubmissionsByProject, getTrainingSettings, getSubmissions, updateSubmission, updateTrainingSettings } from "@/lib/submission-service";
+import { getInstantProjects, getProjects, saveProject, deleteProject, setActiveProject, saveProjectsOrder } from "@/lib/projects-service";
+import { countSubmissions, deleteSubmissionsByProject, getTrainingSettings, getSubmissions, updateSubmission, updateTrainingSettings } from "@/lib/submission-service";
 import { getTeachers, getInstantTeachers, saveTeacher, TeacherItem } from "@/lib/teachers-service";
 import { CertificateSettings, Project, TrainingSettings } from "@/lib/types";
 import { budgetYearOf, gradeLabel, normalizeGradeKey } from "@/lib/format";
@@ -73,6 +73,7 @@ function blankProject(settings: TrainingSettings | null): Project {
 export default function AdminProjectsPage() {
   const [settings, setSettings] = useState<TrainingSettings | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
   const [activeId, setActiveId] = useState<string | undefined>(undefined);
   const [editing, setEditing] = useState<Project | null>(null);
   const [saving, setSaving] = useState(false);
@@ -92,12 +93,33 @@ export default function AdminProjectsPage() {
     // are usable immediately instead of waiting on the network.
     const instantRoster = getInstantTeachers();
     if (instantRoster.length) setAllTeachers(instantRoster);
+    const instantProjects = getInstantProjects();
+    if (instantProjects.length) {
+      setProjects(instantProjects);
+      setProjectsLoading(false);
+    }
 
     // Resolve each read independently — the teacher roster (fast) must not wait
     // behind the heavier full-document submissions read, which was making the
     // grade/subject dropdowns appear empty until everything finished.
     getTeachers().then((teachers) => setAllTeachers(teachers)).catch(() => {});
-    getProjects(true).then((ps) => setProjects(ps)).catch(() => {});
+    getProjects(true)
+      .then((ps) => {
+        setProjects(ps);
+        // Exact Firestore aggregation counts avoid downloading every submission
+        // document merely to paint the small "ส่งแล้ว" labels on these cards.
+        void Promise.all(ps.map(async (project) => [project.id, await countSubmissions(project.id)] as const))
+          .then((entries) => {
+            const counts: Record<string, number> = {};
+            entries.forEach(([id, count]) => {
+              if (count >= 0) counts[id] = count;
+            });
+            setSubmissionCounts(counts);
+          })
+          .catch(() => {});
+      })
+      .catch(() => {})
+      .finally(() => setProjectsLoading(false));
     getTrainingSettings()
       .then((s) => {
         setSettings(s);
@@ -105,17 +127,6 @@ export default function AdminProjectsPage() {
       })
       .catch(() => {});
 
-    // Counts are decorative and can take several seconds for ~1,000 works.
-    // Never keep Save/toggle buttons waiting for this background refresh.
-    void getSubmissions({ ignoreProjectFilter: true })
-      .then((allSubmissions) => {
-        const counts: Record<string, number> = {};
-        for (const submission of allSubmissions) {
-          if (submission.projectId) counts[submission.projectId] = (counts[submission.projectId] || 0) + 1;
-        }
-        setSubmissionCounts(counts);
-      })
-      .catch(() => { /* counts are non-critical */ });
   };
 
   useEffect(() => {
@@ -289,7 +300,6 @@ export default function AdminProjectsPage() {
   const toggleGalleryVisible = async (p: Project) => {
     const updatedProjects = await saveProject({ ...p, showInGallery: p.showInGallery === false });
     setProjects(updatedProjects);
-    reload();
     setMessage(p.showInGallery === false ? "เปิดแสดงโครงการในคลังผลงานแล้ว" : "ปิดการแสดงโครงการในคลังผลงานแล้ว");
   };
 
@@ -306,7 +316,6 @@ export default function AdminProjectsPage() {
       if (nextOpen) await setActiveProject(nextOpen.id);
       else await updateTrainingSettings({ activeProjectId: "", allowSubmissions: false });
     }
-    reload();
     setMessage(willOpen ? "เปิดรับส่งงานสำหรับรอบนี้แล้ว" : "ปิดรับส่งงานสำหรับรอบนี้แล้ว");
   };
 
@@ -793,7 +802,14 @@ export default function AdminProjectsPage() {
 
           {/* Project list */}
           <div className="space-y-3">
-            {projects.length === 0 && !editing && (
+            {projectsLoading && projects.length === 0 && !editing && (
+              <div className="glass-panel p-10 text-center rounded-3xl border border-slate-200 bg-white/60">
+                <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-blue-100 border-t-blue-600" />
+                <p className="font-extrabold text-slate-700">กำลังโหลดข้อมูลรอบ/โครงการ...</p>
+                <p className="mt-1 text-xs font-medium text-slate-500">ระบบจะแสดงข้อมูลที่บันทึกไว้ทันทีที่พร้อม</p>
+              </div>
+            )}
+            {!projectsLoading && projects.length === 0 && !editing && (
               <div className="glass-panel p-10 text-center rounded-3xl border border-dashed border-slate-200 bg-white/60">
                 <p className="font-extrabold text-slate-700">ยังไม่มีรอบ/โครงการ</p>
                 <p className="text-xs text-slate-500 mt-1 font-medium">
