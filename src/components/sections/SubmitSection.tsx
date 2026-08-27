@@ -9,11 +9,12 @@ import {
   uploadThumbnailToStorage,
   createSubmission,
   replaceSubmission,
-  notifyTelegramUpload
+  notifyTelegramUpload,
+  syncTeacherFromSubmission
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups, getInstantGradeLevels, getInstantSubjectGroups } from "@/lib/masters-service";
 import { getActiveProject } from "@/lib/projects-service";
-import { findSimilarTeachers, getTeachers, getInstantTeachers, normalizeTeacherName, updateTeacherSubject, ensureTeacherFromSubmission, TeacherItem } from "@/lib/teachers-service";
+import { findSimilarTeachers, getTeachers, getInstantTeachers, normalizeTeacherName, TeacherItem } from "@/lib/teachers-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
 import { checkDriveLinkPublic } from "@/lib/certificate-service";
 import { gradeLabel, submitVerb, normalizeGradeKey } from "@/lib/format";
@@ -509,20 +510,9 @@ export default function SubmitSection() {
       ];
       setUserExistingSubmissions(nextSubmissions);
 
-      // Keep the roster's subject group aligned with the teacher's latest
-      // submission. This is best-effort and never blocks a successful upload.
-      if (selectedTeacherId && effectiveSubjectGroup && !roundProfile) {
-        void updateTeacherSubject(selectedTeacherId, effectiveSubjectGroup);
-      }
-
-      // A name typed via "เพิ่มชื่อใหม่" is only on the submission; register it in the
-      // roster so it appears in the dropdown next time. Idempotent for known names.
-      void ensureTeacherFromSubmission({
-        fullName: effectiveFullName,
-        position: effectivePosition,
-        gradeLevel: effectiveGradeLevel,
-        subjectGroup: effectiveSubjectGroup,
-      });
+      // Sync the trusted, already-saved submission profile to the master roster.
+      // Apps Script rereads all values from Firestore; the browser sends only the id.
+      void syncTeacherFromSubmission(savedSubmission.id);
 
       // Send immediately; the Apps Script minute poller remains the fallback.
       void notifyTelegramUpload(savedSubmission.id);

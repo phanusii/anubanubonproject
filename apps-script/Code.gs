@@ -48,6 +48,9 @@ function handleCertificatePost_(e) {
     if (input.action === "telegramNotify") {
       return json_({ ok: true, notified: notifySubmissionImmediately_(input.submissionId) });
     }
+    if (input.action === "syncTeacherFromSubmission") {
+      return json_({ ok: true, teacher: syncTeacherFromSubmission_(input.submissionId) });
+    }
     if (input.action === "syncCertificateAdmins") {
       var registryAdmin = assertAdmin_(input.idToken);
       if (registryAdmin.role !== "super_admin") throw new Error("เฉพาะแอดมินสูงสุดเท่านั้น");
@@ -1057,6 +1060,67 @@ function tryGetFirestoreDocument_(path) {
 
 function setFirestoreDocument_(path, value) {
   firestoreRequest_("documents/" + path, "patch", { fields: encodeMap_(value) });
+}
+
+/** Synchronize the trusted profile stored on a completed submission back to the
+ * master teacher roster. The browser supplies only a submission id; all profile
+ * values are reread from Firestore so this public endpoint cannot forge fields. */
+function syncTeacherFromSubmission_(submissionId) {
+  submissionId = String(submissionId || "").trim();
+  if (!/^[A-Za-z0-9_-]{8,160}$/.test(submissionId)) throw new Error("submissionId ไม่ถูกต้อง");
+  var submission = getFirestoreDocument_("submissions/" + encodeURIComponent(submissionId));
+  var fullName = String(submission.fullName || "").trim();
+  if (!fullName) throw new Error("ผลงานไม่มีชื่อผู้ส่ง");
+  var teacherId = String(submission.teacherId || ("submission-" + submissionId)).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 180);
+  var existing = tryGetFirestoreDocument_("teachers/" + encodeURIComponent(teacherId)) || {};
+  var next = {};
+  Object.keys(existing).forEach(function (key) { next[key] = existing[key]; });
+  next.fullName = fullName;
+  next.position = String(submission.position || "").trim();
+  next.gradeLevel = String(submission.gradeLevel || "").trim();
+  next.subjectGroup = String(submission.subjectGroup || "").trim();
+  next.createdAt = Number(existing.createdAt || submission.createdAt || Date.now());
+  setFirestoreDocument_("teachers/" + encodeURIComponent(teacherId), next);
+  syncTeacherSnapshotEntry_(teacherId, next);
+  return { id: teacherId, fullName: next.fullName };
+}
+
+function syncTeacherSnapshotEntry_(teacherId, teacher) {
+  var response = firestoreRequest_("documents/teacherSnapshot?pageSize=20", "get");
+  var documents = (response && response.documents) || [];
+  var selected = null;
+  var selectedData = null;
+  for (var i = 0; i < documents.length; i++) {
+    var data = decodeMap_(documents[i].fields || {});
+    var items = data.items || [];
+    for (var j = 0; j < items.length; j++) {
+      if (String(items[j].id || "") === teacherId) {
+        items[j] = Object.assign({ id: teacherId }, teacher);
+        data.items = items;
+        selected = documents[i];
+        selectedData = data;
+        break;
+      }
+    }
+    if (selected) break;
+  }
+  if (!selected) {
+    if (documents.length) {
+      selected = documents[documents.length - 1];
+      selectedData = decodeMap_(selected.fields || {});
+      selectedData.items = selectedData.items || [];
+      if (selectedData.items.length >= 400) {
+        selected = null;
+        selectedData = { index: documents.length, items: [] };
+      }
+    } else {
+      selectedData = { index: 0, items: [] };
+    }
+    selectedData.items.push(Object.assign({ id: teacherId }, teacher));
+  }
+  selectedData.updatedAt = Date.now();
+  var documentId = selected ? selected.name.split("/").pop() : "chunk_" + Number(selectedData.index || 0);
+  setFirestoreDocument_("teacherSnapshot/" + encodeURIComponent(documentId), selectedData);
 }
 
 function firestoreRequest_(path, method, body) {

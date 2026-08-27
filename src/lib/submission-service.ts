@@ -926,6 +926,18 @@ export async function notifyTelegramUpload(submissionId: string): Promise<void> 
   }
 }
 
+/** Ask the trusted Apps Script backend to copy the profile from an accepted
+ * submission into the master teacher roster. Profile values are never accepted
+ * from the browser directly. */
+export async function syncTeacherFromSubmission(submissionId: string): Promise<void> {
+  try {
+    const result = await postDriveJson({ action: "syncTeacherFromSubmission", submissionId }, 20000);
+    if (!result?.ok) throw new Error(String(result?.error || "อัปเดตข้อมูลครูไม่สำเร็จ"));
+  } catch (error) {
+    console.warn("Teacher profile sync failed (submission remains saved):", error);
+  }
+}
+
 export interface DriveUploadResult {
   url: string;
   id: string;
