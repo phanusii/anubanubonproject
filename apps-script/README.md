@@ -18,6 +18,13 @@ Required Script Properties include `TELEGRAM_BOT_TOKEN`,
 `FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY`, and `CERTIFICATE_FOLDER_ID`.
 Secrets must remain in Script Properties and must never be committed.
 
+The five-minute notifier is a bounded recovery path, not a full historical
+scanner. It processes at most 50 submissions per run, has a 55-second budget,
+uses short-lived leases/claims, and advances its cursor monotonically only
+after a submission notification is marked sent. It must not hold ScriptLock
+while calling Firestore, Drive, or Telegram, and it must not call the cached
+certificate-candidate scan on every tick.
+
 ## Safe release order
 
 1. Keep the previous Apps Script version available for rollback.

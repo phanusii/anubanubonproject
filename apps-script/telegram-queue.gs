@@ -5,6 +5,12 @@ function firebaseApiKeyV2_() {
 }
 var SETTINGS_DOCUMENT = "settings/training";
 var TEST_CURSOR_PROPERTY = "TELEGRAM_LAST_TEST_REQUEST";
+var TELEGRAM_RECOVERY_LEASE_PROPERTY = "TELEGRAM_RECOVERY_LEASE_V3";
+var TELEGRAM_RECOVERY_LEASE_MS = 90000;
+var TELEGRAM_SUBMISSION_CLAIM_MS = 300000;
+var TELEGRAM_RECOVERY_LIMIT = 50;
+var TELEGRAM_RECOVERY_BUDGET_MS = 55000;
+var TELEGRAM_IMMEDIATE_BUDGET_MS = 30000;
 
 function installTelegramNotifierV2() {
   var token = PropertiesService.getScriptProperties().getProperty("TELEGRAM_BOT_TOKEN");
@@ -121,43 +127,83 @@ function sharedProfilePictureFolder_(gradeLevel, teacherName) {
 }
 
 function notifyNewSubmissionsV2() {
-  var notifierLock = LockService.getScriptLock();
-  // A recovery scan can take longer than its schedule when Google APIs are
-  // under load. Skip this tick instead of allowing executions to pile up.
-  if (!notifierLock.tryLock(1000)) return;
+  var startedAt = Date.now();
+  var leaseId = acquireTelegramRecoveryLeaseV3_();
+  // The lease is registered while holding ScriptLock, then all Firestore and
+  // Telegram work runs without the global lock. Upload/certificate operations
+  // therefore never wait behind this recovery scan.
+  if (!leaseId) return;
   try {
-  var properties = PropertiesService.getScriptProperties();
-  var settings = getDocument_(SETTINGS_DOCUMENT);
-  var chatId = String(settings.telegramChatId || "").trim();
-  if (settings.telegramNotificationsEnabled && chatId) {
-    notifyTelegramTest_(settings, chatId, properties);
-  }
-  var lastTime = Number(properties.getProperty("TELEGRAM_LAST_SUBMISSION_MS") || 0);
-  var lastId = String(properties.getProperty("TELEGRAM_LAST_SUBMISSION_ID") || "");
-  if (!lastTime) {
-    initializeTelegramCursorV2_();
-    return;
-  }
-  var documents = listNewSubmissionsV2_(lastTime, lastId);
-  quotaBump_(documents, 1);
-  maybeNotifyFreeQuotaV2_(settings, chatId, properties, false);
-  if (settings.telegramNotificationsEnabled && chatId) {
-    notifyCachedCompletedCertificateCandidatesV2_(chatId);
-  }
-  if (!documents.length) return;
-  var newestDocument = documents[documents.length - 1];
-  var newest = Number(firestoreFields_(newestDocument.fields || {}).createdAt || lastTime);
-  var newestId = String(newestDocument.name || "").split("/").pop();
-  // Advance only after Telegram accepts the message. When notifications are
-  // disabled, advance deliberately so re-enabling does not replay old work.
-  if (settings.telegramNotificationsEnabled && chatId) {
-    sendTelegram_(formatSubmissionSummaryV2(documents) + quotaFooter_(), chatId);
-    notifyCompletedCertificateCandidatesV2_(documents, chatId);
-  }
-  properties.setProperty("TELEGRAM_LAST_SUBMISSION_MS", String(newest));
-  properties.setProperty("TELEGRAM_LAST_SUBMISSION_ID", newestId);
+    var properties = PropertiesService.getScriptProperties();
+    var settings = getDocument_(SETTINGS_DOCUMENT);
+    var chatId = String(settings.telegramChatId || "").trim();
+    if (settings.telegramNotificationsEnabled && chatId) {
+      notifyTelegramTest_(settings, chatId, properties);
+    }
+    var cursor = readTelegramCursorV3_();
+    if (!cursor.time) {
+      initializeTelegramCursorV2_();
+      return;
+    }
+    var documents = listNewSubmissionsV2_(cursor.time, cursor.id);
+    quotaBump_(documents, 1);
+    maybeNotifyFreeQuotaV2_(settings, chatId, properties, false);
+    if (!documents.length) return;
+
+    // Notifications disabled is an explicit discard policy: move the cursor
+    // forward without leaving a backlog that would replay when re-enabled.
+    if (!settings.telegramNotificationsEnabled || !chatId) {
+      documents.forEach(function(document) { advanceTelegramCursorForDocumentV3_(document); });
+      return;
+    }
+
+    var claimed = [];
+    var completionDocuments = [];
+    for (var i = 0; i < documents.length; i += 1) {
+      if (Date.now() - startedAt >= TELEGRAM_RECOVERY_BUDGET_MS - 8000) break;
+      var document = documents[i];
+      var submissionId = submissionIdFromDocumentV3_(document);
+      var claim = claimTelegramSubmissionV3_(submissionId, leaseId);
+      if (claim === "sent") {
+        // This usually means the immediate path succeeded but was terminated
+        // before advancing the cursor. It is safe to recover the cursor only.
+        completionDocuments.push(document);
+        advanceTelegramCursorForDocumentV3_(document);
+        continue;
+      }
+      // Never move past an item another execution is processing. Doing so
+      // could permanently skip it if that execution later fails.
+      if (claim !== "claimed") break;
+      claimed.push(document);
+      if (claimed.length >= TELEGRAM_RECOVERY_LIMIT) break;
+    }
+    if (!claimed.length) {
+      if (completionDocuments.length && Date.now() - startedAt < TELEGRAM_RECOVERY_BUDGET_MS - 5000) {
+        notifyCompletedCertificateCandidatesV2_(completionDocuments, chatId, startedAt + TELEGRAM_RECOVERY_BUDGET_MS);
+      }
+      return;
+    }
+
+    try {
+      sendTelegram_(formatSubmissionSummaryV2_(claimed) + quotaFooter_(), chatId);
+      claimed.forEach(function(document) {
+        var submissionId = submissionIdFromDocumentV3_(document);
+        if (markTelegramSubmissionV3_(submissionId, "sent", leaseId)) {
+          advanceTelegramCursorForDocumentV3_(document);
+        }
+      });
+      completionDocuments = completionDocuments.concat(claimed);
+      if (Date.now() - startedAt < TELEGRAM_RECOVERY_BUDGET_MS - 5000) {
+        notifyCompletedCertificateCandidatesV2_(completionDocuments, chatId, startedAt + TELEGRAM_RECOVERY_BUDGET_MS);
+      }
+    } catch (error) {
+      claimed.forEach(function(document) {
+        markTelegramSubmissionV3_(submissionIdFromDocumentV3_(document), "failed", leaseId, error);
+      });
+      throw error;
+    }
   } finally {
-    notifierLock.releaseLock();
+    releaseTelegramRecoveryLeaseV3_(leaseId);
   }
 }
 
@@ -165,24 +211,19 @@ function notifyNewSubmissionsV2() {
  * The browser supplies only a document id; every message field is loaded from
  * Firestore, preventing forged names, links, or project details. */
 function notifySubmissionImmediately_(submissionId) {
+  var startedAt = Date.now();
   submissionId = String(submissionId || "").trim();
   if (!/^[A-Za-z0-9_-]{10,128}$/.test(submissionId)) throw new Error("รหัสผลงานไม่ถูกต้อง");
   var settings = getDocument_(SETTINGS_DOCUMENT);
   var chatId = String(settings.telegramChatId || "").trim();
   if (!settings.telegramNotificationsEnabled || !chatId) return false;
-  var properties = PropertiesService.getScriptProperties();
-  var marker = "telegram_submission_" + submissionId;
   var document = getRawFirestoreDocumentV2_("submissions/" + encodeURIComponent(submissionId));
-  // A previous immediate notification may already have advanced the scheduled
-  // cursor past this document. Still run the completion check so a 5/5 teacher
-  // cannot be skipped; the per-recipient completion marker prevents duplicates.
-  if (properties.getProperty(marker)) {
-    notifyCompletedCertificateCandidatesV2_([document], chatId);
-    return false;
-  }
+  var claimOwner = "immediate-" + Utilities.getUuid();
+  var claim = claimTelegramSubmissionV3_(submissionId, claimOwner);
+  if (claim !== "claimed") return false;
   var item = firestoreFields_(document.fields || {});
   quotaBump_([document], 1);
-  maybeNotifyFreeQuotaV2_(settings, chatId, properties, false);
+  maybeNotifyFreeQuotaV2_(settings, chatId, PropertiesService.getScriptProperties(), false);
   var text = [
     "📥 งานใหม่เข้าสู่ระบบ",
     "━━━━━━━━━━━━━━",
@@ -202,11 +243,19 @@ function notifySubmissionImmediately_(submissionId) {
   text = text.concat(quotaTelegramLinesV3_());
   var workUrl = String(item.fileURL || item.driveLink || "").trim();
   var workKeyboard = workUrl ? { inline_keyboard: [[{ text: "📄 เปิดผลงานที่ส่ง", url: workUrl }]] } : undefined;
-  sendTelegram_(text.join("\n"), chatId, workKeyboard);
-  properties.setProperty(marker, String(Date.now()));
-  notifyCompletedCertificateCandidatesV2_([document], chatId);
-  advanceTelegramCursorV2_(Number(item.createdAt || 0), submissionId, properties);
-  return true;
+  try {
+    sendTelegram_(text.join("\n"), chatId, workKeyboard);
+    if (markTelegramSubmissionV3_(submissionId, "sent", claimOwner)) {
+      advanceTelegramCursorV2_(Number(item.createdAt || 0), submissionId);
+    }
+    if (Date.now() - startedAt < TELEGRAM_IMMEDIATE_BUDGET_MS - 3000) {
+      notifyCompletedCertificateCandidatesV2_([document], chatId, startedAt + TELEGRAM_IMMEDIATE_BUDGET_MS);
+    }
+    return true;
+  } catch (error) {
+    markTelegramSubmissionV3_(submissionId, "failed", claimOwner, error);
+    throw error;
+  }
 }
 
 var FIRESTORE_FREE_READS_V2 = 50000;
@@ -341,12 +390,141 @@ function getRawFirestoreDocumentV2_(path) {
   return JSON.parse(response.getContentText());
 }
 
-function advanceTelegramCursorV2_(createdAt, submissionId, properties) {
-  var currentTime = Number(properties.getProperty("TELEGRAM_LAST_SUBMISSION_MS") || 0);
-  var currentId = String(properties.getProperty("TELEGRAM_LAST_SUBMISSION_ID") || "");
-  if (createdAt > currentTime || (createdAt === currentTime && submissionId > currentId)) {
-    properties.setProperty("TELEGRAM_LAST_SUBMISSION_MS", String(createdAt));
-    properties.setProperty("TELEGRAM_LAST_SUBMISSION_ID", submissionId);
+function readTelegramCursorV3_() {
+  var properties = PropertiesService.getScriptProperties();
+  return {
+    time: Number(properties.getProperty("TELEGRAM_LAST_SUBMISSION_MS") || 0),
+    id: String(properties.getProperty("TELEGRAM_LAST_SUBMISSION_ID") || "")
+  };
+}
+
+/** Monotonic compare-and-set for both immediate and recovery paths. */
+function advanceTelegramCursorV2_(createdAt, submissionId) {
+  createdAt = Number(createdAt || 0);
+  submissionId = String(submissionId || "");
+  if (!createdAt) return false;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return false;
+  try {
+    var properties = PropertiesService.getScriptProperties();
+    var currentTime = Number(properties.getProperty("TELEGRAM_LAST_SUBMISSION_MS") || 0);
+    var currentId = String(properties.getProperty("TELEGRAM_LAST_SUBMISSION_ID") || "");
+    if (createdAt > currentTime || (createdAt === currentTime && submissionId > currentId)) {
+      properties.setProperties({
+        TELEGRAM_LAST_SUBMISSION_MS: String(createdAt),
+        TELEGRAM_LAST_SUBMISSION_ID: submissionId
+      }, false);
+      return true;
+    }
+    return false;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function submissionIdFromDocumentV3_(document) {
+  return String(document && document.name || "").split("/").pop();
+}
+
+function advanceTelegramCursorForDocumentV3_(document) {
+  var item = firestoreFields_(document && document.fields || {});
+  return advanceTelegramCursorV2_(Number(item.createdAt || 0), submissionIdFromDocumentV3_(document));
+}
+
+function parseTelegramMarkerV3_(raw) {
+  if (!raw) return null;
+  try {
+    var parsed = JSON.parse(raw);
+    if (parsed && parsed.status) return parsed;
+  } catch (_) {}
+  // Existing timestamp markers are permanent evidence that Telegram accepted
+  // the message; preserve them during the migration.
+  return { status: "sent", sentAt: Number(raw || 0), legacy: true };
+}
+
+function claimTelegramPropertyV3_(key, owner) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return "busy";
+  try {
+    var properties = PropertiesService.getScriptProperties();
+    var current = parseTelegramMarkerV3_(properties.getProperty(key));
+    if (current && current.status === "sent") return "sent";
+    if (current && current.status === "claimed" && Number(current.expiresAt || 0) > Date.now()) return "busy";
+    if (current && current.status === "failed" && Number(current.retryAfter || 0) > Date.now()) return "busy";
+    properties.setProperty(key, JSON.stringify({
+      status: "claimed",
+      owner: String(owner || ""),
+      claimedAt: Date.now(),
+      expiresAt: Date.now() + TELEGRAM_SUBMISSION_CLAIM_MS
+    }));
+    return "claimed";
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function markTelegramPropertyV3_(key, status, owner, error) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return false;
+  try {
+    var properties = PropertiesService.getScriptProperties();
+    var current = parseTelegramMarkerV3_(properties.getProperty(key));
+    if (current && current.status === "sent") return status === "sent";
+    if (current && current.owner && owner && current.owner !== owner) return false;
+    var now = Date.now();
+    properties.setProperty(key, JSON.stringify({
+      status: status,
+      owner: String(owner || ""),
+      updatedAt: now,
+      sentAt: status === "sent" ? now : 0,
+      retryAfter: status === "failed" ? now + 60000 : 0,
+      error: status === "failed" ? String(error && error.message || error || "").slice(0, 300) : ""
+    }));
+    return true;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function claimTelegramSubmissionV3_(submissionId, owner) {
+  return claimTelegramPropertyV3_("telegram_submission_" + submissionId, owner);
+}
+
+function markTelegramSubmissionV3_(submissionId, status, owner, error) {
+  return markTelegramPropertyV3_("telegram_submission_" + submissionId, status, owner, error);
+}
+
+function acquireTelegramRecoveryLeaseV3_() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return "";
+  try {
+    var properties = PropertiesService.getScriptProperties();
+    var current;
+    try { current = JSON.parse(properties.getProperty(TELEGRAM_RECOVERY_LEASE_PROPERTY) || "null"); } catch (_) { current = null; }
+    if (current && Number(current.expiresAt || 0) > Date.now()) return "";
+    var leaseId = Utilities.getUuid();
+    properties.setProperty(TELEGRAM_RECOVERY_LEASE_PROPERTY, JSON.stringify({
+      id: leaseId,
+      startedAt: Date.now(),
+      expiresAt: Date.now() + TELEGRAM_RECOVERY_LEASE_MS
+    }));
+    return leaseId;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function releaseTelegramRecoveryLeaseV3_(leaseId) {
+  if (!leaseId) return;
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return;
+  try {
+    var properties = PropertiesService.getScriptProperties();
+    var current;
+    try { current = JSON.parse(properties.getProperty(TELEGRAM_RECOVERY_LEASE_PROPERTY) || "null"); } catch (_) { current = null; }
+    if (current && current.id === leaseId) properties.deleteProperty(TELEGRAM_RECOVERY_LEASE_PROPERTY);
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -357,8 +535,8 @@ function formatThaiDateTimeV3_(createdAt, fallback) {
 }
 
 /** Notify once when a recipient becomes complete and attach safe action buttons. */
-function notifyCompletedCertificateCandidatesV2_(documents, chatId) {
-  var pairs = {}, properties = PropertiesService.getScriptProperties();
+function notifyCompletedCertificateCandidatesV2_(documents, chatId, deadlineAt) {
+  var pairs = {};
   (documents || []).forEach(function(document) {
     var item = firestoreFields_(document.fields || {});
     var projectId = String(item.projectId || "").trim();
@@ -366,7 +544,10 @@ function notifyCompletedCertificateCandidatesV2_(documents, chatId) {
     if (projectId && fullName) pairs[projectId + "|" + fullName.toLowerCase()] = { projectId: projectId, fullName: fullName };
   });
   Object.keys(pairs).forEach(function(key) {
+    if (deadlineAt && Date.now() >= deadlineAt - 3000) return;
     var pair = pairs[key], project, progress;
+    var notifiedKey = "";
+    var notificationOwner = "completion-" + Utilities.getUuid();
     try {
       project = getFirestoreDocument_("projects/" + encodeURIComponent(pair.projectId));
       progress = completion_(project, queryRecipientSubmissions_(pair.projectId, pair.fullName));
@@ -389,15 +570,22 @@ function notifyCompletedCertificateCandidatesV2_(documents, chatId) {
       }
       if (!progress.complete) return;
       var recipientKey = normalizeName_(pair.fullName).toLowerCase();
-      var record = getCertificateRecord_(certificateId_(pair.projectId, recipientKey));
-      if (record && record.status === "issued") return;
-      var folderUrl = recipientWorkFolderUrlV2_(pair.projectId, project, progress.latest || {});
       var certificateEnabled = Boolean(project.certificate && project.certificate.enabled);
       // A completion notice sent while certificates were disabled must not
       // suppress the actionable notice after Admin enables the round.
       var markerPrefix = certificateEnabled ? "telegram_certificate_ready_" : "telegram_complete_";
-      var notifiedKey = markerPrefix + certificateId_(pair.projectId, recipientKey);
-      if (properties.getProperty(notifiedKey)) return;
+      notifiedKey = markerPrefix + certificateId_(pair.projectId, recipientKey);
+      if (claimTelegramPropertyV3_(notifiedKey, notificationOwner) !== "claimed") return;
+      if (deadlineAt && Date.now() >= deadlineAt - 3000) {
+        markTelegramPropertyV3_(notifiedKey, "failed", notificationOwner, "time budget exhausted");
+        return;
+      }
+      var record = getCertificateRecord_(certificateId_(pair.projectId, recipientKey));
+      if (record && record.status === "issued") {
+        markTelegramPropertyV3_(notifiedKey, "sent", notificationOwner);
+        return;
+      }
+      var folderUrl = recipientWorkFolderUrlV2_(pair.projectId, project, progress.latest || {});
       var rows = [];
       if (certificateEnabled) {
         var callback = telegramCertificateCallback_(pair.projectId, pair.fullName);
@@ -421,8 +609,9 @@ function notifyCompletedCertificateCandidatesV2_(documents, chatId) {
         "⚠️ โปรดตรวจผลงานก่อนกดออกเกียรติบัตร"
       ].join("\n");
       sendTelegram_(text, chatId, rows.length ? { inline_keyboard: rows } : undefined);
-      properties.setProperty(notifiedKey, String(Date.now()));
+      markTelegramPropertyV3_(notifiedKey, "sent", notificationOwner);
     } catch (error) {
+      if (notifiedKey) markTelegramPropertyV3_(notifiedKey, "failed", notificationOwner, error);
       console.error("Telegram completion notification: " + error);
     }
   });
@@ -612,9 +801,8 @@ function initializeTelegramCursorV2_() {
   var latest = documents.length
     ? Number(firestoreFields_(documents[0].fields || {}).createdAt || Date.now())
     : Date.now();
-  PropertiesService.getScriptProperties().setProperty("TELEGRAM_LAST_SUBMISSION_MS", String(latest));
-  PropertiesService.getScriptProperties().setProperty(
-    "TELEGRAM_LAST_SUBMISSION_ID",
+  advanceTelegramCursorV2_(
+    latest,
     documents.length ? String(documents[0].name || "").split("/").pop() : ""
   );
 }
@@ -629,10 +817,10 @@ function listNewSubmissionsV2_(lastTime, lastId) {
         { fieldFilter: { field: { fieldPath: "__name__" }, op: "GREATER_THAN", value: { referenceValue: "projects/" + FIREBASE_PROJECT_ID + "/databases/(default)/documents/submissions/" + lastId } } }
       ]}},
       orderBy: [{ field: { fieldPath: "__name__" }, direction: "ASCENDING" }],
-      limit: 500
+      limit: TELEGRAM_RECOVERY_LIMIT
     }));
   }
-  if (queries.length < 500) queries = queries.concat(runSubmissionQueryV2_({
+  if (queries.length < TELEGRAM_RECOVERY_LIMIT) queries = queries.concat(runSubmissionQueryV2_({
     from: [{ collectionId: "submissions" }],
     where: { fieldFilter: {
       field: { fieldPath: "createdAt" }, op: "GREATER_THAN", value: { integerValue: String(lastTime) }
@@ -641,13 +829,13 @@ function listNewSubmissionsV2_(lastTime, lastId) {
       { field: { fieldPath: "createdAt" }, direction: "ASCENDING" },
       { field: { fieldPath: "__name__" }, direction: "ASCENDING" }
     ],
-    limit: 500 - queries.length
+    limit: TELEGRAM_RECOVERY_LIMIT - queries.length
   }));
   return queries.sort(function (a, b) {
     var timeA = Number(firestoreFields_(a.fields || {}).createdAt || 0);
     var timeB = Number(firestoreFields_(b.fields || {}).createdAt || 0);
     return timeA - timeB || String(a.name || "").localeCompare(String(b.name || ""));
-  }).slice(0, 500);
+  }).slice(0, TELEGRAM_RECOVERY_LIMIT);
 }
 
 function runSubmissionQueryV2_(structuredQuery) {

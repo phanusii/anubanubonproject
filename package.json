@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "check:apps-script": "node scripts/check-apps-script.mjs",
+    "test:telegram-notifier": "node scripts/test-telegram-notifier.mjs",
     "start": "next start",
     "lint": "eslint"
   },
