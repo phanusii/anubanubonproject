@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Award,
-  BadgeCheck,
   CheckCircle2,
   Download,
   FileWarning,
@@ -15,7 +14,6 @@ import Footer from "@/components/Footer";
 import {
   certificateProgress,
   findCertificateForRecipient,
-  getIssuedCertificateCount,
   latestSubmissionPerSlot,
   requestCertificateCorrection,
   slotIdAt,
@@ -88,8 +86,6 @@ export default function CertificatePage() {
   const [correctionValue, setCorrectionValue] = useState("");
   const [correctionNote, setCorrectionNote] = useState("");
   const [correctionMessage, setCorrectionMessage] = useState("");
-  const [issuedTotal, setIssuedTotal] = useState<number | null>(null);
-  const [activeProjectName, setActiveProjectName] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -114,17 +110,14 @@ export default function CertificatePage() {
   }, [setTeachers]);
 
   useEffect(() => {
-    // Show how many certificates have already been issued for the current round.
+    // Keep the active round id so missing-work links only appear while that
+    // round is still open for submissions.
     (async () => {
       try {
         const active = await getActiveProject();
-        if (active?.id) {
-          setActiveProjectName(active.name);
-          setActiveProjectId(active.id);
-          setIssuedTotal(await getIssuedCertificateCount(active.id));
-        }
+        if (active?.id) setActiveProjectId(active.id);
       } catch {
-        // Non-critical: header count just stays hidden if this fails.
+        // Non-critical: closed-round labels still remain safe by default.
       }
     })();
   }, []);
@@ -269,34 +262,13 @@ export default function CertificatePage() {
             </div>
             <div className="min-w-0">
               <h1 className="text-2xl sm:text-3xl font-extrabold leading-tight">
-                ตรวจสอบเกียรติบัตร
+                ดาวน์โหลดเกียรติบัตร
               </h1>
               <p className="text-sm font-semibold text-amber-50/90 mt-0.5">
-                เลือกสายชั้นและชื่อ ระบบจะแสดงผลให้ทันที
+                เลือกสายชั้นและชื่อ เพื่อค้นหาและดาวน์โหลดเกียรติบัตร
               </p>
             </div>
           </div>
-          {issuedTotal !== null && (
-            <div className="mx-4 mb-4 rounded-2xl bg-white/15 backdrop-blur-sm border border-white/25 px-5 py-4 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="text-xs font-bold text-amber-50 flex items-center gap-1.5">
-                  <BadgeCheck className="w-4 h-4 shrink-0" />
-                  ออกเกียรติบัตรแล้ว
-                </p>
-                {activeProjectName && (
-                  <p className="text-[11px] font-medium text-amber-50/80 mt-1 line-clamp-2">
-                    {activeProjectName}
-                  </p>
-                )}
-              </div>
-              <div className="shrink-0 text-right leading-none">
-                <span className="text-4xl font-black tabular-nums">
-                  {issuedTotal.toLocaleString("th-TH")}
-                </span>
-                <span className="text-base font-extrabold ml-1">ใบ</span>
-              </div>
-            </div>
-          )}
         </section>
         <section className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 grid sm:grid-cols-2 gap-4 shadow-sm">
           <label className="space-y-1.5">
