@@ -2,9 +2,10 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { getInstantStatsWindow, getSubmissionsForStats } from "@/lib/submission-service";
-import { getInstantTeachers, getTeachers, mergeTeachersWithSubmitters, TeacherItem } from "@/lib/teachers-service";
+import { getInstantTeachers, getProjectParticipantsForStats, getTeachers, TeacherItem } from "@/lib/teachers-service";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
-import { gradeLabel, gradeOrder, normalizeGradeKey } from "@/lib/format";
+import { gradeLabel, gradeOrder, normalizeGradeKey, shortSubject } from "@/lib/format";
+import { slotIdAt } from "@/lib/certificate-service";
 import { Submission, Project } from "@/lib/types";
 import {
   BarChart3,
@@ -44,31 +45,13 @@ export default function StatsSection() {
   // paints the correct totals instantly instead of flashing partial numbers.
   const instantStats = getInstantStatsWindow();
   const [teachers, setTeachers] = useState<TeacherItem[]>(instantTeachers);
-  const [subs, setSubs] = useState<Submission[]>(instantStats);
   const [allSubs, setAllSubs] = useState<Submission[]>(instantStats);
   const [projects, setProjects] = useState<Project[]>(instantProjects);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>(instantProjects[0]?.id || "all");
-  const [required, setRequired] = useState<number>(() => instantProjects[0]?.workSlotTitles?.length || instantProjects[0]?.maxUpload || 1);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(instantProjects[0]?.id || "");
   // Only paint numbers once we have real submission data; otherwise show the loader
   // rather than misleading partial counts.
   const [loading, setLoading] = useState(instantStats.length === 0);
   const [expanded, setExpanded] = useState<string | null>(null);
-  // Hidden rounds are excluded from the dropdown and from the "ทุกรอบ" totals.
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
-
-  const applyProject = (pid: string, data: Submission[], projsForLookup: Project[], hidden: Set<string>) => {
-    const selected = pid === "all" ? data : data.filter((s) => s.projectId === pid);
-    // Under "ทุกรอบ", drop works that belong to hidden rounds.
-    setSubs(selected.filter((s) => !s.projectId || !hidden.has(s.projectId)));
-    const proj = projsForLookup.find((p) => p.id === pid);
-    const req = pid === "all"
-      ? Math.max(1, projsForLookup
-          .filter((p) => p.showInGallery !== false)
-          .reduce((sum, p) => sum + (p.workSlotTitles?.length || p.maxUpload || 1), 0))
-      : proj?.workSlotTitles?.length || proj?.maxUpload || 1;
-    setRequired(req);
-  };
-
   useEffect(() => {
     async function init() {
       try {
@@ -81,12 +64,9 @@ export default function StatsSection() {
         setAllSubs(data);
         const visible = projs.filter((p) => p.showInGallery !== false);
         setProjects(visible);
-        const hidden = new Set(projs.filter((p) => p.showInGallery === false).map((p) => p.id));
-        setHiddenIds(hidden);
         // Default to the admin's first-ordered round.
-        const initial = visible[0]?.id || "all";
+        const initial = visible[0]?.id || "";
         setSelectedProjectId(initial);
-        applyProject(initial, data, projs, hidden);
       } catch (err) {
         console.error("Stats init error:", err);
       } finally {
@@ -96,36 +76,48 @@ export default function StatsSection() {
     init();
   }, []);
 
-  const selectProject = async (pid: string) => {
+  const selectProject = (pid: string) => {
     if (pid === selectedProjectId) return;
     setSelectedProjectId(pid);
-    applyProject(pid, allSubs, projects, hiddenIds);
   };
+
+  const selectedProject = projects.find((project) => project.id === selectedProjectId);
+  const subs = useMemo(
+    () => allSubs.filter((submission) => submission.projectId === selectedProjectId),
+    [allSubs, selectedProjectId],
+  );
+  const required = selectedProject?.workSlotTitles?.length || selectedProject?.maxUpload || 1;
+  const groupBy = selectedProject?.groupBy === "subjectGroup" ? "subject" : "grade";
+  const dimensionLabel = groupBy === "subject" ? "กลุ่มสาระ" : "สายชั้น";
 
   // Count works per teacher (by normalized name).
   const worksByTeacher = useMemo(() => {
     const sets = new Map<string, Set<string>>();
-    const allowed = new Map(projects.map((project) => [
-      project.id,
-      new Set((project.workSlotTitles || []).map((title) => title.trim())),
-    ]));
+    const requiredTitles = selectedProject?.workSlotTitles || [];
     for (const s of subs) {
       const k = normName(s.fullName);
-      const title = s.projectTitle?.trim();
-      const projectTitles = s.projectId ? allowed.get(s.projectId) : undefined;
-      if (!title || (projectTitles?.size && !projectTitles.has(title))) continue;
+      const legacyIndex = requiredTitles.findIndex((title) => title.trim() === s.projectTitle?.trim());
+      const slotId = s.workSlotId || (legacyIndex >= 0 ? slotIdAt(legacyIndex) : "");
+      if (!slotId) continue;
       if (!sets.has(k)) sets.set(k, new Set());
-      sets.get(k)?.add(`${s.projectId || "legacy"}::${title}`);
+      sets.get(k)?.add(slotId);
     }
     return new Map([...sets].map(([key, titles]) => [key, titles.size]));
-  }, [projects, subs]);
+  }, [selectedProject, subs]);
 
-  // The imported roster has no subject group, so derive each teacher's group from
-  // the subject group they picked on their submission (so submitters show correctly).
+  // Use the saved participant roster for this round (or submitters for legacy rounds).
   const statisticalTeachers = useMemo(
-    () => mergeTeachersWithSubmitters(teachers, subs),
-    [teachers, subs],
+    () => getProjectParticipantsForStats(selectedProject, teachers, subs),
+    [selectedProject, teachers, subs],
   );
+
+  const subjectByTeacher = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const submission of [...subs].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))) {
+      if (submission.subjectGroup) map.set(normName(submission.fullName), submission.subjectGroup);
+    }
+    return map;
+  }, [subs]);
 
   const buildGroups = (pick: (t: TeacherItem) => string): GroupStat[] => {
     const groups = new Map<string, GroupStat>();
@@ -154,10 +146,17 @@ export default function StatsSection() {
     return Array.from(groups.values());
   };
 
-  const byGrade = useMemo(
-    () => buildGroups((t) => normalizeGradeKey(t.gradeLevel)).sort((a, b) => gradeOrder(a.key) - gradeOrder(b.key)),
+  const byDimension = useMemo(
+    () => buildGroups((teacher) => groupBy === "grade"
+      ? normalizeGradeKey(teacher.gradeLevel)
+      : shortSubject(subjectByTeacher.get(normName(teacher.fullName)) || teacher.subjectGroup) || "ไม่ระบุ")
+      .sort((a, b) => {
+        if (a.key === "ไม่ระบุ") return 1;
+        if (b.key === "ไม่ระบุ") return -1;
+        return groupBy === "grade" ? gradeOrder(a.key) - gradeOrder(b.key) : a.label.localeCompare(b.label, "th");
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [statisticalTeachers, worksByTeacher, required]
+    [groupBy, statisticalTeachers, subjectByTeacher, worksByTeacher, required]
   );
   // School overall
   const overall = useMemo(() => {
@@ -186,7 +185,7 @@ export default function StatsSection() {
           สรุปการส่งงานของครู
         </h1>
         <p className="text-xs sm:text-sm text-slate-600 font-medium">
-          สรุประดับโรงเรียนและสายชั้น — ใครส่งแล้ว ส่งครบไหม กี่ชิ้น คิดเป็นกี่%
+          สรุปผู้เข้าอบรมของรอบและ{dimensionLabel} — ใครส่งแล้ว ส่งครบไหม กี่ชิ้น คิดเป็นกี่%
           {required > 1 && ` (เกณฑ์ครบ = ${required} ชิ้น)`}
         </p>
       </div>
@@ -209,7 +208,6 @@ export default function StatsSection() {
                   {p.name}
                 </option>
               ))}
-              <option value="all">ทั้งหมด (ทุกรอบ)</option>
             </select>
           </div>
         </div>
@@ -241,13 +239,13 @@ export default function StatsSection() {
             <StatCard icon={<FileStack className="w-5 h-5" />} tone="amber" label="ชิ้นงานทั้งหมด" value={overall.works} />
           </div>
 
-          {/* By grade level */}
+          {/* Grouped by the dimension configured for this round. */}
           <StatTable
-            title="สรุปตามสายชั้น"
+            title={`สรุปตาม${dimensionLabel}`}
             icon={<Layers className="w-5 h-5 text-blue-600" />}
-            groups={byGrade}
+            groups={byDimension}
             required={required}
-            labelFn={(k) => gradeLabel(k)}
+            labelFn={(key) => groupBy === "grade" ? gradeLabel(key) : key}
             expanded={expanded}
             setExpanded={setExpanded}
           />

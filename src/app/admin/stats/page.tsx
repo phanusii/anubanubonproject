@@ -6,7 +6,7 @@ import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { getInstantSubmissions, getSubmissionsForStats } from "@/lib/submission-service";
-import { getInstantTeachers, getTeachers, mergeTeachersWithSubmitters, TeacherItem } from "@/lib/teachers-service";
+import { getInstantTeachers, getProjectParticipantsForStats, getTeachers, TeacherItem } from "@/lib/teachers-service";
 import { gradeLabel, gradeOrder, normalizeGradeKey, shortSubject } from "@/lib/format";
 import { slotIdAt } from "@/lib/certificate-service";
 import { Project, Submission } from "@/lib/types";
@@ -56,35 +56,7 @@ export default function AdminStatsPage() {
   const groupBy = project?.groupBy === "subjectGroup" ? "subject" : "grade";
   const groupLabel = groupBy === "subject" ? "กลุ่มสาระ" : "สายชั้น";
   const statisticalTeachers = useMemo(
-    () => {
-      const attendeeIds = project?.attendeeIds || [];
-      if (attendeeIds.length === 0) {
-        // Older rounds did not save a participant roster. Counting only actual
-        // submitters keeps their statistics scoped to that round instead of
-        // accidentally counting every teacher in the school.
-        return mergeTeachersWithSubmitters([], projectSubmissions);
-      }
-
-      const teachersById = new Map(teachers.map((teacher) => [teacher.id, teacher]));
-      return attendeeIds.flatMap((id) => {
-        const master = teachersById.get(id);
-        const profile = project?.attendeeProfiles?.[id];
-        const fullName = profile?.fullName || master?.fullName || "";
-        if (!fullName) return [];
-        return [{
-          id,
-          fullName,
-          position: profile?.position || master?.position || "",
-          gradeLevel: profile?.gradeLevel || master?.gradeLevel || "ไม่ระบุ",
-          subjectGroup: profile?.subjectGroup || master?.subjectGroup || "ไม่ระบุ",
-          email: master?.email,
-          phone: master?.phone,
-          createdAt: master?.createdAt,
-          photoUrl: master?.photoUrl,
-          photoFileId: master?.photoFileId,
-        } satisfies TeacherItem];
-      });
-    },
+    () => getProjectParticipantsForStats(project, teachers, projectSubmissions),
     [project, projectSubmissions, teachers],
   );
 

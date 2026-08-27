@@ -1,6 +1,6 @@
 import { db } from "./firebase";
 import { collection, getDocs, doc, setDoc, deleteDoc, writeBatch, updateDoc } from "firebase/firestore";
-import { Submission } from "./types";
+import { Project, Submission } from "./types";
 import { normalizeGradeKey } from "./format";
 
 export interface TeacherItem {
@@ -177,6 +177,39 @@ export function mergeTeachersWithSubmitters(teachers: TeacherItem[], submissions
   });
 
   return [...merged.values()];
+}
+
+/** Resolve the people counted by one round's statistics. New rounds use their
+ * saved attendee roster; legacy rounds without one fall back to actual
+ * submitters so the whole-school roster is never mixed into a single round. */
+export function getProjectParticipantsForStats(
+  project: Project | undefined,
+  teachers: TeacherItem[],
+  submissions: Submission[],
+): TeacherItem[] {
+  if (!project) return [];
+  const attendeeIds = [...new Set(project.attendeeIds || [])];
+  if (attendeeIds.length === 0) return mergeTeachersWithSubmitters([], submissions);
+
+  const teachersById = new Map(teachers.map((teacher) => [teacher.id, teacher]));
+  return attendeeIds.flatMap((id) => {
+    const master = teachersById.get(id);
+    const profile = project.attendeeProfiles?.[id];
+    const fullName = profile?.fullName || master?.fullName || "";
+    if (!fullName) return [];
+    return [{
+      id,
+      fullName,
+      position: profile?.position || master?.position || "",
+      gradeLevel: profile?.gradeLevel || master?.gradeLevel || "ไม่ระบุ",
+      subjectGroup: profile?.subjectGroup || master?.subjectGroup || "ไม่ระบุ",
+      email: master?.email,
+      phone: master?.phone,
+      createdAt: master?.createdAt,
+      photoUrl: master?.photoUrl,
+      photoFileId: master?.photoFileId,
+    } satisfies TeacherItem];
+  });
 }
 
 function getLocalTeachers(): TeacherItem[] {
