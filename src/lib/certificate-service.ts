@@ -135,9 +135,9 @@ export async function getCertificateCandidates(projectId: string, refresh = fals
   return (result.candidates || []) as CertificateCandidate[];
 }
 
-export async function startCertificateBatch(projectId: string, fullNames: string[]): Promise<CertificateBatchJob> {
+export async function startCertificateBatch(projectId: string, fullNames: string[], projectSnapshot: Project): Promise<CertificateBatchJob> {
   const idToken = await getAdminIdToken();
-  const result = await callService({ action: "startCertificateBatch", projectId, fullNames, idToken });
+  const result = await callService({ action: "startCertificateBatch", projectId, fullNames, projectSnapshot, idToken });
   return result.job as CertificateBatchJob;
 }
 

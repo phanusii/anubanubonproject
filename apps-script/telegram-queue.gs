@@ -15,7 +15,10 @@ function installTelegramNotifierV2() {
     })
     .forEach(function(trigger) { ScriptApp.deleteTrigger(trigger); });
   initializeTelegramCursorV2_();
-  ScriptApp.newTrigger("notifyNewSubmissionsV2").timeBased().everyMinutes(1).create();
+  // Immediate notifications are sent by telegramNotify after each submission.
+  // This scheduled pass is only a recovery path, so five minutes is enough and
+  // avoids exhausting Apps Script with overlapping full scans.
+  ScriptApp.newTrigger("notifyNewSubmissionsV2").timeBased().everyMinutes(5).create();
   installTelegramCertificateWebhook_();
   sendTelegram_("✅ อัปเกรดระบบแจ้งเตือนสำหรับผู้ส่ง 300 คนเรียบร้อยแล้ว");
 }
@@ -118,6 +121,11 @@ function sharedProfilePictureFolder_(gradeLevel, teacherName) {
 }
 
 function notifyNewSubmissionsV2() {
+  var notifierLock = LockService.getScriptLock();
+  // A recovery scan can take longer than its schedule when Google APIs are
+  // under load. Skip this tick instead of allowing executions to pile up.
+  if (!notifierLock.tryLock(1000)) return;
+  try {
   var properties = PropertiesService.getScriptProperties();
   var settings = getDocument_(SETTINGS_DOCUMENT);
   var chatId = String(settings.telegramChatId || "").trim();
@@ -148,6 +156,9 @@ function notifyNewSubmissionsV2() {
   }
   properties.setProperty("TELEGRAM_LAST_SUBMISSION_MS", String(newest));
   properties.setProperty("TELEGRAM_LAST_SUBMISSION_ID", newestId);
+  } finally {
+    notifierLock.releaseLock();
+  }
 }
 
 /** Immediate path called by the browser after Firestore confirms the write.

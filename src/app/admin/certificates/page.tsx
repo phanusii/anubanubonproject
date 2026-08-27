@@ -542,7 +542,10 @@ export default function CertificatesAdminPage() {
     setBusy(true);
     try {
       if (!selectedNames.length) return;
-      let current = await startCertificateBatch(project.id, selectedNames);
+      // Send the settings currently shown on screen. The Apps Script candidate
+      // cache can predate the latest template save and must not override it.
+      const currentProject: Project = { ...project, certificate: config || project.certificate };
+      let current = await startCertificateBatch(project.id, selectedNames, currentProject);
       setJob(current);
       while (current.status === "running")
         current = (await runCertificateBatch(project.id)) || current;
@@ -554,8 +557,11 @@ export default function CertificatesAdminPage() {
       setRecords(freshRecords);
       setCandidates(freshCandidates);
       setSelectedNames([]);
+      setTab(current.issued > 0 ? "issued" : tab);
       setMessage(
-        `ประมวลผลเสร็จ ออกแล้ว ${current.issued} ผิดพลาด ${current.failed}`,
+        current.failed > 0
+          ? `สร้างเกียรติบัตรไม่สำเร็จ ${current.failed} รายการ: ${current.error || "กรุณาตรวจสิทธิ์แก้ไข Google Slides แล้วลองใหม่"}`
+          : `ออกเกียรติบัตรสำเร็จ ${current.issued} ใบ และย้ายรายชื่อไปแท็บ “ออกแล้ว” เรียบร้อย`,
       );
     } catch (error) {
       setMessage(
