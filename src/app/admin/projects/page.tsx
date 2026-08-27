@@ -215,10 +215,10 @@ export default function AdminProjectsPage() {
     try {
       const isFirst = projects.length === 0;
       await saveProject({ ...editing, name: editing.name.trim() });
-      // "กำลังเปิดรับ" is the source of truth for the submission form. Saving a
-      // round in this state must also update settings.activeProjectId; otherwise
-      // the public form can keep showing a previously active project.
-      if (editing.status === "active" || isFirst || !activeId) {
+      // activeProjectId is only the default round shown first. Multiple rounds
+      // can be open simultaneously, so editing another open round must not
+      // silently replace the admin's chosen default.
+      if (isFirst || !activeId) {
         await setActiveProject(editing.id);
       }
       await reload();
@@ -254,6 +254,23 @@ export default function AdminProjectsPage() {
   const toggleGalleryVisible = async (p: Project) => {
     await saveProject({ ...p, showInGallery: p.showInGallery === false });
     await reload();
+    setMessage(p.showInGallery === false ? "เปิดแสดงโครงการในคลังผลงานแล้ว" : "ปิดการแสดงโครงการในคลังผลงานแล้ว");
+  };
+
+  // Each round controls submission independently. activeProjectId only decides
+  // which of the open rounds is selected first on the public form.
+  const toggleSubmissionOpen = async (p: Project) => {
+    const willOpen = p.status === "closed";
+    await saveProject({ ...p, status: willOpen ? "active" : "closed" });
+    if (willOpen && !activeId) {
+      await setActiveProject(p.id);
+    } else if (!willOpen && activeId === p.id) {
+      const nextOpen = projects.find((item) => item.id !== p.id && item.status !== "closed");
+      if (nextOpen) await setActiveProject(nextOpen.id);
+      else await updateTrainingSettings({ activeProjectId: "", allowSubmissions: false });
+    }
+    await reload();
+    setMessage(willOpen ? "เปิดรับส่งงานสำหรับรอบนี้แล้ว" : "ปิดรับส่งงานสำหรับรอบนี้แล้ว");
   };
 
   const handleDelete = async (p: Project) => {
@@ -739,15 +756,12 @@ export default function AdminProjectsPage() {
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-extrabold text-slate-900">{p.name}</h3>
-                      {isActive ? (
-                        <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                          เปิดรับส่งอยู่ (active)
-                        </span>
+                      {p.status === "closed" ? (
+                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-red-50 text-red-600">ปิดรับส่งงาน</span>
                       ) : (
-                        <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-500">
-                          ปิดรับส่ง
-                        </span>
+                        <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">เปิดรับส่งงาน</span>
                       )}
+                      {isActive && <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-600">รอบเริ่มต้น</span>}
                     </div>
                     <p className="text-xs text-slate-500 font-medium">
                       ปีงบประมาณ {budgetYearOf(p)} · {p.maxUpload} ชิ้น/คน · ส่งแล้ว {submissionCounts[p.id] || 0} ชิ้น ·{" "}
@@ -791,16 +805,29 @@ export default function AdminProjectsPage() {
                       }`}
                     >
                       {p.showInGallery === false ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      <span>{p.showInGallery === false ? "ซ่อนอยู่" : "แสดงในคลัง"}</span>
+                      <span>{p.showInGallery === false ? "คลัง: ปิด" : "คลัง: เปิด"}</span>
                     </button>
 
-                    {!isActive && (
+                    <button
+                      onClick={() => toggleSubmissionOpen(p)}
+                      title={p.status === "closed" ? "แตะเพื่อเปิดรับส่งงานรอบนี้" : "แตะเพื่อปิดรับส่งงานรอบนี้"}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors ${
+                        p.status === "closed"
+                          ? "bg-slate-100 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700"
+                          : "bg-emerald-50 text-emerald-700 hover:bg-red-50 hover:text-red-600"
+                      }`}
+                    >
+                      {p.status === "closed" ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
+                      <span>{p.status === "closed" ? "ส่งงาน: ปิด" : "ส่งงาน: เปิด"}</span>
+                    </button>
+
+                    {!isActive && p.status !== "closed" && (
                       <button
                         onClick={() => handleSetActive(p.id)}
                         className="px-3.5 py-2 rounded-xl bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-600 transition-colors"
                       >
                         <Star className="w-3.5 h-3.5" />
-                        <span>ตั้งเป็นรอบที่เปิดรับ</span>
+                        <span>ตั้งเป็นรอบเริ่มต้น</span>
                       </button>
                     )}
                     <button
