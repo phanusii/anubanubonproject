@@ -133,6 +133,9 @@ function notifyNewSubmissionsV2() {
   var documents = listNewSubmissionsV2_(lastTime, lastId);
   quotaBump_(documents, 1);
   maybeNotifyFreeQuotaV2_(settings, chatId, properties, false);
+  if (settings.telegramNotificationsEnabled && chatId) {
+    notifyCachedCompletedCertificateCandidatesV2_(chatId);
+  }
   if (!documents.length) return;
   var newestDocument = documents[documents.length - 1];
   var newest = Number(firestoreFields_(newestDocument.fields || {}).createdAt || lastTime);
@@ -322,17 +325,37 @@ function notifyCompletedCertificateCandidatesV2_(documents, chatId) {
     var pair = pairs[key], project, progress;
     try {
       project = getFirestoreDocument_("projects/" + encodeURIComponent(pair.projectId));
-      if (!project.certificate || !project.certificate.enabled) return;
       progress = completion_(project, queryRecipientSubmissions_(pair.projectId, pair.fullName));
+      if (!progress.complete) {
+        var registry = loadCertificateRegistry_();
+        var cache = registry.candidateCache && registry.candidateCache[pair.projectId];
+        var wantedKey = driveRecipientKey_(pair.fullName);
+        var cachedCandidate = (cache && cache.items || []).filter(function(candidate) {
+          return driveRecipientKey_(candidate.fullName) === wantedKey &&
+            candidate.qualificationType === "complete";
+        })[0];
+        if (cachedCandidate) {
+          progress = {
+            complete: true,
+            submitted: Number(cachedCandidate.submitted || 0),
+            required: Number(cachedCandidate.required || 0),
+            latest: cachedCandidate
+          };
+        }
+      }
       if (!progress.complete) return;
       var recipientKey = normalizeName_(pair.fullName).toLowerCase();
       var record = getCertificateRecord_(certificateId_(pair.projectId, recipientKey));
       if (record && record.status === "issued") return;
       var notifiedKey = "telegram_complete_" + certificateId_(pair.projectId, recipientKey);
       if (properties.getProperty(notifiedKey)) return;
-      var callback = telegramCertificateCallback_(pair.projectId, pair.fullName);
       var folderUrl = recipientWorkFolderUrlV2_(pair.projectId, project, progress.latest || {});
-      var rows = [[{ text: "✅ ตรวจแล้ว ออกเกียรติบัตร", callback_data: callback }]];
+      var certificateEnabled = Boolean(project.certificate && project.certificate.enabled);
+      var rows = [];
+      if (certificateEnabled) {
+        var callback = telegramCertificateCallback_(pair.projectId, pair.fullName);
+        rows.push([{ text: "✅ ตรวจแล้ว ออกเกียรติบัตร", callback_data: callback }]);
+      }
       if (folderUrl) rows.push([{ text: "📂 เปิดโฟลเดอร์ผลงาน", url: folderUrl }]);
       var text = [
         "🎓 พร้อมตรวจออกเกียรติบัตร",
@@ -346,15 +369,40 @@ function notifyCompletedCertificateCandidatesV2_(documents, chatId) {
         "",
         "📊 ความคืบหน้า: " + progress.submitted + "/" + progress.required + " ชิ้น",
         "✅ สถานะ: ส่งงานครบแล้ว",
+        certificateEnabled ? "🎫 พร้อมกดตรวจและออกเกียรติบัตร" : "⚠️ รอบนี้ยังปิดระบบเกียรติบัตร — กรุณาเปิดในหน้าแอดมินก่อนออก",
         "━━━━━━━━━━━━━━",
         "⚠️ โปรดตรวจผลงานก่อนกดออกเกียรติบัตร"
       ].join("\n");
-      sendTelegram_(text, chatId, { inline_keyboard: rows });
+      sendTelegram_(text, chatId, rows.length ? { inline_keyboard: rows } : undefined);
       properties.setProperty(notifiedKey, String(Date.now()));
     } catch (error) {
       console.error("Telegram completion notification: " + error);
     }
   });
+}
+
+/** Recheck the lightweight candidate snapshots every minute. This catches
+ * legacy/Drive-only works that appear as 3/3 or 5/5 in the admin page even when
+ * their old Firestore metadata is incomplete. Per-recipient markers prevent
+ * duplicate Telegram messages. */
+function notifyCachedCompletedCertificateCandidatesV2_(chatId) {
+  try {
+    var registry = loadCertificateRegistry_();
+    var caches = registry.candidateCache || {};
+    var synthetic = [];
+    Object.keys(caches).forEach(function(projectId) {
+      (caches[projectId].items || []).forEach(function(candidate) {
+        if (candidate.qualificationType !== "complete" || !candidate.fullName) return;
+        synthetic.push({ fields: {
+          projectId: { stringValue: projectId },
+          fullName: { stringValue: String(candidate.fullName) }
+        } });
+      });
+    });
+    if (synthetic.length) notifyCompletedCertificateCandidatesV2_(synthetic, chatId);
+  } catch (error) {
+    console.error("Telegram cached completion notification: " + error);
+  }
 }
 
 function recipientWorkFolderUrlV2_(projectId, project, latest) {
