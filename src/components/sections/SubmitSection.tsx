@@ -13,7 +13,7 @@ import {
   syncTeacherFromSubmission
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups, getInstantGradeLevels, getInstantSubjectGroups } from "@/lib/masters-service";
-import { getActiveProject } from "@/lib/projects-service";
+import { getProjects } from "@/lib/projects-service";
 import { findSimilarTeachers, getTeachers, getInstantTeachers, normalizeTeacherName, TeacherItem } from "@/lib/teachers-service";
 import { extractGoogleDriveFileId, getGoogleDriveThumbnail, getGoogleDrivePreviewUrl } from "@/lib/google-drive-utils";
 import { checkDriveLinkPublic } from "@/lib/certificate-service";
@@ -26,6 +26,7 @@ import confetti from "canvas-confetti";
 export default function SubmitSection() {
   const [settings, setSettings] = useState<TrainingSettings | null>(null);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
+  const [openProjects, setOpenProjects] = useState<Project[]>([]);
   // Seed the dropdowns from cache so they show options instantly instead of empty
   // selects while the network fetch (initData) runs.
   const [gradeLevels, setGradeLevels] = useState<GradeLevelOption[]>(() => getInstantGradeLevels());
@@ -88,22 +89,29 @@ export default function SubmitSection() {
     async function initData() {
       // Fetch the teacher roster concurrently with everything else (it's the slowest
       // call) — getTeachers() warms the cache so getTeachers(grade) below is instant.
-      const [s, proj, gls, sgs] = await Promise.all([
+      const [s, projects, gls, sgs, ts] = await Promise.all([
         getTrainingSettings(),
-        getActiveProject(),
+        getProjects(),
         getGradeLevels(),
         getSubjectGroups(),
         getTeachers(),
       ]);
 
+      const available = projects.filter((project) => project.status !== "closed");
+      const params = new URLSearchParams(window.location.search);
+      const requestedProjectId = params.get("projectId") || "";
+      const proj = available.find((project) => project.id === requestedProjectId)
+        || available.find((project) => project.id === s.activeProjectId)
+        || available[0]
+        || null;
+
       setSettings(s);
+      setOpenProjects(available);
       setActiveProject(proj);
       setGradeLevels(gls);
       const defaultGrade = gls.length > 0 ? gls[0].name : "ป.1";
       setGradeLevel(defaultGrade);
       // Full roster — scope filtering (by grade or subject) is done client-side.
-      const ts = await getTeachers();
-
       setSubjectGroups(sgs);
       if (sgs.length > 0) setSubjectGroup(sgs[0].name);
 
@@ -112,7 +120,6 @@ export default function SubmitSection() {
 
       // A missing-work button on the certificate page opens this form with the
       // teacher and requested slot already selected.
-      const params = new URLSearchParams(window.location.search);
       const requestedName = (params.get("certificateName") || "").trim();
       const requestedSlot = Math.max(0, Number(params.get("slot") || 1) - 1);
       if (requestedName && proj) {
@@ -138,6 +145,37 @@ export default function SubmitSection() {
     }
     initData();
   }, []);
+
+  const handleProjectChange = (projectId: string) => {
+    const project = openProjects.find((item) => item.id === projectId) || null;
+    setActiveProject(project);
+    setSelectedTeacherId("");
+    setIsCustomName(false);
+    setFullName("");
+    setPosition("");
+    setTeacherPhotoUrl("");
+    setConfirmedExistingName("");
+    setUserExistingSubmissions([]);
+    setSelectedSlotIndex(0);
+    setReplacingSubmissionId(null);
+    setSelectedFile(null);
+    setThumbnailDataUrl("");
+    setDriveUrl("");
+    setDriveFileId(null);
+    setDescription("");
+    setIsSuccess(false);
+    setErrorMessage("");
+
+    const profiles = project?.attendeeProfiles || {};
+    const firstProfile = project?.attendeeIds?.map((id) => profiles[id]).find(Boolean);
+    setGradeLevel(firstProfile?.gradeLevel || gradeLevels[0]?.name || "ป.1");
+    setSubjectGroup(firstProfile?.subjectGroup || subjectGroups[0]?.name || "");
+
+    const url = new URL(window.location.href);
+    if (projectId) url.searchParams.set("projectId", projectId);
+    else url.searchParams.delete("projectId");
+    window.history.replaceState({}, "", url);
+  };
 
   // Which dimension this round is organised by. When a round groups by subject,
   // the submitter picks their subject group first and the roster is filtered by
@@ -605,6 +643,35 @@ export default function SubmitSection() {
               เลือกสายชั้น &amp; ชื่อของคุณ แล้วอัปโหลดงานแต่ละชิ้นได้เลย ({maxUpload} ชิ้น)
             </p>
           </div>
+        </div>
+
+        <div className="glass-panel p-4 sm:p-5 rounded-2xl border border-blue-100 bg-white shadow-sm space-y-2">
+          <label htmlFor="submission-project" className="block text-sm font-extrabold text-slate-800">
+            เลือกรอบการอบรม/โครงการที่ต้องการส่ง <span className="text-red-500">*</span>
+          </label>
+          {openProjects.length > 0 ? (
+            <select
+              id="submission-project"
+              value={activeProject?.id || ""}
+              onChange={(event) => handleProjectChange(event.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-blue-200 bg-blue-50/50 text-slate-900 text-sm font-bold focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
+            >
+              {openProjects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.kind === "training" ? "การอบรม" : "โครงการ"} · {project.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm font-bold text-amber-800">
+              ยังไม่มีรอบการอบรมหรือโครงการที่เปิดรับงาน
+            </p>
+          )}
+          {openProjects.length > 1 && (
+            <p className="text-[11px] font-semibold text-slate-500">
+              มี {openProjects.length} รอบที่เปิดรับ กรุณาตรวจสอบชื่อรอบก่อนเลือกชื่อครูและอัปโหลดไฟล์
+            </p>
+          )}
         </div>
 
         {/* Success Notification */}
