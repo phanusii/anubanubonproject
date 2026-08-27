@@ -170,7 +170,13 @@ function uploadFile_(input) {
     file = uploadTargetFolder_(input).createFile(blob);
   }
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  if (createdNewFile) incrementGalleryCount_(input.projectId, input.projectName);
+  if (createdNewFile) {
+    try {
+      incrementGalleryCount_(input.projectId, input.projectName);
+    } catch (counterError) {
+      console.warn("อัปเดตตัวนับคลังไม่สำเร็จ แต่ไฟล์อัปโหลดแล้ว: " + counterError);
+    }
+  }
   return { id: file.getId(), name: file.getName(), url: file.getUrl() };
 }
 
@@ -238,7 +244,13 @@ function uploadResumableChunk_(input) {
   properties.deleteProperty(key);
   var file = DriveApp.getFileById(result.id);
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  if (session.createdNewFile) incrementGalleryCount_(session.projectId, session.projectName);
+  if (session.createdNewFile) {
+    try {
+      incrementGalleryCount_(session.projectId, session.projectName);
+    } catch (counterError) {
+      console.warn("อัปเดตตัวนับคลังไม่สำเร็จ แต่ไฟล์อัปโหลดแล้ว: " + counterError);
+    }
+  }
   return { ok: true, done: true, id: file.getId(), name: file.getName(), url: file.getUrl() };
 }
 

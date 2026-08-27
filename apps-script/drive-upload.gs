@@ -156,17 +156,24 @@ function incrementGalleryCount_(projectId, projectName) {
   projectId = String(projectId || "").trim();
   projectName = String(projectName || "").trim();
   if (!projectId || !projectName) return;
+  var properties = PropertiesService.getScriptProperties();
+  var cache = CacheService.getScriptCache();
+  var cacheKey = galleryCountCacheKey_(projectId, projectName);
+  // Mark the aggregate stale before attempting the optional fast increment.
+  // Upload success must never wait behind a long Drive scan/certificate job.
+  properties.setProperty(galleryCandidateDirtyKey_(projectId), String(Date.now()));
   var lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  if (!lock.tryLock(250)) {
+    cache.remove(cacheKey);
+    return;
+  }
   try {
-    var properties = PropertiesService.getScriptProperties();
-    properties.setProperty(galleryCandidateDirtyKey_(projectId), String(Date.now()));
     var propertyKey = galleryCountPropertyKey_(projectId, projectName);
     var state = parseGalleryCountState_(properties.getProperty(propertyKey));
     if (!state) {
       // No trusted baseline yet. Leave the value absent so the next aggregate
       // request performs one full reconciliation instead of guessing.
-      CacheService.getScriptCache().remove(galleryCountCacheKey_(projectId, projectName));
+      cache.remove(cacheKey);
       return;
     }
     var next = state.count + 1;
@@ -174,7 +181,7 @@ function incrementGalleryCount_(projectId, projectName) {
       count: next,
       verifiedAt: state.verifiedAt || Date.now()
     }));
-    CacheService.getScriptCache().put(galleryCountCacheKey_(projectId, projectName), String(next), 21600);
+    cache.put(cacheKey, String(next), 21600);
   } finally {
     lock.releaseLock();
   }
