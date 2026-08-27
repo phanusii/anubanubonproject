@@ -51,6 +51,22 @@ function badgeScheme(value: string): string {
   return BADGE_SCHEMES[h % BADGE_SCHEMES.length];
 }
 
+/** Thumbnail sources in priority order. Kept in one helper so the hidden
+ * one-at-a-time loader and the visible preview request exactly the same URL. */
+function previewCandidates(submission: Submission): string[] {
+  const driveFileId = submission.driveFileId || extractGoogleDriveFileId(submission.fileURL);
+  return Array.from(
+    new Set(
+      [
+        submission.thumbUrl,
+        submission.thumbnail,
+        driveFileId ? getGoogleDriveThumbnail(driveFileId) : "",
+        driveFileId ? `https://lh3.googleusercontent.com/d/${driveFileId}=w1000` : "",
+      ].filter(Boolean),
+    ),
+  ) as string[];
+}
+
 interface PersonCardProps {
   group: PersonGroup;
   avatarUrl?: string;
@@ -128,7 +144,7 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
               : undefined
           }
         >
-          <SlidePreview key={current.id} submission={current} zoom={hovered} />
+          <SlidePreview submission={current} zoom={hovered} />
 
           {/* Soft zoom overlay to signal the preview is interactive on hover */}
           <div className="pointer-events-none absolute inset-0 z-10 rounded-2xl ring-0 group-hover:ring-2 group-hover:ring-blue-400/40 transition-all duration-300" />
@@ -233,19 +249,50 @@ export default function PersonCard({ group, avatarUrl, onOpen }: PersonCardProps
 
 /** Renders a single work's thumbnail with graceful fallbacks (mirrors MasonryCard). */
 function SlidePreview({ submission, zoom }: { submission: Submission; zoom?: boolean }) {
+  const [displayedSubmission, setDisplayedSubmission] = useState(submission);
+  const [pendingCandidates, setPendingCandidates] = useState<Record<string, number>>({});
+  const requestedCandidates = previewCandidates(submission);
+  const pendingIndex = pendingCandidates[submission.id] || 0;
+  const pendingThumb = requestedCandidates[pendingIndex] || "";
+  const isPending = displayedSubmission.id !== submission.id;
+  // Files without a usable thumbnail show their explicit PDF / Drive / image
+  // fallback immediately; no network request is necessary.
+  const paintedSubmission = isPending && !pendingThumb ? submission : displayedSubmission;
+
+  return (
+    <>
+      <PreviewVisual submission={paintedSubmission} zoom={zoom} />
+      {isPending && pendingThumb && (
+        <Image
+          src={pendingThumb}
+          alt=""
+          fill
+          aria-hidden="true"
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 25vw, 20vw"
+          className="pointer-events-none invisible"
+          onLoad={() => setDisplayedSubmission(submission)}
+          onError={() =>
+            setPendingCandidates((current) => ({
+              ...current,
+              [submission.id]: (current[submission.id] || 0) + 1,
+            }))
+          }
+        />
+      )}
+    </>
+  );
+}
+
+/** The currently painted preview. It stays mounted while the requested next
+ * image loads invisibly, so the card never flashes to an empty white page. */
+function PreviewVisual({ submission, zoom }: { submission: Submission; zoom?: boolean }) {
   const isPdf = submission.fileType === "pdf";
-  const driveFileId = submission.driveFileId || extractGoogleDriveFileId(submission.fileURL);
-  const candidates = Array.from(
-    new Set(
-      [
-        submission.thumbUrl,
-        submission.thumbnail,
-        driveFileId ? getGoogleDriveThumbnail(driveFileId) : "",
-        driveFileId ? `https://lh3.googleusercontent.com/d/${driveFileId}=w1000` : "",
-      ].filter(Boolean),
-    ),
-  ) as string[];
-  const [thumbIndex, setThumbIndex] = useState(0);
+  const candidates = previewCandidates(submission);
+  // Store failures per submission. The component deliberately remains mounted
+  // between slides so the browser can keep painting the old image while the
+  // new, already-prefetched source is decoded.
+  const [failedCandidates, setFailedCandidates] = useState<Record<string, number>>({});
+  const thumbIndex = failedCandidates[submission.id] || 0;
   const thumb = candidates[thumbIndex] || "";
 
   if (thumb) {
@@ -254,12 +301,17 @@ function SlidePreview({ submission, zoom }: { submission: Submission; zoom?: boo
         src={thumb}
         alt={submission.projectTitle}
         fill
-        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
-        className={`w-full h-full object-contain animate-in fade-in duration-500 transition-transform ease-out will-change-transform ${
+        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 25vw, 20vw"
+        className={`w-full h-full object-contain transition-transform ease-out will-change-transform ${
           zoom ? "scale-[1.12]" : "scale-100"
         }`}
         style={{ transitionDuration: "600ms" }}
-        onError={() => setThumbIndex((i) => i + 1)}
+        onError={() =>
+          setFailedCandidates((current) => ({
+            ...current,
+            [submission.id]: (current[submission.id] || 0) + 1,
+          }))
+        }
       />
     );
   }
