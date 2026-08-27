@@ -823,13 +823,13 @@ export default function AdminProjectsPage() {
               return (
                 <div
                   key={p.id}
-                  className={`glass-panel p-5 rounded-3xl border bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
+                  className={`glass-panel p-5 rounded-3xl border bg-white grid grid-cols-1 lg:grid-cols-[minmax(280px,1fr)_minmax(420px,1.65fr)] lg:items-center gap-5 ${
                     isActive ? "border-emerald-300 ring-2 ring-emerald-500/15" : "border-slate-200"
                   }`}
                 >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-extrabold text-slate-900">{p.name}</h3>
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex items-start gap-2 flex-wrap">
+                      <h3 className="min-w-0 text-base leading-7 font-extrabold text-slate-900 break-words">{p.name}</h3>
                       {p.status === "closed" ? (
                         <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-red-50 text-red-600">ปิดรับส่งงาน</span>
                       ) : (
@@ -837,14 +837,15 @@ export default function AdminProjectsPage() {
                       )}
                       {isActive && <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-600">รอบเริ่มต้น</span>}
                     </div>
-                    <p className="text-xs text-slate-500 font-medium">
+                    <p className="text-xs leading-relaxed text-slate-500 font-medium">
                       ปีงบประมาณ {budgetYearOf(p)} · {p.maxUpload} ชิ้น/คน · ส่งแล้ว {submissionCounts[p.id] || 0} ชิ้น ·{" "}
                       {p.status === "closed" ? "🔴 ปิดรับส่งผลงาน" : "🟢 กำลังเปิดรับส่งผลงาน"} ·{" "}
                       {p.showInGallery === false ? "ซ่อนจากคลังผลงาน" : "แสดงในคลังผลงาน"}
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <div className="min-w-0 space-y-2.5">
+                    <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                     {/* Reorder: which round shows first in the public dropdown */}
                     <div className="flex items-center rounded-xl border border-slate-200 bg-white overflow-hidden">
                       <button
@@ -907,7 +908,9 @@ export default function AdminProjectsPage() {
                       <Award className="w-3.5 h-3.5" />
                       <span>{p.certificate?.enabled ? "เกียรติบัตร: เปิด" : "เกียรติบัตร: ปิด"}</span>
                     </button>
+                    </div>
 
+                    <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                     {!isActive && p.status !== "closed" && (
                       <button
                         onClick={() => handleSetActive(p.id)}
@@ -940,6 +943,7 @@ export default function AdminProjectsPage() {
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
+                    </div>
                   </div>
                 </div>
               );
