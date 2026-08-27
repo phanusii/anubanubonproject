@@ -10,34 +10,50 @@ import { compressPdf } from "@/lib/pdf-compression";
 // files need the Google Drive link fallback.
 const DIRECT_UPLOAD_MAX_MB = 30;
 
-/**
- * Shrink a raster image before upload: cap the longest side and re-encode as JPEG.
- * Returns the original file if it isn't an image or compression wouldn't help.
- */
-async function compressImage(file: File): Promise<File> {
-  if (!file.type.startsWith("image/")) return file;
+interface ImageCompressionResult {
+  file: File;
+  processed: boolean;
+  compressed: boolean;
+  width?: number;
+  height?: number;
+}
+
+/** Re-encode every raster image without changing its pixel dimensions. WebP
+ * keeps transparency and usually reduces PNG/JPEG uploads substantially. */
+async function compressImage(file: File): Promise<ImageCompressionResult> {
   try {
     const bitmap = await createImageBitmap(file);
-    const MAX_DIM = 2000;
-    const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
-    const width = Math.round(bitmap.width * scale);
-    const height = Math.round(bitmap.height * scale);
+    const width = bitmap.width;
+    const height = bitmap.height;
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return file;
+    if (!ctx) {
+      bitmap.close?.();
+      return { file, processed: false, compressed: false, width, height };
+    }
     ctx.drawImage(bitmap, 0, 0, width, height);
     const blob: Blob | null = await new Promise((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", 0.82)
+      canvas.toBlob(resolve, "image/webp", 0.88)
     );
     bitmap.close?.();
-    // Keep the original if compression didn't actually shrink it.
-    if (!blob || blob.size >= file.size) return file;
-    const newName = file.name.replace(/\.(png|jpe?g|webp)$/i, "") + ".jpg";
-    return new File([blob], newName, { type: "image/jpeg", lastModified: Date.now() });
-  } catch {
-    return file;
+    // The file was still processed; keep whichever representation consumes
+    // less Storage and transfer quota.
+    if (!blob || blob.size >= file.size) {
+      return { file, processed: true, compressed: false, width, height };
+    }
+    const newName = file.name.replace(/\.(png|jpe?g|webp)$/i, "") + ".webp";
+    return {
+      file: new File([blob], newName, { type: "image/webp", lastModified: Date.now() }),
+      processed: true,
+      compressed: true,
+      width,
+      height,
+    };
+  } catch (error) {
+    console.warn("Image compression skipped:", error);
+    return { file, processed: false, compressed: false };
   }
 }
 
@@ -85,28 +101,35 @@ export default function FileUploadPreview({
     const isImage = rawFile.type.startsWith("image/") || ["png", "jpg", "jpeg", "webp"].includes(ext || "");
     const isPdf = rawFile.type === "application/pdf" || ext === "pdf";
 
-    // Compress supported files before upload. Compression falls back to the
-    // original whenever it cannot produce a meaningfully smaller file.
+    // Every supported file passes through compression, regardless of size.
+    // The original is retained only when it is already the smaller file.
     onProcessingChange?.(true);
     setIsGeneratingThumbnail(true);
     let file = rawFile;
     if (isImage) {
-      const compressed = await compressImage(rawFile);
-      if (compressed.size < rawFile.size) {
-        file = compressed;
+      const result = await compressImage(rawFile);
+      file = result.file;
+      const dimensions = result.width && result.height ? ` · ${result.width}×${result.height} px เท่าเดิม` : "";
+      if (result.compressed) {
         setCompressionNote(
-          `บีบอัดรูปแล้ว: ${(rawFile.size / 1048576).toFixed(1)} → ${(file.size / 1048576).toFixed(1)} MB`
+          `บีบอัดรูปแล้ว: ${(rawFile.size / 1048576).toFixed(2)} → ${(file.size / 1048576).toFixed(2)} MB${dimensions}`
         );
+      } else if (result.processed) {
+        setCompressionNote(`ตรวจและบีบอัดรูปแล้ว${dimensions} · ไฟล์ต้นฉบับเล็กกว่า จึงใช้ไฟล์เดิม`);
+      } else {
+        setCompressionNote("ไม่สามารถบีบอัดรูปนี้ได้ จึงใช้ไฟล์ต้นฉบับโดยไม่ลดความละเอียด");
       }
     } else if (isPdf) {
-      const compressed = await compressPdf(rawFile);
-      if (compressed.size < rawFile.size) {
-        file = compressed;
+      const result = await compressPdf(rawFile);
+      file = result.file;
+      if (result.compressed) {
         setCompressionNote(
-          `บีบอัด PDF แล้ว: ${(rawFile.size / 1048576).toFixed(1)} → ${(file.size / 1048576).toFixed(1)} MB`
+          `บีบอัด PDF แล้ว: ${(rawFile.size / 1048576).toFixed(2)} → ${(file.size / 1048576).toFixed(2)} MB · ไม่ลดความละเอียด`
         );
+      } else if (result.processed) {
+        setCompressionNote("ตรวจและบีบอัด PDF แล้ว · ไม่ลดความละเอียด · ไฟล์ต้นฉบับเล็กกว่า จึงใช้ไฟล์เดิม");
       } else {
-        setCompressionNote("PDF มีขนาดเหมาะสมแล้ว จึงใช้ไฟล์ต้นฉบับ");
+        setCompressionNote("ไม่สามารถบีบอัด PDF นี้ได้ จึงใช้ไฟล์ต้นฉบับโดยไม่ลดความละเอียด");
       }
     }
 
@@ -240,7 +263,7 @@ export default function FileUploadPreview({
           {/* Preview Image or PDF canvas thumbnail */}
           {isGeneratingThumbnail ? (
             <div className="h-36 rounded-2xl skeleton-loading flex items-center justify-center text-xs text-slate-500 font-medium">
-              กำลังลดขนาดไฟล์และสร้างรูปตัวอย่าง...
+              กำลังบีบอัดโดยคงความละเอียดและสร้างรูปตัวอย่าง...
             </div>
           ) : previewUrl ? (
             <div className="relative rounded-2xl overflow-hidden bg-slate-50 max-h-48 flex items-center justify-center border border-slate-200 p-1">
