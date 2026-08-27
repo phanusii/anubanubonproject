@@ -88,6 +88,69 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // Queryable, lightweight gallery index: one row per teacher and round.
+    // It is display-only; submissions remain authoritative. Public submitters
+    // may refresh only the same immutable person/round identity after a valid
+    // submission, while migration/deletion remains admin-only.
+    match /projectParticipants/{document} {
+      function validParticipantSummary() {
+        return request.resource.data.keys().hasOnly([
+                 'projectId', 'participantKey', 'fullName', 'teacherId', 'position',
+                 'school', 'gradeLevel', 'subjectGroup', 'normalizedName',
+                 'submissionIds', 'submittedCount', 'latestCreatedAt',
+                 'latestUploadDate', 'works', 'updatedAt'
+               ])
+               && request.resource.data.projectId is string
+               && request.resource.data.projectId.size() > 0
+               && request.resource.data.participantKey is string
+               && request.resource.data.fullName is string
+               && request.resource.data.fullName.size() > 0
+               && request.resource.data.fullName.size() <= 200
+               && request.resource.data.submissionIds is list
+               && request.resource.data.submissionIds.size() <= 50
+               && request.resource.data.works is list
+               && request.resource.data.works.size() <= 50
+               && request.resource.data.submittedCount is int
+               && request.resource.data.submittedCount >= 0
+               && request.resource.data.latestCreatedAt is int
+               && request.resource.data.updatedAt is int;
+      }
+      allow read: if true;
+      allow create: if validParticipantSummary();
+      allow update: if isAdmin()
+                    || (validParticipantSummary()
+                        && request.resource.data.projectId == resource.data.projectId
+                        && request.resource.data.participantKey == resource.data.participantKey);
+      allow delete: if isAdmin();
+    }
+
+    match /projectParticipantMeta/{document} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Compact per-round statistics. No file URLs or thumbnails are stored here.
+    match /projectStats/{document} {
+      function validProjectStats() {
+        return request.resource.data.keys().hasOnly([
+                 'projectId', 'participants', 'totalWorks', 'updatedAt'
+               ])
+               && request.resource.data.projectId is string
+               && request.resource.data.projectId.size() > 0
+               && request.resource.data.participants is list
+               && request.resource.data.participants.size() <= 500
+               && request.resource.data.totalWorks is int
+               && request.resource.data.totalWorks >= 0
+               && request.resource.data.updatedAt is int;
+      }
+      allow read: if true;
+      allow create: if validProjectStats();
+      allow update: if isAdmin()
+                    || (validProjectStats()
+                        && request.resource.data.projectId == resource.data.projectId);
+      allow delete: if isAdmin();
+    }
+
     // Chunked public roster cache. Reading this costs one document read for the
     // current roster instead of one read per teacher; only admins may rebuild it.
     match /teacherSnapshot/{document} {

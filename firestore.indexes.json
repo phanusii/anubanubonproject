@@ -25,6 +25,50 @@
         { "fieldPath": "fullName", "order": "ASCENDING" },
         { "fieldPath": "workSlotId", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "projectParticipants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "projectId", "order": "ASCENDING" },
+        { "fieldPath": "latestCreatedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "projectParticipants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "projectId", "order": "ASCENDING" },
+        { "fieldPath": "gradeLevel", "order": "ASCENDING" },
+        { "fieldPath": "latestCreatedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "projectParticipants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "projectId", "order": "ASCENDING" },
+        { "fieldPath": "subjectGroup", "order": "ASCENDING" },
+        { "fieldPath": "latestCreatedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "projectParticipants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "projectId", "order": "ASCENDING" },
+        { "fieldPath": "normalizedName", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "projectParticipants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "projectId", "order": "ASCENDING" },
+        { "fieldPath": "gradeLevel", "order": "ASCENDING" },
+        { "fieldPath": "subjectGroup", "order": "ASCENDING" },
+        { "fieldPath": "latestCreatedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

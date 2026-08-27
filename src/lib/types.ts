@@ -44,6 +44,30 @@ export interface AdminSubmissionSummary {
   latestUploadDate: string;
 }
 
+/**
+ * Lightweight, queryable gallery row. One document represents one teacher in
+ * one training round. It is a derived display index only; `submissions` remains
+ * the authoritative source of truth.
+ */
+export interface ProjectParticipantSummary {
+  id: string;
+  projectId: string;
+  participantKey: string;
+  fullName: string;
+  teacherId?: string;
+  position: string;
+  school: string;
+  gradeLevel: string;
+  subjectGroup: string;
+  normalizedName: string;
+  submissionIds: string[];
+  submittedCount: number;
+  latestCreatedAt: number;
+  latestUploadDate: string;
+  works: Submission[];
+  updatedAt: number;
+}
+
 export type CertificateTextAlign = "left" | "center" | "right";
 
 export interface CertificateTextField {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Award,
   CheckCircle2,
@@ -21,14 +21,18 @@ import {
 } from "@/lib/certificate-service";
 import { getActiveProject, getProjects } from "@/lib/projects-service";
 import {
-  DEFAULT_GRADE_LEVELS,
-  getPersonSubmissions,
+  getUserProjectSubmissions,
 } from "@/lib/submission-service";
-import { getGradeLevels } from "@/lib/masters-service";
-import { getTeachers, getInstantTeachers, TeacherItem } from "@/lib/teachers-service";
-import { normalizeGradeKey } from "@/lib/format";
+import {
+  getProjectParticipantsForStats,
+  getTeachers,
+  getInstantTeachers,
+  mergeTeachersWithSubmitters,
+  TeacherItem,
+} from "@/lib/teachers-service";
+import { getProjectStatsSubmissions } from "@/lib/project-participant-service";
 import { useInstantState } from "@/lib/use-instant";
-import { CertificateRecord, GradeLevelOption, Project } from "@/lib/types";
+import { CertificateRecord, Project } from "@/lib/types";
 
 type MissingWork = { index: number; title: string };
 type RoundResult = {
@@ -64,11 +68,10 @@ function certificatePreviewUrl(record: CertificateRecord): string {
 
 export default function CertificatePage() {
   const [name, setName] = useState("");
-  const [gradeLevel, setGradeLevel] = useState(
-    () => DEFAULT_GRADE_LEVELS[0]?.name || "",
-  );
-  const [gradeLevels, setGradeLevels] =
-    useState<GradeLevelOption[]>(DEFAULT_GRADE_LEVELS);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [dimensionValue, setDimensionValue] = useState("");
+  const [roundTeachers, setRoundTeachers] = useState<TeacherItem[]>([]);
   // Seed the name list from cache after mount (SSR-safe) so the certificate
   // lookup dropdown is usable immediately instead of waiting for the network.
   const [teachers, setTeachers] = useInstantState<TeacherItem[]>(
@@ -86,48 +89,72 @@ export default function CertificatePage() {
   const [correctionNote, setCorrectionNote] = useState("");
   const [correctionMessage, setCorrectionMessage] = useState("");
 
+  const resetResult = useCallback(() => {
+    setSearched(false);
+    setResults([]);
+    setError("");
+  }, []);
+
+  const loadRoundTeachers = useCallback(async (project: Project, roster: TeacherItem[]) => {
+    let participants: TeacherItem[];
+    if ((project.attendeeIds || []).length > 0) {
+      participants = getProjectParticipantsForStats(project, roster, []);
+    } else {
+      // A legacy round without a saved roster must not expose the whole-school
+      // directory. Its actual submitters are the safest backwards-compatible list.
+      const submissions = await getProjectStatsSubmissions(project.id);
+      participants = mergeTeachersWithSubmitters([], submissions);
+    }
+    participants.sort((a, b) => a.fullName.localeCompare(b.fullName, "th"));
+    setRoundTeachers(participants);
+    const groupBy = project.groupBy === "subjectGroup" ? "subjectGroup" : "gradeLevel";
+    const firstDimension = participants.find((teacher) => teacher[groupBy])?.[groupBy] || "";
+    setDimensionValue(firstDimension);
+    setName("");
+    resetResult();
+  }, [resetResult]);
+
   useEffect(() => {
     (async () => {
       try {
         // Newly typed names are persisted to the teacher snapshot by the submit
         // flow, so this page does not need to read every submission merely to
         // build its selector.
-        const [levels, roster] = await Promise.all([
-          getGradeLevels(),
+        const [rounds, roster, active] = await Promise.all([
+          getProjects(),
           getTeachers(),
+          getActiveProject(),
         ]);
-        setGradeLevels(levels);
+        setProjects(rounds);
         setTeachers(roster);
-        const initialGrade = levels[0]?.name || "";
-        if (initialGrade) setGradeLevel(initialGrade);
+        setActiveProjectId(active?.id || "");
+        const initial =
+          rounds.find((round) => round.id === active?.id && round.certificate?.enabled) ||
+          rounds.find((round) => round.certificate?.enabled) ||
+          rounds[0];
+        if (initial) {
+          setSelectedProjectId(initial.id);
+          await loadRoundTeachers(initial, roster);
+        }
       } catch {
-        setError("โหลดรายชื่อครูไม่สำเร็จ กรุณาลองใหม่");
+        setError("โหลดรอบและรายชื่อครูไม่สำเร็จ กรุณาลองใหม่");
       } finally {
         setLoadingLists(false);
       }
     })();
-  }, [setTeachers]);
+  }, [loadRoundTeachers, setTeachers]);
 
-  useEffect(() => {
-    // Keep the active round id so missing-work links only appear while that
-    // round is still open for submissions.
-    (async () => {
-      try {
-        const active = await getActiveProject();
-        if (active?.id) setActiveProjectId(active.id);
-      } catch {
-        // Non-critical: closed-round labels still remain safe by default.
-      }
-    })();
-  }, []);
-
-  const teachersByGrade = useMemo(() => {
+  const selectedProject = projects.find((project) => project.id === selectedProjectId);
+  const groupBy = selectedProject?.groupBy === "subjectGroup" ? "subjectGroup" : "gradeLevel";
+  const groupLabel = groupBy === "subjectGroup" ? "กลุ่มสาระ" : "สายชั้น";
+  const dimensionOptions = useMemo(() => {
+    return [...new Set(roundTeachers.map((teacher) => teacher[groupBy]).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, "th"));
+  }, [groupBy, roundTeachers]);
+  const teachersInDimension = useMemo(() => {
     const grouped = new Map<string, TeacherItem[]>();
-    teachers.forEach((teacher) => {
-      // Group by NORMALIZED grade so whitespace variants ("อื่นๆ" vs "อื่น ๆ") land in
-      // the same bucket — otherwise a teacher stored under one spelling vanishes from
-      // the other's dropdown even though they have a certificate.
-      const key = normalizeGradeKey(teacher.gradeLevel);
+    roundTeachers.forEach((teacher) => {
+      const key = teacher[groupBy] || "ไม่ระบุ";
       const rows = grouped.get(key) || [];
       rows.push(teacher);
       grouped.set(key, rows);
@@ -135,21 +162,29 @@ export default function CertificatePage() {
     grouped.forEach((rows) =>
       rows.sort((a, b) => a.fullName.localeCompare(b.fullName, "th")),
     );
-    return grouped;
-  }, [teachers]);
-  const teachersInGrade = teachersByGrade.get(normalizeGradeKey(gradeLevel)) || [];
+    return grouped.get(dimensionValue) || [];
+  }, [dimensionValue, groupBy, roundTeachers]);
 
-  const resetResult = () => {
-    setSearched(false);
-    setResults([]);
-    setError("");
-  };
-
-  const changeGrade = (value: string) => {
-    // The full roster+submitter list is already loaded; just switch the grade filter.
-    setGradeLevel(value);
+  const changeDimension = (value: string) => {
+    setDimensionValue(value);
     setName("");
     resetResult();
+  };
+
+  const changeProject = async (projectId: string) => {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+    setSelectedProjectId(projectId);
+    setLoadingLists(true);
+    try {
+      await loadRoundTeachers(project, teachers);
+    } catch {
+      setRoundTeachers([]);
+      setDimensionValue("");
+      setError("โหลดรายชื่อผู้เข้าอบรมในรอบนี้ไม่สำเร็จ กรุณาลองใหม่");
+    } finally {
+      setLoadingLists(false);
+    }
   };
 
   const search = async (selectedName: string, selectedTeacherId = "") => {
@@ -159,51 +194,28 @@ export default function CertificatePage() {
     setError("");
     setResults([]);
     try {
-      const [projects, active, all] = await Promise.all([
-        getProjects(),
-        getActiveProject(),
-        getPersonSubmissions(fullName),
-      ]);
-      if (!projects.length) throw new Error("ยังไม่มีรอบการอบรมหรือโครงการ");
-      setActiveProjectId(active?.id || "");
-      const selectedTeacher = teachers.find((teacher) =>
+      const round = projects.find((project) => project.id === selectedProjectId);
+      if (!round) throw new Error("กรุณาเลือกรอบการอบรมหรือโครงการ");
+      const selectedTeacher = roundTeachers.find((teacher) =>
         selectedTeacherId
           ? teacher.id === selectedTeacherId
           : certificateRecipientKey(teacher.fullName) === certificateRecipientKey(fullName),
       );
-      const roundResults = projects.flatMap((round): RoundResult[] => {
-        const current = all.filter((item) => item.projectId === round.id);
-        const attendeeIds = round.attendeeIds || [];
-        const attendeeNameKeys = new Set(
-          attendeeIds
-            .map((id) => round.attendeeProfiles?.[id]?.fullName || "")
-            .filter(Boolean)
-            .map(certificateRecipientKey),
-        );
-        // A configured attendee roster is authoritative. Legacy rounds without
-        // one remain visible only when this teacher actually submitted there;
-        // this preserves old data without exposing every round to every teacher.
-        const belongsToRound = attendeeIds.length > 0
-          ? Boolean(
-              (selectedTeacher?.id && attendeeIds.includes(selectedTeacher.id)) ||
-              attendeeNameKeys.has(certificateRecipientKey(fullName)),
-            )
-          : current.length > 0;
-        if (!belongsToRound) return [];
-        const status = certificateProgress(current, round);
-        const latest = latestSubmissionPerSlot(current, round);
-        const missingItems = round.workSlotTitles
-          .map((title, index) => ({ title, index }))
-          .filter(({ index }) => !latest.has(slotIdAt(index)));
-        return [{
-          project: round,
-          record: null,
-          missing: status.complete ? [] : missingItems,
-          submitted: status.submitted,
-          required: status.required,
-          certificateLoading: Boolean(round.certificate?.enabled),
-        }];
-      });
+      if (!selectedTeacher) throw new Error("ไม่พบรายชื่อผู้เข้าอบรมในรอบนี้");
+      const current = await getUserProjectSubmissions(fullName, round.id);
+      const status = certificateProgress(current, round);
+      const latest = latestSubmissionPerSlot(current, round);
+      const missingItems = round.workSlotTitles
+        .map((title, index) => ({ title, index }))
+        .filter(({ index }) => !latest.has(slotIdAt(index)));
+      const roundResults: RoundResult[] = [{
+        project: round,
+        record: null,
+        missing: status.complete ? [] : missingItems,
+        submitted: status.submitted,
+        required: status.required,
+        certificateLoading: Boolean(round.certificate?.enabled),
+      }];
       setResults(roundResults);
       setSearched(true);
       setLoading(false);
@@ -291,33 +303,51 @@ export default function CertificatePage() {
                 ดาวน์โหลดเกียรติบัตร
               </h1>
               <p className="text-sm font-semibold text-amber-50/90 mt-0.5">
-                เลือกสายชั้นและชื่อ เพื่อค้นหาและดาวน์โหลดเกียรติบัตร
+                เลือกรอบและรายชื่อผู้เข้าอบรม เพื่อดาวน์โหลดเกียรติบัตร
               </p>
             </div>
           </div>
         </section>
-        <section className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 grid sm:grid-cols-2 gap-4 shadow-sm">
+        <section className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 grid lg:grid-cols-3 gap-4 shadow-sm">
           <label className="space-y-1.5">
             <span className="text-xs font-extrabold text-slate-600">
-              1. เลือกสายชั้น
+              1. เลือกรอบ/โครงการ
             </span>
             <select
-              value={gradeLevel}
-              onChange={(e) => void changeGrade(e.target.value)}
+              value={selectedProjectId}
+              onChange={(e) => void changeProject(e.target.value)}
               disabled={loadingLists}
               className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white font-bold outline-none focus:ring-2 focus:ring-amber-400"
             >
-              <option value="">เลือกสายชั้น</option>
-              {gradeLevels.map((level) => (
-                <option key={level.id} value={level.name}>
-                  {level.name}
+              <option value="">เลือกรอบการอบรมหรือโครงการ</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
                 </option>
               ))}
             </select>
           </label>
           <label className="space-y-1.5">
             <span className="text-xs font-extrabold text-slate-600">
-              2. เลือกรายชื่อครู
+              2. เลือก{groupLabel}
+            </span>
+            <select
+              value={dimensionValue}
+              onChange={(e) => changeDimension(e.target.value)}
+              disabled={loadingLists}
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white font-bold outline-none focus:ring-2 focus:ring-amber-400"
+            >
+              <option value="">เลือก{groupLabel}</option>
+              {dimensionOptions.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1.5">
+            <span className="text-xs font-extrabold text-slate-600">
+              3. เลือกรายชื่อครู
             </span>
             <select
               value={name}
@@ -325,20 +355,20 @@ export default function CertificatePage() {
                 const value = e.target.value;
                 setName(value);
                 resetResult();
-                const teacherId = teachersInGrade.find(
+                const teacherId = teachersInDimension.find(
                   (teacher) => teacher.fullName === value,
                 )?.id || "";
                 if (value) void search(value, teacherId);
               }}
-              disabled={!gradeLevel || loadingLists || loading}
+              disabled={!dimensionValue || loadingLists || loading}
               className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white font-bold outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-60"
             >
               <option value="">
-                {teachersInGrade.length
+                {teachersInDimension.length
                   ? "เลือกรายชื่อครู"
-                  : "ไม่พบรายชื่อในสายชั้นนี้"}
+                  : `ไม่พบรายชื่อใน${groupLabel}นี้`}
               </option>
-              {teachersInGrade.map((teacher) => (
+              {teachersInDimension.map((teacher) => (
                 <option key={teacher.id} value={teacher.fullName}>
                   {teacher.fullName}
                 </option>
@@ -346,9 +376,9 @@ export default function CertificatePage() {
             </select>
           </label>
           {loading && (
-            <div className="sm:col-span-2 rounded-2xl bg-amber-50 p-3 flex items-center justify-center gap-2 text-sm font-extrabold text-amber-700">
+            <div className="lg:col-span-3 rounded-2xl bg-amber-50 p-3 flex items-center justify-center gap-2 text-sm font-extrabold text-amber-700">
               <LoaderCircle className="w-5 h-5 animate-spin" />
-              กำลังตรวจสอบทุกรอบ...
+              กำลังตรวจสอบรอบที่เลือก...
             </div>
           )}
         </section>

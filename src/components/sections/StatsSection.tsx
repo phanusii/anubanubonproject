@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { getInstantStatsWindow, getSubmissionsForStats } from "@/lib/submission-service";
 import { getInstantTeachers, getProjectParticipantsForStats, getTeachers, TeacherItem } from "@/lib/teachers-service";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
+import { getProjectStatsSubmissions, hasProjectParticipantIndex } from "@/lib/project-participant-service";
 import { gradeLabel, gradeOrder, normalizeGradeKey, shortSubject } from "@/lib/format";
 import { slotIdAt } from "@/lib/certificate-service";
 import { Submission, Project } from "@/lib/types";
@@ -55,17 +56,20 @@ export default function StatsSection() {
   useEffect(() => {
     async function init() {
       try {
-        const [ts, projs, data] = await Promise.all([
+        const [ts, projs, indexReady] = await Promise.all([
           getTeachers(),
           getProjects(),
-          getSubmissionsForStats(),
+          hasProjectParticipantIndex(),
         ]);
+        const visible = projs.filter((p) => p.showInGallery !== false);
+        const initial = visible[0]?.id || "";
+        const data = indexReady && initial
+          ? await getProjectStatsSubmissions(initial)
+          : await getSubmissionsForStats();
         setTeachers(ts);
         setAllSubs(data);
-        const visible = projs.filter((p) => p.showInGallery !== false);
         setProjects(visible);
         // Default to the admin's first-ordered round.
-        const initial = visible[0]?.id || "";
         setSelectedProjectId(initial);
       } catch (err) {
         console.error("Stats init error:", err);
@@ -76,9 +80,15 @@ export default function StatsSection() {
     init();
   }, []);
 
-  const selectProject = (pid: string) => {
+  const selectProject = async (pid: string) => {
     if (pid === selectedProjectId) return;
     setSelectedProjectId(pid);
+    setLoading(true);
+    try {
+      if (await hasProjectParticipantIndex()) setAllSubs(await getProjectStatsSubmissions(pid));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId);

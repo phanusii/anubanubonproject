@@ -126,6 +126,52 @@ export async function getCertificates(projectId: string): Promise<CertificateRec
   return (result.certificates || []) as CertificateRecord[];
 }
 
+export async function getCertificateDashboard(
+  projectId: string,
+  refresh = false,
+  projectSnapshot?: Project,
+): Promise<{
+  certificates: CertificateRecord[];
+  issued: number;
+  job: CertificateBatchJob | null;
+  candidates: CertificateCandidate[];
+}> {
+  const idToken = await getAdminIdToken();
+  try {
+    const result = await callService({
+      action: "certificateDashboard",
+      projectId,
+      refresh,
+      projectSnapshot,
+      idToken,
+    });
+    return {
+      certificates: (result.certificates || []) as CertificateRecord[],
+      issued: Number(result.issued || 0),
+      job: (result.job as CertificateBatchJob | null) || null,
+      candidates: (result.candidates || []) as CertificateCandidate[],
+    };
+  } catch (error) {
+    // During a staged deployment the new frontend can briefly reach the
+    // previous Apps Script version. Fall back only for an unknown-action error;
+    // a real network/auth failure must not fan out into four extra executions.
+    const message = error instanceof Error ? error.message : "";
+    if (!/unknown action|certificateDashboard|ไม่รู้จักคำสั่ง/i.test(message)) throw error;
+    const [certificates, issuedResult, jobResult, candidatesResult] = await Promise.all([
+      callService({ action: "list", projectId, idToken }),
+      callService({ action: "issuedCount", projectId, projectSnapshot }),
+      callService({ action: "certificateStatus", projectId, idToken }),
+      callService({ action: "certificateCandidates", projectId, refresh, projectSnapshot, idToken }),
+    ]);
+    return {
+      certificates: (certificates.certificates || []) as CertificateRecord[],
+      issued: Number(issuedResult.issued || 0),
+      job: (jobResult.job as CertificateBatchJob | null) || null,
+      candidates: (candidatesResult.candidates || []) as CertificateCandidate[],
+    };
+  }
+}
+
 /** Pass refresh=true only for the explicit "อัปเดตรายชื่อ" button: the Apps Script
  *  re-scans Firestore only when input.refresh is true, otherwise it returns the last
  *  cached snapshot (which never reflects newly-completed submitters). */

@@ -88,6 +88,31 @@ function handleCertificatePost_(e) {
       assertAdmin_(input.idToken);
       return json_({ ok: true, candidates: certificateCandidates_(input.projectId, Boolean(input.refresh), input.projectSnapshot || {}) });
     }
+    if (input.action === "certificateDashboard") {
+      assertAdmin_(input.idToken);
+      var dashboardProject = validProjectSnapshot_(input.projectId, input.projectSnapshot || {});
+      var dashboardCertificates = listCertificateRecords_(String(input.projectId || ""));
+      if (dashboardProject && Array.isArray(dashboardProject.attendeeIds) && dashboardProject.attendeeIds.length) {
+        dashboardCertificates = dashboardCertificates.filter(function (record) {
+          return projectAllowsCertificateRecipient_(
+            dashboardProject,
+            record.recipientName || (record.snapshot && record.snapshot.fullName),
+            ""
+          );
+        });
+      }
+      return json_({
+        ok: true,
+        certificates: dashboardCertificates,
+        issued: dashboardCertificates.filter(function (record) { return record.status === "issued"; }).length,
+        job: getCertificateJob_(String(input.projectId || "")),
+        candidates: certificateCandidates_(
+          input.projectId,
+          Boolean(input.refresh),
+          input.projectSnapshot || {}
+        )
+      });
+    }
     if (input.action === "driveCertificateCandidates") {
       assertAdmin_(input.idToken);
       return json_({ ok: true, candidates: driveCertificateCandidates_(input.projectId, input.projectSnapshot || {}) });

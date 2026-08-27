@@ -20,6 +20,14 @@ import {
   DocumentData
 } from "firebase/firestore";
 import { AdminSubmissionSummary, Submission, TrainingSettings, GradeLevelOption, SubjectGroupOption, DashboardStats } from "./types";
+import {
+  deleteProjectParticipantIndex,
+  getAllProjectStatsSubmissions,
+  hasProjectParticipantIndex,
+  rebuildProjectParticipant,
+  rebuildProjectParticipantIndex,
+  upsertProjectParticipant,
+} from "./project-participant-service";
 
 // Default Master Data (สายชั้น อ.1 - อ.3 ถึง ป.1 - ป.6)
 export const DEFAULT_GRADE_LEVELS: GradeLevelOption[] = [
@@ -542,6 +550,7 @@ export async function rebuildGallerySnapshot(): Promise<{ count: number; chunks:
   }
   await batch.commit();
   await writeAdminSubmissionSummary(clean, updatedAt);
+  await rebuildProjectParticipantIndex(clean);
   galleryResultCache.clear();
   return { count: clean.length, chunks: chunks.length };
 }
@@ -1334,6 +1343,9 @@ export async function createSubmission(submissionData: Omit<Submission, "id" | "
     projectSubmissionsCache.clear();
     galleryPageCache.clear();
     clearStatsWindowCache();
+    void upsertProjectParticipant(fullSub).catch((error) => {
+      console.warn("Project participant index refresh skipped:", error);
+    });
     return fullSub;
   } catch (err) {
     console.error("Firestore save submission failed:", err);
@@ -1377,6 +1389,9 @@ export async function replaceSubmission(oldId: string, submissionData: Omit<Subm
   projectSubmissionsCache.clear();
   galleryPageCache.clear();
   clearStatsWindowCache();
+  void upsertProjectParticipant(fullSub).catch((error) => {
+    console.warn("Project participant index refresh skipped:", error);
+  });
   return fullSub;
 }
 
@@ -1564,7 +1579,7 @@ export async function getSubmissionsPage(params?: {
  */
 export async function deleteSubmission(id: string): Promise<void> {
   const localSubs = getLocalSubmissions();
-  const targetSub = localSubs.find((s) => s.id === id);
+  let targetSub = localSubs.find((s) => s.id === id);
   if (targetSub?.fileURL) {
     await deleteStorageFileByUrl(targetSub.fileURL);
   }
@@ -1573,7 +1588,8 @@ export async function deleteSubmission(id: string): Promise<void> {
     const docRef = doc(db, "submissions", id);
     const snapshot = await getDoc(docRef);
     if (snapshot.exists()) {
-      const data = snapshot.data() as Submission;
+      const data = { id: snapshot.id, ...(snapshot.data() as Omit<Submission, "id">) };
+      targetSub = data;
       if (data.fileURL) {
         await deleteStorageFileByUrl(data.fileURL);
       }
@@ -1590,6 +1606,11 @@ export async function deleteSubmission(id: string): Promise<void> {
   projectSubmissionsCache.clear();
   galleryPageCache.clear();
   clearStatsWindowCache();
+  if (targetSub?.projectId && targetSub.fullName) {
+    await rebuildProjectParticipant(targetSub.projectId, targetSub.fullName, targetSub.teacherId).catch((error) => {
+      console.warn("Project participant index refresh after delete skipped:", error);
+    });
+  }
 }
 
 /** Delete every Firestore submission belonging to one round/project. */
@@ -1613,6 +1634,7 @@ export async function deleteSubmissionsByProject(projectId: string): Promise<num
   await rebuildGallerySnapshot().catch((err) => {
     console.warn("Gallery snapshot rebuild after project deletion failed:", err);
   });
+  await deleteProjectParticipantIndex(projectId).catch(() => undefined);
   return documents.length;
 }
 
@@ -1620,22 +1642,33 @@ export async function deleteSubmissionsByProject(projectId: string): Promise<num
  * Edit Submission Metadata (Admin)
  */
 export async function updateSubmission(id: string, data: Partial<Submission>): Promise<void> {
+  let updatedSubmission: Submission | null = null;
   try {
-    await updateDoc(doc(db, "submissions", id), data);
+    const targetRef = doc(db, "submissions", id);
+    await updateDoc(targetRef, data);
+    const snapshot = await getDoc(targetRef);
+    if (snapshot.exists()) updatedSubmission = { id: snapshot.id, ...(snapshot.data() as Omit<Submission, "id">) };
   } catch (err) {
     console.warn("Firestore update submission error:", err);
   }
   const subs = getLocalSubmissions().map((s) => (s.id === id ? { ...s, ...data } : s));
   saveLocalSubmissions(subs);
+  if (updatedSubmission) {
+    await upsertProjectParticipant(updatedSubmission).catch((error) => {
+      console.warn("Project participant index refresh after edit skipped:", error);
+    });
+  }
 }
 
 /**
  * Get Dashboard Analytics Data
  */
 export async function getDashboardStats(): Promise<DashboardStats> {
-  // Use the light, cached stats window (projected fields incl. fileType) instead
-  // of downloading full documents — the dashboard only needs counts and dates.
-  const submissions = await getSubmissionsForStats();
+  // Prefer one compact statistics document per round. Fall back to the legacy
+  // gallery window until the one-time admin migration has completed.
+  const submissions = await hasProjectParticipantIndex()
+    ? await getAllProjectStatsSubmissions()
+    : await getSubmissionsForStats();
   
   const totalSubmissions = submissions.length;
   const uniqueSenders = new Set(submissions.map((s) => s.fullName.trim().toLowerCase())).size;

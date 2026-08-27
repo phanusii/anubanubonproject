@@ -7,6 +7,7 @@ import AdminSidebar from "@/components/AdminSidebar";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { getInstantSubmissions, getSubmissionsForStats } from "@/lib/submission-service";
 import { getInstantTeachers, getProjectParticipantsForStats, getTeachers, TeacherItem } from "@/lib/teachers-service";
+import { getProjectStatsSubmissions, hasProjectParticipantIndex } from "@/lib/project-participant-service";
 import { gradeLabel, gradeOrder, normalizeGradeKey, shortSubject } from "@/lib/format";
 import { slotIdAt } from "@/lib/certificate-service";
 import { Project, Submission } from "@/lib/types";
@@ -38,15 +39,29 @@ export default function AdminStatsPage() {
     Promise.all([
       getTeachers(),
       getProjects(),
-      getSubmissionsForStats(),
-    ]).then(([teacherData, projectData, submissionData]) => {
+      hasProjectParticipantIndex(),
+    ]).then(async ([teacherData, projectData, indexReady]) => {
+      const initialProjectId = projectData[0]?.id || "";
+      const submissionData = indexReady && initialProjectId
+        ? await getProjectStatsSubmissions(initialProjectId)
+        : await getSubmissionsForStats();
       setTeachers(teacherData);
       setProjects(projectData);
       setSubmissions(submissionData);
-      setProjectId((current) => current && projectData.some((item) => item.id === current) ? current : projectData[0]?.id || "");
+      setProjectId(initialProjectId);
     }).catch((error) => console.error("Admin stats load error:", error))
       .finally(() => setLoading(false));
   }, []);
+
+  const changeProject = async (nextProjectId: string) => {
+    setProjectId(nextProjectId);
+    setLoading(true);
+    try {
+      if (await hasProjectParticipantIndex()) setSubmissions(await getProjectStatsSubmissions(nextProjectId));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const project = projects.find((item) => item.id === projectId);
   const projectSubmissions = useMemo(
@@ -157,7 +172,7 @@ export default function AdminStatsPage() {
           <section className="p-6 rounded-3xl bg-white border border-slate-100 shadow-xs">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               <div><h1 className="text-2xl font-extrabold text-slate-900">สถิติการส่งงานแบบละเอียด</h1><p className="text-xs font-semibold text-slate-500">ยึดรายชื่อผู้เข้าอบรมของรอบ และแสดงตาม{groupLabel}</p></div>
-              <select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="w-full lg:w-auto px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-bold lg:min-w-[260px]">
+              <select value={projectId} onChange={(event) => void changeProject(event.target.value)} className="w-full lg:w-auto px-4 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-sm font-bold lg:min-w-[260px]">
                 {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
             </div>

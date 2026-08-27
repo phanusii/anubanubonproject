@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
-import { getDashboardStats, getStorageUsage } from "@/lib/submission-service";
+import { getDashboardStats, getStorageUsage, rebuildGallerySnapshot } from "@/lib/submission-service";
 import { getTeacherSnapshotRaw, rebuildTeacherSnapshot } from "@/lib/teachers-service";
+import { hasProjectParticipantIndex } from "@/lib/project-participant-service";
 import { DashboardStats } from "@/lib/types";
 import { FileCheck, Users, FileText, Image as ImageIcon, TrendingUp, HardDrive, RefreshCw } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
@@ -35,6 +36,13 @@ export default function AdminDashboardPage() {
         if (!s) await rebuildTeacherSnapshot();
       })
       .catch(() => {});
+    hasProjectParticipantIndex()
+      .then(async (ready) => {
+        // One-time migration. The rebuild also keeps the legacy gallery/admin
+        // snapshots intact, so switching to the queryable index is reversible.
+        if (!ready) await rebuildGallerySnapshot();
+      })
+      .catch((error) => console.warn("Project participant index migration skipped:", error));
   }, []);
 
   const computeStorage = async () => {

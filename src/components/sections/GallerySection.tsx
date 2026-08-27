@@ -4,7 +4,8 @@ import { useEffect, useState, useMemo } from "react";
 import type { QueryDocumentSnapshot, DocumentData } from "firebase/firestore";
 import PersonCard, { PersonGroup } from "@/components/PersonCard";
 import SubmissionModal from "@/components/SubmissionModal";
-import { getSubmissionsPage, getGallerySubmissions, getInstantGallery, getTrainingSettings, getInstantSettings, getInstantSubmissions, getSubmissionsForStats, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
+import { countSubmissions, getSubmissionsPage, getGallerySubmissions, getInstantGallery, getTrainingSettings, getInstantSettings, getInstantSubmissions, DEFAULT_GRADE_LEVELS, DEFAULT_SUBJECT_GROUPS } from "@/lib/submission-service";
+import { getProjectParticipantPage, hasProjectParticipantIndex, searchProjectParticipants } from "@/lib/project-participant-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getInstantProjects, getProjects } from "@/lib/projects-service";
 import { getInstantTeachers, getTeachers } from "@/lib/teachers-service";
@@ -13,7 +14,7 @@ import { useInstantState } from "@/lib/use-instant";
 import { Submission, GradeLevelOption, SubjectGroupOption, TrainingSettings, Project } from "@/lib/types";
 import { Search, Sparkles, FolderKanban, Layers } from "lucide-react";
 
-const PAGE_SIZE = 60;
+const PAGE_SIZE = 20;
 const ITEMS_PER_PAGE = 20;
 
 /** Normalize a teacher name for matching (ignore spaces / leading "ครู"). */
@@ -48,6 +49,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   const [cursor, setCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
   // Search & Filter state
@@ -60,39 +62,53 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
 
   const projectIdParam = (pid: string) => (pid === "all" ? undefined : pid);
 
-  // True total for the badge. Count from the cached (thumbnail-stripped) stats window
-  // — plain document reads, which work reliably — instead of an aggregation/count
-  // query (those get throttled with 429 under heavy read load).
+  // Aggregation reads return the count without downloading hundreds of works.
   const refreshTotal = async (pid: string, hidden: Set<string>) => {
     try {
-      const all = await getSubmissionsForStats();
-      const scoped =
-        pid === "all"
-          ? all.filter((s) => !s.projectId || !hidden.has(s.projectId))
-          : all.filter((s) => s.projectId === pid);
-      setTotalCount(scoped.length);
+      if (pid !== "all") {
+        setTotalCount(await countSubmissions(pid));
+        return;
+      }
+      const visibleIds = projects.filter((project) => !hidden.has(project.id)).map((project) => project.id);
+      const counts = await Promise.all(visibleIds.map((id) => countSubmissions(id)));
+      setTotalCount(counts.some((count) => count < 0) ? -1 : counts.reduce((sum, count) => sum + count, 0));
     } catch {
       setTotalCount(-1);
     }
   };
 
-  // Load ALL works for a round (light REST projection) so the pager can show every page.
-  const fetchFirstPage = async (pid: string) => {
-    // Paint any in-session snapshot for this round immediately (e.g. returning
-    // from a person page), then revalidate over the network.
-    const instant = getInstantGallery(pid === "all" ? undefined : pid);
-    if (instant.length) {
-      setSubmissions(instant);
-      setCursor(null);
-      setHasMore(false);
-    }
+  // Default path: read 20 teacher summaries for the selected round. The old
+  // full snapshot remains a safe fallback while the one-time index migration is
+  // still running, and for the intentionally broad "all rounds" view.
+  const fetchFirstPage = async (pid: string, grade = selectedGrade, subject = selectedSubject) => {
+    setIsRefreshing(true);
     try {
+      if (pid !== "all") {
+        const page = await getProjectParticipantPage({
+          projectId: pid,
+          pageSize: PAGE_SIZE,
+          gradeLevel: grade === "ทั้งหมด" ? undefined : grade,
+          subjectGroup: subject === "ทั้งหมด" ? undefined : subject,
+        });
+        if (page.items.length || await hasProjectParticipantIndex()) {
+          setSubmissions(page.items.flatMap((item) => item.works));
+          setCursor(page.cursor);
+          setHasMore(page.hasMore);
+          return;
+        }
+      }
+      const instant = getInstantGallery(pid === "all" ? undefined : pid);
+      if (instant.length) setSubmissions(instant);
       const items = await getGallerySubmissions(pid === "all" ? undefined : pid);
       setSubmissions(items);
       setCursor(null);
       setHasMore(false);
     } catch (err) {
       console.error("Gallery fetch error:", err);
+      const instant = getInstantGallery(pid === "all" ? undefined : pid);
+      if (instant.length) setSubmissions(instant);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -130,7 +146,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         // by Admin. "All rounds" remains available as the final dropdown option.
         const resolvedPid = visibleProjects[0]?.id || "all";
         setSelectedProjectId(resolvedPid);
-        refreshTotal(resolvedPid, hidden);
+        void refreshTotal(resolvedPid, hidden);
         await firstPagePromise;
         if (resolvedPid !== initialPid) await fetchFirstPage(resolvedPid);
       } catch (err) {
@@ -144,24 +160,37 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   const selectProject = (pid: string) => {
     if (pid === selectedProjectId) return;
     setSelectedProjectId(pid);
-    setSubmissions([]);
     setCursor(null);
     setHasMore(false);
     setCurrentPage(1);
     setTotalCount(-1);
-    refreshTotal(pid, hiddenIds);
-    fetchFirstPage(pid);
+    void refreshTotal(pid, hiddenIds);
+    void fetchFirstPage(pid, "ทั้งหมด", "ทั้งหมด");
+    setSelectedGrade("ทั้งหมด");
+    setSelectedSubject("ทั้งหมด");
+    setSearch("");
   };
 
   const handleLoadMore = async () => {
     if (isLoadingMore || !hasMore) return;
     setIsLoadingMore(true);
     try {
-      const page = await getSubmissionsPage({
-        pageSize: PAGE_SIZE,
-        cursor,
-        projectId: projectIdParam(selectedProjectId),
-      });
+      const participantPage = selectedProjectId !== "all" && !search.trim()
+        ? await getProjectParticipantPage({
+            projectId: selectedProjectId,
+            pageSize: PAGE_SIZE,
+            cursor,
+            gradeLevel: selectedGrade === "ทั้งหมด" ? undefined : selectedGrade,
+            subjectGroup: selectedSubject === "ทั้งหมด" ? undefined : selectedSubject,
+          })
+        : null;
+      const page = participantPage
+        ? { items: participantPage.items.flatMap((item) => item.works), cursor: participantPage.cursor, hasMore: participantPage.hasMore }
+        : await getSubmissionsPage({
+            pageSize: PAGE_SIZE,
+            cursor,
+            projectId: projectIdParam(selectedProjectId),
+          });
       setSubmissions((prev) => {
         const seen = new Set(prev.map((s) => s.id));
         const merged = [...prev];
@@ -177,6 +206,51 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
     } finally {
       setIsLoadingMore(false);
     }
+  };
+
+  useEffect(() => {
+    const value = search.trim();
+    if (value.length < 2) return;
+    const timer = window.setTimeout(() => {
+      setIsRefreshing(true);
+      searchProjectParticipants({
+        projectId: selectedProjectId === "all" ? undefined : selectedProjectId,
+        name: value,
+        pageSize: PAGE_SIZE,
+      })
+        .then((items) => {
+          setSubmissions(items.flatMap((item) => item.works));
+          setCursor(null);
+          setHasMore(false);
+          setCurrentPage(1);
+        })
+        .catch((error) => console.error("Gallery search fallback failed:", error))
+        .finally(() => setIsRefreshing(false));
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [search, selectedProjectId, setSubmissions]);
+
+  const changeSearch = (value: string) => {
+    const wasSearching = search.trim().length >= 2;
+    setSearch(value);
+    setCurrentPage(1);
+    if (wasSearching && value.trim().length < 2) {
+      void fetchFirstPage(selectedProjectId, selectedGrade, selectedSubject);
+    }
+  };
+
+  const changeGrade = (value: string) => {
+    setSelectedGrade(value);
+    setCurrentPage(1);
+    setSearch("");
+    void fetchFirstPage(selectedProjectId, value, selectedSubject);
+  };
+
+  const changeSubject = (value: string) => {
+    setSelectedSubject(value);
+    setCurrentPage(1);
+    setSearch("");
+    void fetchFirstPage(selectedProjectId, selectedGrade, value);
   };
 
   // Instant In-Memory Filter with useMemo (0ms latency!)
@@ -349,7 +423,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
                 type="text"
                 placeholder="ค้นหาชื่อครู, ชื่อผลงาน, กลุ่มสาระ..."
                 value={search}
-                onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+              onChange={(e) => changeSearch(e.target.value)}
                 className="w-full pl-11 pr-4 py-3 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none transition-all"
               />
             </div>
@@ -378,7 +452,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
             <select
               aria-label="กรองตามสายชั้น"
               value={selectedGrade}
-              onChange={(e) => { setSelectedGrade(e.target.value); setCurrentPage(1); }}
+                onChange={(e) => changeGrade(e.target.value)}
               className="w-full lg:w-auto lg:max-w-[190px] px-3.5 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
             >
               <option value="ทั้งหมด">ทุกสายชั้น (อ.1 - ป.6)</option>
@@ -393,7 +467,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
             <select
               aria-label="กรองตามกลุ่มสาระ"
               value={selectedSubject}
-              onChange={(e) => { setSelectedSubject(e.target.value); setCurrentPage(1); }}
+                onChange={(e) => changeSubject(e.target.value)}
               className="w-full lg:w-auto lg:max-w-[210px] px-3.5 py-3 rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-2xs"
             >
               <option value="ทั้งหมด">ทุกกลุ่มสาระการเรียนรู้</option>
@@ -407,6 +481,9 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         </div>
 
         {/* Submissions Cards Grid */}
+        {isRefreshing && submissions.length > 0 && (
+          <div className="-mt-4 text-center text-xs font-bold text-blue-600" role="status">กำลังอัปเดตข้อมูลรอบที่เลือก…</div>
+        )}
         {filteredSubmissions.length === 0 ? (
           <div className="glass-panel p-12 text-center rounded-3xl border border-slate-100 bg-slate-50/50 space-y-3">
             <p className="text-base font-extrabold text-slate-700">ไม่พบผลงานตามเงื่อนไขที่เลือก</p>

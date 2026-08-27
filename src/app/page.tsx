@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import SubmitSection from "@/components/sections/SubmitSection";
 import GallerySection from "@/components/sections/GallerySection";
-import PersonWorksView from "@/components/sections/PersonWorksView";
-import StatsSection from "@/components/sections/StatsSection";
+
+const SectionLoader = () => <div className="max-w-7xl w-full mx-auto px-4 py-10"><div className="h-64 rounded-3xl skeleton-loading" /></div>;
+const SubmitSection = dynamic(() => import("@/components/sections/SubmitSection"), { ssr: false, loading: SectionLoader });
+const PersonWorksView = dynamic(() => import("@/components/sections/PersonWorksView"), { ssr: false, loading: SectionLoader });
+const StatsSection = dynamic(() => import("@/components/sections/StatsSection"), { ssr: false, loading: SectionLoader });
 
 type View = "gallery" | "submit" | "person" | "stats";
 

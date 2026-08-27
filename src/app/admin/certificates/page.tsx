@@ -22,10 +22,8 @@ import { getProjects, saveProject } from "@/lib/projects-service";
 import {
   certificateRecipientKey,
   createCertificatePreview,
-  getCertificateBatchStatus,
+  getCertificateDashboard,
   getCertificateCandidates,
-  getCertificates,
-  getIssuedCertificateCount,
   inspectCertificateTemplate,
   previewEditedCertificate,
   reissueEditedCertificate,
@@ -221,66 +219,29 @@ export default function CertificatesAdminPage() {
       if (cached.candidates) setCandidates(cached.candidates);
       if (typeof cached.issued === "number") setIssuedTotal(cached.issued);
     }
-    // Fast, standalone issued-count for the summary card (doesn't wait on the full list).
     if (!cached || typeof cached.issued !== "number") setIssuedTotal(null);
-    void getIssuedCertificateCount(project.id, project).then((n) => {
-      if (!cancelled) setIssuedTotal(n);
-      mergeCertCache(project.id, { issued: n });
-    });
-    void Promise.allSettled([
-      getCertificates(project.id),
-      getCertificateBatchStatus(project.id),
-      getCertificateCandidates(project.id, false, project),
-    ])
-      .then(([certificateResult, jobResult, candidateResult]) => {
+    // One Apps Script execution returns the entire dashboard. Previously this
+    // made four cold-start calls and repeated three of them every 15 seconds.
+    void getCertificateDashboard(project.id, false, project)
+      .then((dashboard) => {
         if (cancelled) return;
-        const certificateItems =
-          certificateResult.status === "fulfilled"
-            ? certificateResult.value
-            : [];
-        const candidateItems = candidateResult.status === "fulfilled" ? candidateResult.value : [];
-        setRecords(certificateItems);
-        setJob(jobResult.status === "fulfilled" ? jobResult.value : null);
-        setCandidates(candidateItems);
-        if (certificateResult.status === "fulfilled" || candidateResult.status === "fulfilled") {
-          mergeCertCache(project.id, {
-            ...(certificateResult.status === "fulfilled" ? { records: certificateItems } : {}),
-            ...(candidateResult.status === "fulfilled" ? { candidates: candidateItems } : {}),
-          });
-        }
-
-        if (certificateResult.status === "rejected") {
-          setMessage(
-            `อ่านทะเบียนเกียรติบัตรไม่สำเร็จ: ${certificateResult.reason instanceof Error ? certificateResult.reason.message : "กรุณาลองใหม่"}`,
-          );
-        }
+        setRecords(dashboard.certificates);
+        setJob(dashboard.job);
+        setCandidates(dashboard.candidates);
+        setIssuedTotal(dashboard.issued);
+        mergeCertCache(project.id, {
+          records: dashboard.certificates,
+          candidates: dashboard.candidates,
+          issued: dashboard.issued,
+        });
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) {
-          setRecords([]);
-          setCandidates([]);
+          setMessage(`อ่านทะเบียนเกียรติบัตรไม่สำเร็จ: ${error instanceof Error ? error.message : "กรุณาลองใหม่"}`);
         }
       });
-
-    const refreshTimer = window.setInterval(() => {
-      void Promise.all([
-        getCertificates(project.id),
-        getCertificateBatchStatus(project.id),
-        getCertificateCandidates(project.id, false, project),
-      ])
-        .then(([items, currentJob, currentCandidates]) => {
-          if (!cancelled) {
-            setRecords(items);
-            setJob(currentJob);
-            setCandidates(currentCandidates);
-            mergeCertCache(project.id, { records: items, candidates: currentCandidates });
-          }
-        })
-        .catch(() => undefined);
-    }, 15000);
     return () => {
       cancelled = true;
-      window.clearInterval(refreshTimer);
     };
   }, [project, projects]);
 
@@ -580,12 +541,15 @@ export default function CertificatesAdminPage() {
       while (current.status === "running")
         current = (await runCertificateBatch(project.id)) || current;
       setJob(current);
-      const [freshRecords, freshCandidates] = await Promise.all([
-        getCertificates(project.id),
-        getCertificateCandidates(project.id, false, currentProject),
-      ]);
-      setRecords(freshRecords);
-      setCandidates(freshCandidates);
+      const dashboard = await getCertificateDashboard(project.id, false, currentProject);
+      setRecords(dashboard.certificates);
+      setCandidates(dashboard.candidates);
+      setIssuedTotal(dashboard.issued);
+      mergeCertCache(project.id, {
+        records: dashboard.certificates,
+        candidates: dashboard.candidates,
+        issued: dashboard.issued,
+      });
       setSelectedNames([]);
       setTab(current.issued > 0 ? "issued" : tab);
       setMessage(
