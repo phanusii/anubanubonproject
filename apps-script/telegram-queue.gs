@@ -146,9 +146,9 @@ function notifyNewSubmissionsV2() {
       return;
     }
     var documents = listNewSubmissionsV2_(cursor.time, cursor.id);
+    if (!documents.length) return;
     quotaBump_(documents, 1);
     maybeNotifyFreeQuotaV2_(settings, chatId, properties, false);
-    if (!documents.length) return;
 
     // Notifications disabled is an explicit discard policy: move the cursor
     // forward without leaving a backlog that would replay when re-enabled.
