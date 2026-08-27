@@ -158,8 +158,14 @@ function notifySubmissionImmediately_(submissionId) {
   if (!settings.telegramNotificationsEnabled || !chatId) return false;
   var properties = PropertiesService.getScriptProperties();
   var marker = "telegram_submission_" + submissionId;
-  if (properties.getProperty(marker)) return false;
   var document = getRawFirestoreDocumentV2_("submissions/" + encodeURIComponent(submissionId));
+  // A previous immediate notification may already have advanced the scheduled
+  // cursor past this document. Still run the completion check so a 5/5 teacher
+  // cannot be skipped; the per-recipient completion marker prevents duplicates.
+  if (properties.getProperty(marker)) {
+    notifyCompletedCertificateCandidatesV2_([document], chatId);
+    return false;
+  }
   var item = firestoreFields_(document.fields || {});
   quotaBump_([document], 1);
   maybeNotifyFreeQuotaV2_(settings, chatId, properties, false);
@@ -183,6 +189,7 @@ function notifySubmissionImmediately_(submissionId) {
   var workKeyboard = workUrl ? { inline_keyboard: [[{ text: "📄 เปิดผลงานที่ส่ง", url: workUrl }]] } : undefined;
   sendTelegram_(text.join("\n"), chatId, workKeyboard);
   properties.setProperty(marker, String(Date.now()));
+  notifyCompletedCertificateCandidatesV2_([document], chatId);
   advanceTelegramCursorV2_(Number(item.createdAt || 0), submissionId, properties);
   return true;
 }
