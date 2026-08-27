@@ -358,14 +358,17 @@ function notifyCompletedCertificateCandidatesV2_(documents, chatId) {
       var recipientKey = normalizeName_(pair.fullName).toLowerCase();
       var record = getCertificateRecord_(certificateId_(pair.projectId, recipientKey));
       if (record && record.status === "issued") return;
-      var notifiedKey = "telegram_complete_" + certificateId_(pair.projectId, recipientKey);
-      if (properties.getProperty(notifiedKey)) return;
       var folderUrl = recipientWorkFolderUrlV2_(pair.projectId, project, progress.latest || {});
       var certificateEnabled = Boolean(project.certificate && project.certificate.enabled);
+      // A completion notice sent while certificates were disabled must not
+      // suppress the actionable notice after Admin enables the round.
+      var markerPrefix = certificateEnabled ? "telegram_certificate_ready_" : "telegram_complete_";
+      var notifiedKey = markerPrefix + certificateId_(pair.projectId, recipientKey);
+      if (properties.getProperty(notifiedKey)) return;
       var rows = [];
       if (certificateEnabled) {
         var callback = telegramCertificateCallback_(pair.projectId, pair.fullName);
-        rows.push([{ text: "✅ ตรวจแล้ว ออกเกียรติบัตร", callback_data: callback }]);
+        rows.push([{ text: "🎓 สร้างเกียรติบัตร", callback_data: callback }]);
       }
       if (folderUrl) rows.push([{ text: "📂 เปิดโฟลเดอร์ผลงาน", url: folderUrl }]);
       var text = [
@@ -485,8 +488,7 @@ function telegramCertificateCallback_(projectId, fullName) {
 
 function installTelegramCertificateWebhook_() {
   var token = PropertiesService.getScriptProperties().getProperty("TELEGRAM_BOT_TOKEN");
-  var webAppUrl = PropertiesService.getScriptProperties().getProperty("CERTIFICATE_WEB_APP_URL") ||
-    "https://script.google.com/macros/s/AKfycbyhEJADSzKxiEsGcl80VuJyPPBaz_5GJhG7syFaJ2LgOake0smcU2Ipge5YmgyGNYg2/exec";
+  var webAppUrl = "https://script.google.com/macros/s/AKfycbyagMNd7lH3Q6TpsCZZMx1KvnPl5VHEcWdnDj3bJaxVvWqDIDE2Tw6uwbWcDCmiTLRy/exec";
   if (!token) throw new Error("Missing TELEGRAM_BOT_TOKEN in Script Properties");
   var response = UrlFetchApp.fetch("https://api.telegram.org/bot" + token + "/setWebhook", {
     method: "post", contentType: "application/json",
@@ -494,6 +496,12 @@ function installTelegramCertificateWebhook_() {
     muteHttpExceptions: true
   });
   assertSuccess_(response, "ตั้งค่า Telegram Webhook");
+}
+
+/** Admin repair command: point certificate buttons at the current web app. */
+function repairTelegramCertificateWebhookV2() {
+  installTelegramCertificateWebhook_();
+  return true;
 }
 
 function handleTelegramWebhook_(update) {
@@ -527,13 +535,13 @@ function handleTelegramWebhook_(update) {
     ].join("\n");
     var keyboard = record.pdfUrl ? { inline_keyboard: [[{ text: "📜 เปิดเกียรติบัตร", url: record.pdfUrl }]] } : undefined;
     sendTelegram_(text, actualChatId, keyboard);
-    // แก้ข้อความเดิม: ต่อท้าย "อนุมัติแล้ว" + ลบเฉพาะปุ่มอนุมัติ (เก็บปุ่มดูโฟลเดอร์ไว้)
+    // แก้ข้อความเดิมและลบปุ่มสร้างทันที (คงปุ่มเปิดโฟลเดอร์ไว้)
     var origText = (query.message && query.message.text) || "";
     var keptButtons = ((query.message && query.message.reply_markup && query.message.reply_markup.inline_keyboard) || [])
       .map(function (row) { return row.filter(function (b) { return String(b.callback_data || "").indexOf("cert:") !== 0; }); })
       .filter(function (row) { return row.length; });
     editTelegramMessage_(actualChatId, query.message.message_id,
-      origText + "\n\n━━━━━━━━━━━━━━\n🏅 ออกเกียรติบัตรแล้ว\n🔢 เลขที่: " + record.certificateNumber,
+      origText + "\n\n━━━━━━━━━━━━━━\n✅ ออกเกียรติบัตรแล้ว\n🔢 เลขที่: " + record.certificateNumber,
       keptButtons.length ? { inline_keyboard: keptButtons } : null);
   } catch (error) {
     answerTelegramCallbackV2_(query.id, String(error && error.message || error).slice(0, 180), true);
