@@ -475,6 +475,46 @@ export async function getGallerySnapshotRaw(): Promise<{ items: Submission[]; up
   }
 }
 
+/** Patch only snapshot chunks that contain changed submissions. Keep each chunk's
+ * original updatedAt watermark: advancing it here could hide unrelated new work
+ * from the delta query. This costs a few compact chunk reads instead of reading
+ * every submission and rebuilding every derived index after one edit/delete. */
+async function patchGallerySnapshotItems(changes: Map<string, Submission | null>): Promise<void> {
+  if (changes.size === 0) return;
+  try {
+    const snapshot = await getDocs(collection(db, SNAPSHOT_COLLECTION));
+    if (snapshot.empty) return;
+    const batch = writeBatch(db);
+    let changedChunks = 0;
+    for (const chunkDoc of snapshot.docs) {
+      const data = chunkDoc.data() as { items?: Submission[] };
+      const currentItems = data.items || [];
+      let touched = false;
+      const nextItems: Submission[] = [];
+      for (const item of currentItems) {
+        const replacement = changes.get(item.id);
+        if (replacement === undefined) {
+          nextItems.push(item);
+          continue;
+        }
+        touched = true;
+        if (replacement) nextItems.push(JSON.parse(JSON.stringify(replacement)) as Submission);
+      }
+      if (touched) {
+        batch.update(chunkDoc.ref, { items: nextItems });
+        changedChunks += 1;
+      }
+    }
+    if (changedChunks) await batch.commit();
+  } catch (error) {
+    // The source submission write already succeeded. A maintenance repair can
+    // recreate this optional cache later, so never fail the user's main action.
+    console.warn("Gallery snapshot patch skipped:", error);
+  } finally {
+    galleryResultCache.clear();
+  }
+}
+
 /** Compact rows for the admin list. Full work documents are fetched only after
  * an administrator expands a teacher. The fallback also seeds this snapshot for
  * installations upgrading from the older all-works admin page. */
@@ -491,7 +531,7 @@ export async function getAdminSubmissionSummaries(projectId: string): Promise<Ad
         submissionIds: summary.submissionIds || [],
       }));
       const updatedAt = chunks.reduce((latest, chunk) => Math.max(latest, chunk.updatedAt || 0), 0);
-      const delta = updatedAt ? (await fetchGalleryRest({ sinceCreatedAt: updatedAt })) || [] : [];
+      const delta = updatedAt ? (await fetchGalleryRest({ projectId, sinceCreatedAt: updatedAt })) || [] : [];
       const byKey = new Map(summaries.map((summary) => [summary.key, summary]));
       for (const item of delta) {
         if (!item.projectId || !item.fullName) continue;
@@ -521,7 +561,7 @@ export async function getAdminSubmissionSummaries(projectId: string): Promise<Ad
     console.warn("Admin summary unavailable; seeding from gallery snapshot:", error);
   }
 
-  const all = await getGallerySubmissions();
+  const all = await getGallerySubmissions(projectId);
   if (all.length) await writeAdminSubmissionSummary(all, Date.now()).catch(() => {});
   return summarizeAdminSubmissions(all).filter((summary) => summary.projectId === projectId);
 }
@@ -564,7 +604,10 @@ export async function getGallerySubmissions(projectId?: string): Promise<Submiss
   // created since the last rebuild (a small delta), instead of reading every work.
   const snapshot = await getGallerySnapshotRaw();
   if (snapshot && snapshot.items.length) {
-    const delta = (await fetchGalleryRest({ sinceCreatedAt: snapshot.updatedAt })) || [];
+    const delta = (await fetchGalleryRest({
+      projectId: projectId && projectId !== "all" ? projectId : undefined,
+      sinceCreatedAt: snapshot.updatedAt,
+    })) || [];
     const byId = new Map<string, Submission>();
     for (const s of snapshot.items) if (s.id) byId.set(s.id, s);
     for (const s of delta) if (s.id) byId.set(s.id, s); // fresher copy wins
@@ -1346,6 +1389,9 @@ export async function createSubmission(submissionData: Omit<Submission, "id" | "
     void upsertProjectParticipant(fullSub).catch((error) => {
       console.warn("Project participant index refresh skipped:", error);
     });
+    if (removedDuplicateIds.length) {
+      void patchGallerySnapshotItems(new Map(removedDuplicateIds.map((id) => [id, null])));
+    }
     return fullSub;
   } catch (err) {
     console.error("Firestore save submission failed:", err);
@@ -1392,6 +1438,7 @@ export async function replaceSubmission(oldId: string, submissionData: Omit<Subm
   void upsertProjectParticipant(fullSub).catch((error) => {
     console.warn("Project participant index refresh skipped:", error);
   });
+  await patchGallerySnapshotItems(new Map([[oldId, fullSub]]));
   return fullSub;
 }
 
@@ -1577,7 +1624,10 @@ export async function getSubmissionsPage(params?: {
 /**
  * Delete Submission (Deletes document and associated Firebase Storage file)
  */
-export async function deleteSubmission(id: string): Promise<void> {
+export async function deleteSubmission(
+  id: string,
+  options?: { skipSnapshotPatch?: boolean },
+): Promise<void> {
   const localSubs = getLocalSubmissions();
   let targetSub = localSubs.find((s) => s.id === id);
   if (targetSub?.fileURL) {
@@ -1610,6 +1660,9 @@ export async function deleteSubmission(id: string): Promise<void> {
     await rebuildProjectParticipant(targetSub.projectId, targetSub.fullName, targetSub.teacherId).catch((error) => {
       console.warn("Project participant index refresh after delete skipped:", error);
     });
+  }
+  if (!options?.skipSnapshotPatch) {
+    await patchGallerySnapshotItems(new Map([[id, null]]));
   }
 }
 
@@ -1657,6 +1710,7 @@ export async function updateSubmission(id: string, data: Partial<Submission>): P
     await upsertProjectParticipant(updatedSubmission).catch((error) => {
       console.warn("Project participant index refresh after edit skipped:", error);
     });
+    await patchGallerySnapshotItems(new Map([[id, updatedSubmission]]));
   }
 }
 

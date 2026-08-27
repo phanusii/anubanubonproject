@@ -31,7 +31,7 @@ import {
   mergeTeachersWithSubmitters,
   TeacherItem,
 } from "@/lib/teachers-service";
-import { getProjectStatsSubmissions } from "@/lib/project-participant-service";
+import { getProjectStatsSubmissions, hasProjectParticipantIndex } from "@/lib/project-participant-service";
 import { useInstantState } from "@/lib/use-instant";
 import { CertificateRecord, Project } from "@/lib/types";
 
@@ -107,7 +107,9 @@ export default function CertificatePage() {
       // Safe rollout fallback before the one-time compact-index migration.
       // This preserves correct membership, though it is intentionally slower
       // and disappears as soon as the derived index exists.
-      if (!submissions.length) submissions = await getGallerySubmissions(project.id);
+      if (!submissions.length && !(await hasProjectParticipantIndex(project.id))) {
+        submissions = await getGallerySubmissions(project.id);
+      }
       participants = mergeTeachersWithSubmitters([], submissions);
     }
     participants.sort((a, b) => a.fullName.localeCompare(b.fullName, "th"));

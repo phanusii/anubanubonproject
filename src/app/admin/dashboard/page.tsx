@@ -5,8 +5,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
 import { getDashboardStats, getStorageUsage, rebuildGallerySnapshot } from "@/lib/submission-service";
-import { getTeacherSnapshotRaw, rebuildTeacherSnapshot } from "@/lib/teachers-service";
-import { hasProjectParticipantIndex } from "@/lib/project-participant-service";
+import { rebuildTeacherSnapshot } from "@/lib/teachers-service";
 import { DashboardStats } from "@/lib/types";
 import { FileCheck, Users, FileText, Image as ImageIcon, TrendingUp, HardDrive, RefreshCw } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
@@ -27,23 +26,8 @@ export default function AdminDashboardPage() {
   const [storageBusy, setStorageBusy] = useState(false);
   const [storageCount, setStorageCount] = useState(0);
   const [storageError, setStorageError] = useState("");
-
-  useEffect(() => {
-    getTeacherSnapshotRaw()
-      .then(async (s) => {
-        // First migration visit: create the snapshot automatically so public
-        // traffic stops reading the roster one document at a time immediately.
-        if (!s) await rebuildTeacherSnapshot();
-      })
-      .catch(() => {});
-    hasProjectParticipantIndex()
-      .then(async (ready) => {
-        // One-time migration. The rebuild also keeps the legacy gallery/admin
-        // snapshots intact, so switching to the queryable index is reversible.
-        if (!ready) await rebuildGallerySnapshot();
-      })
-      .catch((error) => console.warn("Project participant index migration skipped:", error));
-  }, []);
+  const [maintenanceBusy, setMaintenanceBusy] = useState(false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState("");
 
   const computeStorage = async () => {
     if (storageBusy) return;
@@ -62,6 +46,25 @@ export default function AdminDashboardPage() {
       );
     } finally {
       setStorageBusy(false);
+    }
+  };
+
+  const rebuildDerivedData = async () => {
+    if (maintenanceBusy) return;
+    if (!confirm("ซ่อมข้อมูลสรุปสำหรับคลังผลงาน สถิติ และรายชื่อครูตอนนี้หรือไม่?\n\nระบบจะอ่านผลงานทั้งหมดหนึ่งครั้ง ควรใช้เฉพาะเมื่อข้อมูลไม่ตรงกัน")) return;
+    setMaintenanceBusy(true);
+    setMaintenanceMessage("กำลังซ่อมข้อมูลสรุป กรุณาอย่าปิดหน้านี้...");
+    try {
+      // Run the expensive repairs sequentially so reads/writes do not spike at once.
+      const gallery = await rebuildGallerySnapshot();
+      const teachers = await rebuildTeacherSnapshot();
+      setMaintenanceMessage(`ซ่อมเรียบร้อย: ผลงาน ${gallery?.count || 0} ชิ้น · รายชื่อครู ${teachers.items.length} คน`);
+      setStats(await getDashboardStats());
+    } catch (error) {
+      console.error("Derived data rebuild failed:", error);
+      setMaintenanceMessage("ซ่อมข้อมูลไม่สำเร็จ กรุณาตรวจสิทธิ์แอดมินและลองใหม่");
+    } finally {
+      setMaintenanceBusy(false);
     }
   };
 
@@ -171,6 +174,25 @@ export default function AdminDashboardPage() {
               </div>
             </div>
           )}
+
+          <div className="glass-panel p-5 rounded-3xl border border-amber-100 bg-amber-50/40 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="font-extrabold text-sm text-slate-900">เครื่องมือซ่อมข้อมูลสรุป</h2>
+              <p className="text-[11px] text-slate-500 font-medium mt-1">
+                ไม่ทำงานอัตโนมัติ เพื่อประหยัดโควตา ใช้เมื่อคลังผลงาน สถิติ หรือรายชื่อไม่ตรงกับข้อมูลจริงเท่านั้น
+              </p>
+              {maintenanceMessage && <p className="text-xs font-bold text-amber-700 mt-2">{maintenanceMessage}</p>}
+            </div>
+            <button
+              type="button"
+              onClick={rebuildDerivedData}
+              disabled={maintenanceBusy}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-500 text-white text-xs font-extrabold shadow-sm disabled:opacity-50 shrink-0"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${maintenanceBusy ? "animate-spin" : ""}`} />
+              {maintenanceBusy ? "กำลังซ่อม..." : "ซ่อมข้อมูลสรุป"}
+            </button>
+          </div>
 
           {/* Storage capacity vs free quota */}
           <div className="glass-panel p-6 rounded-3xl border border-white bg-white shadow-xs space-y-3">

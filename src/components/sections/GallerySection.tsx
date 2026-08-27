@@ -90,7 +90,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
           gradeLevel: grade === "ทั้งหมด" ? undefined : grade,
           subjectGroup: subject === "ทั้งหมด" ? undefined : subject,
         });
-        if (page.items.length || await hasProjectParticipantIndex()) {
+        if (page.items.length || await hasProjectParticipantIndex(pid)) {
           setSubmissions(page.items.flatMap((item) => item.works));
           setCursor(page.cursor);
           setHasMore(page.hasMore);
@@ -115,8 +115,8 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
   useEffect(() => {
     async function loadInitial() {
       try {
-        const initialPid = visibleInstantProjects()[0]?.id || "all";
-        const firstPagePromise = fetchFirstPage(initialPid);
+        const initialPid = visibleInstantProjects()[0]?.id || "";
+        const firstPagePromise = initialPid ? fetchFirstPage(initialPid) : null;
         const [projs, gls, sgs, st, teachers] = await Promise.all([
           getProjects(),
           getGradeLevels(),
@@ -147,7 +147,7 @@ export default function GallerySection({ onOpenPerson }: { onOpenPerson?: (name:
         const resolvedPid = visibleProjects[0]?.id || "all";
         setSelectedProjectId(resolvedPid);
         void refreshTotal(resolvedPid, hidden);
-        await firstPagePromise;
+        if (firstPagePromise) await firstPagePromise;
         if (resolvedPid !== initialPid) await fetchFirstPage(resolvedPid);
       } catch (err) {
         console.error("Gallery page initial load error:", err);

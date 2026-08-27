@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import type { DocumentData, QueryDocumentSnapshot } from "firebase/firestore";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AdminSidebar from "@/components/AdminSidebar";
@@ -10,7 +11,6 @@ import {
   deleteSubmission,
   updateSubmission,
   getGallerySubmissions,
-  getAdminSubmissionSummaries,
   getUserProjectSubmissions,
   rebuildGallerySnapshot,
   DEFAULT_GRADE_LEVELS,
@@ -18,7 +18,8 @@ import {
 } from "@/lib/submission-service";
 import { getGradeLevels, getSubjectGroups } from "@/lib/masters-service";
 import { getProjects } from "@/lib/projects-service";
-import { AdminSubmissionSummary, Submission, GradeLevelOption, SubjectGroupOption, Project } from "@/lib/types";
+import { getProjectParticipantPage, searchProjectParticipants } from "@/lib/project-participant-service";
+import { AdminSubmissionSummary, ProjectParticipantSummary, Submission, GradeLevelOption, SubjectGroupOption, Project } from "@/lib/types";
 import { 
   Search, 
   Trash2, 
@@ -42,6 +43,25 @@ import { isGoogleDriveLink, extractGoogleDriveFileId } from "@/lib/google-drive-
 import { checkDriveLinkPublic } from "@/lib/certificate-service";
 import { displayWorkTitle, shortSubject } from "@/lib/format";
 
+const ADMIN_PAGE_SIZE = 20;
+
+function participantToAdminSummary(item: ProjectParticipantSummary): AdminSubmissionSummary {
+  return {
+    key: item.participantKey || item.id,
+    projectId: item.projectId,
+    fullName: item.fullName,
+    teacherId: item.teacherId,
+    position: item.position || "",
+    school: item.school || "",
+    gradeLevel: item.gradeLevel || "",
+    subjectGroup: item.subjectGroup || "",
+    submissionIds: item.submissionIds || [],
+    submittedCount: item.submittedCount || item.submissionIds?.length || 0,
+    latestCreatedAt: item.latestCreatedAt || 0,
+    latestUploadDate: item.latestUploadDate || "",
+  };
+}
+
 export default function AdminSubmissionsPage() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [summaries, setSummaries] = useState<AdminSubmissionSummary[]>([]);
@@ -61,6 +81,8 @@ export default function AdminSubmissionsPage() {
   const [showTools, setShowTools] = useState(false);
   const [expandedTeachers, setExpandedTeachers] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
+  const [pageCursors, setPageCursors] = useState<Array<QueryDocumentSnapshot<DocumentData> | null>>([null]);
+  const [hasNextPage, setHasNextPage] = useState(false);
 
   // Selected Submission Modal for viewing
   const [activeSubmission, setActiveSubmission] = useState<Submission | null>(null);
@@ -98,39 +120,73 @@ export default function AdminSubmissionsPage() {
     return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => {
+  async function loadData(
+    targetPage = page,
+    cursor: QueryDocumentSnapshot<DocumentData> | null = pageCursors[targetPage - 1] || null,
+    reset = false,
+  ) {
     if (!selectedProjectId) return;
-    let cancelled = false;
-    void Promise.resolve().then(async () => {
-      if (cancelled) return;
-      setLoadingSubmissions(true);
+    setLoadingSubmissions(true);
+    try {
+      const searchValue = search.trim();
+      if (searchValue.length >= 2) {
+        const found = await searchProjectParticipants({
+          projectId: selectedProjectId,
+          name: searchValue,
+          pageSize: ADMIN_PAGE_SIZE,
+        });
+        const filtered = found.filter((item) =>
+          (selectedGrade === "ทั้งหมด" || item.gradeLevel === selectedGrade) &&
+          (selectedSubject === "ทั้งหมด" || item.subjectGroup === selectedSubject),
+        );
+        setSummaries(filtered.map(participantToAdminSummary));
+        setHasNextPage(false);
+        setPage(1);
+      } else {
+        const result = await getProjectParticipantPage({
+          projectId: selectedProjectId,
+          pageSize: ADMIN_PAGE_SIZE,
+          cursor,
+          gradeLevel: selectedGrade === "ทั้งหมด" ? undefined : selectedGrade,
+          subjectGroup: selectedSubject === "ทั้งหมด" ? undefined : selectedSubject,
+        });
+        setSummaries(result.items.map(participantToAdminSummary));
+        setHasNextPage(result.hasMore);
+        setPage(targetPage);
+        setPageCursors((previous) => {
+          const next = reset ? [null] : [...previous];
+          if (result.cursor) next[targetPage] = result.cursor;
+          return next;
+        });
+      }
       setSubmissions([]);
-      setSummaries([]);
       setLoadedTeachers(new Set());
       setLoadingTeachers(new Set());
       setExpandedTeachers(new Set());
+    } catch (error) {
+      console.error("Load project participants failed:", error);
+      setSummaries([]);
+      setHasNextPage(false);
+    } finally {
+      setLoadingSubmissions(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    const timer = window.setTimeout(() => {
+      setSummaries([]);
       setPage(1);
+      setPageCursors([null]);
       setSelectedIds(new Set());
       setNonPublicSubs(null);
       setScanMessage("");
-      const items = await getAdminSubmissionSummaries(selectedProjectId);
-      if (!cancelled) {
-        setSummaries(items);
-        setLoadingSubmissions(false);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [selectedProjectId]);
-
-  async function loadData() {
-    if (!selectedProjectId) return;
-    setLoadingSubmissions(true);
-    const items = await getAdminSubmissionSummaries(selectedProjectId);
-    setSummaries(items);
-    setSubmissions([]);
-    setLoadedTeachers(new Set());
-    setLoadingSubmissions(false);
-  }
+      void loadData(1, null, true);
+    }, search.trim() ? 300 : 0);
+    return () => window.clearTimeout(timer);
+    // Loading is intentionally reset whenever the server-side query changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProjectId, selectedGrade, selectedSubject, search]);
 
   const loadTeacherWorks = async (summary: AdminSubmissionSummary) => {
     if (!selectedProjectId || loadedTeachers.has(summary.key) || loadingTeachers.has(summary.key)) return;
@@ -154,7 +210,6 @@ export default function AdminSubmissionsPage() {
   const handleDelete = async (sub: Submission) => {
     if (confirm(`คุณต้องการลบผลงาน "${sub.projectTitle}" ของ ${sub.fullName} ใช่หรือไม่?\n\n(ไฟล์และข้อมูลผลงานทั้งหมดจะถูกลบออกจากระบบและคลาวด์ไดร์ฟอย่างสมบูรณ์)`)) {
       await deleteSubmission(sub.id);
-      await rebuildGallerySnapshot().catch(() => {});
       loadData();
     }
   };
@@ -183,7 +238,7 @@ export default function AdminSubmissionsPage() {
     setBulkProgress({ done: 0, total: items.length });
     for (let i = 0; i < items.length; i++) {
       try {
-        await deleteSubmission(items[i].id);
+        await deleteSubmission(items[i].id, { skipSnapshotPatch: true });
       } catch {
         /* keep going — report count at the end */
       }
@@ -234,7 +289,6 @@ export default function AdminSubmissionsPage() {
   const deleteNonPublicSub = async (sub: Submission) => {
     if (!confirm(`ลบผลงาน "${sub.projectTitle}" ของ ${sub.fullName}?\n(ครูจะต้องส่งใหม่โดยแชร์ลิงก์เป็นสาธารณะ)`)) return;
     await deleteSubmission(sub.id);
-    await rebuildGallerySnapshot().catch(() => {});
     setNonPublicSubs((prev) => (prev ? prev.filter((s) => s.id !== sub.id) : prev));
     loadData();
   };
@@ -246,7 +300,7 @@ export default function AdminSubmissionsPage() {
     setScanning(true);
     setScanMessage("กำลังลบ...");
     for (const sub of nonPublicSubs) {
-      await deleteSubmission(sub.id).catch(() => {});
+      await deleteSubmission(sub.id, { skipSnapshotPatch: true }).catch(() => {});
     }
     await rebuildGallerySnapshot().catch(() => {});
     setScanMessage(`ลบแล้ว ${nonPublicSubs.length} ชิ้น เรียบร้อย`);
@@ -265,7 +319,6 @@ export default function AdminSubmissionsPage() {
     if (!editingSubmission) return;
 
     await updateSubmission(editingSubmission.id, editForm);
-    await rebuildGallerySnapshot().catch(() => {});
 
     setEditingSubmission(null);
     loadData();
@@ -331,10 +384,7 @@ export default function AdminSubmissionsPage() {
       }));
   }, [summaries, submissions, search, selectedGrade, selectedSubject]);
 
-  const PAGE_SIZE = 20;
-  const totalPages = Math.max(1, Math.ceil(teacherGroups.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pagedTeacherGroups = teacherGroups.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pagedTeacherGroups = teacherGroups;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -349,7 +399,7 @@ export default function AdminSubmissionsPage() {
               <div className="mr-auto min-w-0">
                 <h1 className="text-xl font-extrabold text-slate-900">จัดการผลงาน</h1>
                 <p className="text-xs font-semibold text-slate-500 truncate">
-                  {selectedProject?.name || "กำลังโหลดรอบ..."} · {teacherGroups.length.toLocaleString()} คน · {teacherGroups.reduce((total, group) => total + group.summary.submittedCount, 0).toLocaleString()} ชิ้น
+                  {selectedProject?.name || "กำลังโหลดรอบ..."} · หน้านี้ {teacherGroups.length.toLocaleString()} คน · {teacherGroups.reduce((total, group) => total + group.summary.submittedCount, 0).toLocaleString()} ชิ้น
                 </p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-[150px_minmax(260px,1fr)] gap-2 xl:w-[610px]">
@@ -475,7 +525,7 @@ export default function AdminSubmissionsPage() {
                 <Search className="w-4 h-4 absolute left-4 top-3.5 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="ค้นหาชื่อครู, ผลงาน, โรงเรียน, กลุ่มสาระ, สายชั้น..."
+                  placeholder="ค้นหาชื่อครู (อย่างน้อย 2 ตัวอักษร)..."
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); setPage(1); setExpandedTeachers(new Set()); }}
                   className="w-full pl-11 pr-4 py-2.5 rounded-2xl border border-slate-200 bg-slate-50/50 text-slate-900 font-semibold text-xs focus:ring-2 focus:ring-blue-500 focus:bg-white focus:outline-none"
@@ -660,11 +710,11 @@ export default function AdminSubmissionsPage() {
             })}
           </div>
 
-          {teacherGroups.length > PAGE_SIZE && (
+          {(page > 1 || hasNextPage) && !search.trim() && (
             <nav className="glass-panel rounded-2xl border border-white bg-white p-3 flex items-center justify-between gap-3" aria-label="แบ่งหน้ารายชื่อครู">
-              <button type="button" disabled={safePage === 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-extrabold disabled:opacity-40">ก่อนหน้า</button>
-              <span className="text-xs font-bold text-slate-600">หน้า {safePage} จาก {totalPages} · แสดงครั้งละ {PAGE_SIZE} คน</span>
-              <button type="button" disabled={safePage === totalPages} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} className="px-4 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs font-extrabold disabled:opacity-40">ถัดไป</button>
+              <button type="button" disabled={page === 1 || loadingSubmissions} onClick={() => void loadData(page - 1, pageCursors[page - 2] || null)} className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-extrabold disabled:opacity-40">ก่อนหน้า</button>
+              <span className="text-xs font-bold text-slate-600">หน้า {page} · แสดงครั้งละ {ADMIN_PAGE_SIZE} คน</span>
+              <button type="button" disabled={!hasNextPage || loadingSubmissions} onClick={() => void loadData(page + 1, pageCursors[page] || null)} className="px-4 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-xs font-extrabold disabled:opacity-40">ถัดไป</button>
             </nav>
           )}
             </>

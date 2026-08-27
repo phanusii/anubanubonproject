@@ -280,9 +280,10 @@ function quotaStateV2_(properties) {
   return { key: key, value: state };
 }
 
-/** Track a conservative lower-bound estimate from operations visible to this
- * notifier. Firebase Console remains authoritative because browser/admin reads
- * cannot be observed by Apps Script. */
+/** Track only activity observed by this notifier. Firebase Console remains
+ * authoritative because browser/admin reads and billing adjustments cannot be
+ * observed by Apps Script. The `writes` field is retained for compatibility and
+ * represents accepted submissions seen by the bot, not all Firestore writes. */
 function quotaBump_(documents, fixedReads) {
   var properties = PropertiesService.getScriptProperties();
   var wrapped = quotaStateV2_(properties);
@@ -317,12 +318,12 @@ function quotaTelegramLinesV3_() {
       : "💳 ค่าใช้จ่าย: ยังไม่พบความเสี่ยงจากตัวนับของบอต";
   return [
     "",
-    "💠 โควตาฟรีหลังรับงานนี้",
+    "💠 กิจกรรมขั้นต่ำที่บอตตรวจพบวันนี้",
     status,
-    "📖 Reads ≥ " + state.reads.toLocaleString("en-US") + "/50,000 (" + readPercent.toFixed(1) + "%)" +
-      "  •  ✍️ Writes ≥ " + state.writes.toLocaleString("en-US") + "/20,000 (" + writePercent.toFixed(1) + "%)",
+    "📖 Reads ที่บอตเห็น ≥ " + state.reads.toLocaleString("en-US") + "/50,000 (" + readPercent.toFixed(1) + "%)" +
+      "  •  📥 งานที่บอตเห็น " + state.submissions.toLocaleString("en-US") + " รายการ",
     billing,
-    "ℹ️ เป็นยอดขั้นต่ำ ยอดจริงและ Billing ของ Google อาจแสดงล่าช้า"
+    "ℹ️ ไม่ใช่ยอด Billing จริง — โปรดตรวจ Firebase/Google Cloud Console เมื่อต้องการยอดรวมทุกหน้า"
   ];
 }
 

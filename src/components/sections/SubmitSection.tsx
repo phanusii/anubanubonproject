@@ -552,7 +552,7 @@ export default function SubmitSection() {
       // Apps Script rereads all values from Firestore; the browser sends only the id.
       void syncTeacherFromSubmission(savedSubmission.id);
 
-      // Send immediately; the Apps Script minute poller remains the fallback.
+      // Send immediately; the bounded five-minute Apps Script recovery pass is the fallback.
       void notifyTelegramUpload(savedSubmission.id);
 
       setIsUploading(false);

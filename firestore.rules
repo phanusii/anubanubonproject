@@ -112,15 +112,23 @@ service cloud.firestore {
                && request.resource.data.works.size() <= 50
                && request.resource.data.submittedCount is int
                && request.resource.data.submittedCount >= 0
+               && request.resource.data.submittedCount == request.resource.data.submissionIds.size()
+               && request.resource.data.works.size() == request.resource.data.submissionIds.size()
                && request.resource.data.latestCreatedAt is int
                && request.resource.data.updatedAt is int;
       }
+      function recentParticipantRefresh() {
+        return request.resource.data.updatedAt >= request.time.toMillis() - 300000
+               && request.resource.data.updatedAt <= request.time.toMillis() + 300000;
+      }
       allow read: if true;
-      allow create: if validParticipantSummary();
+      allow create: if isAdmin() || (validParticipantSummary() && recentParticipantRefresh());
       allow update: if isAdmin()
                     || (validParticipantSummary()
+                        && recentParticipantRefresh()
                         && request.resource.data.projectId == resource.data.projectId
-                        && request.resource.data.participantKey == resource.data.participantKey);
+                        && request.resource.data.participantKey == resource.data.participantKey
+                        && request.resource.data.fullName == resource.data.fullName);
       allow delete: if isAdmin();
     }
 
@@ -141,12 +149,22 @@ service cloud.firestore {
                && request.resource.data.participants.size() <= 500
                && request.resource.data.totalWorks is int
                && request.resource.data.totalWorks >= 0
+               && request.resource.data.totalWorks <= request.resource.data.participants.size() * 50
                && request.resource.data.updatedAt is int;
       }
+      function recentStatsRefresh() {
+        return request.resource.data.updatedAt >= request.time.toMillis() - 300000
+               && request.resource.data.updatedAt <= request.time.toMillis() + 300000;
+      }
       allow read: if true;
-      allow create: if validProjectStats();
+      allow create: if isAdmin()
+                    || (validProjectStats()
+                        && recentStatsRefresh()
+                        && document == request.resource.data.projectId);
       allow update: if isAdmin()
                     || (validProjectStats()
+                        && recentStatsRefresh()
+                        && document == request.resource.data.projectId
                         && request.resource.data.projectId == resource.data.projectId);
       allow delete: if isAdmin();
     }

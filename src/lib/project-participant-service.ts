@@ -266,9 +266,20 @@ export async function searchProjectParticipants(params: {
   }));
 }
 
-export async function hasProjectParticipantIndex(): Promise<boolean> {
+export async function hasProjectParticipantIndex(projectId?: string): Promise<boolean> {
   const snapshot = await getDoc(doc(db, META_COLLECTION, "current"));
-  if (snapshot.exists() && Number(snapshot.data().participants || 0) > 0) return true;
+  // This marker is written only after the full rebuild finishes. Once present,
+  // an empty round genuinely has no indexed submissions and must not trigger a
+  // costly legacy full-collection fallback.
+  if (snapshot.exists() && Number(snapshot.data().updatedAt || 0) > 0) return true;
+  if (projectId) {
+    const participant = await getDocs(query(
+      collection(db, COLLECTION),
+      where("projectId", "==", projectId),
+      limit(1),
+    ));
+    return !participant.empty;
+  }
   // Self-healing fallback for a partially completed migration: derived rows
   // are enough to use the fast path even if the optional admin marker failed.
   const participant = await getDocs(query(collection(db, COLLECTION), limit(1)));
