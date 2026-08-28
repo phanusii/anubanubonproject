@@ -51,6 +51,7 @@ export default function SubmitSection() {
   const [province, setProvince] = useState("");
   const [subjectGroup, setSubjectGroup] = useState("");
   const [description, setDescription] = useState("");
+  const [customWorkTitle, setCustomWorkTitle] = useState("");
 
   // Submission Method Toggle ('file' | 'drive')
   const [submissionMethod, setSubmissionMethod] = useState<'file' | 'drive'>('file');
@@ -141,6 +142,11 @@ export default function SubmitSection() {
         setSelectedSlotIndex(safeSlot);
         const existing = latestSubmissionPerSlot(personSubmissions, proj).get(slotIdAt(safeSlot));
         setReplacingSubmissionId(existing?.id || null);
+        setCustomWorkTitle(
+          proj.workSlotAllowCustomTitle?.[safeSlot]
+            ? existing?.projectTitle || ""
+            : "",
+        );
       }
     }
     initData();
@@ -163,6 +169,7 @@ export default function SubmitSection() {
     setDriveUrl("");
     setDriveFileId(null);
     setDescription("");
+    setCustomWorkTitle("");
     setIsSuccess(false);
     setErrorMessage("");
 
@@ -248,6 +255,14 @@ export default function SubmitSection() {
     }
     return `ชิ้นที่ ${slotIdx + 1}: ผลงานการเรียนรู้/สื่อการสอน`;
   };
+
+  const slotAllowsCustomTitle = (slotIdx: number): boolean =>
+    Boolean(activeProject?.workSlotAllowCustomTitle?.[slotIdx]);
+
+  const finalWorkTitle = (slotIdx: number): string =>
+    slotAllowsCustomTitle(slotIdx)
+      ? customWorkTitle.trim().replace(/\s+/g, " ").slice(0, 150)
+      : getSlotTitle(slotIdx);
 
   const handleGradeLevelChange = async (newGrade: string) => {
     setGradeLevel(newGrade);
@@ -357,9 +372,14 @@ export default function SubmitSection() {
       const emptyIdx = Array.from({ length: max }).findIndex((_, index) => !occupied.has(slotIdAt(index)));
       setSelectedSlotIndex(emptyIdx);
       setReplacingSubmissionId(null);
+      setCustomWorkTitle("");
     } else if (existingList.length > 0) {
       setSelectedSlotIndex(0);
-      setReplacingSubmissionId(existingList[0].id);
+      const firstSubmission = occupied.get(slotIdAt(0)) || existingList[0];
+      setReplacingSubmissionId(firstSubmission.id);
+      setCustomWorkTitle(
+        slotAllowsCustomTitle(0) ? firstSubmission.projectTitle : "",
+      );
     }
     setIsCheckingLimit(false);
   };
@@ -370,6 +390,9 @@ export default function SubmitSection() {
     if (existingSub) {
       setReplacingSubmissionId(existingSub.id);
       setDescription(existingSub.description || "");
+      setCustomWorkTitle(
+        slotAllowsCustomTitle(slotIdx) ? existingSub.projectTitle : "",
+      );
       if (existingSub.submissionMethod === 'drive') {
         setSubmissionMethod('drive');
         setDriveUrl(existingSub.driveLink || existingSub.fileURL || "");
@@ -378,6 +401,7 @@ export default function SubmitSection() {
     } else {
       setReplacingSubmissionId(null);
       setDescription("");
+      setCustomWorkTitle("");
       setDriveUrl("");
       setDriveFileId(null);
     }
@@ -399,6 +423,11 @@ export default function SubmitSection() {
     }
     if (isCustomName && exactExistingPerson && confirmedExistingName !== normalizeTeacherName(fullName)) {
       setErrorMessage(`พบรายชื่อ ${exactExistingPerson.fullName} อยู่แล้ว กรุณากดเลือกรายชื่อเดิมด้านล่าง`);
+      return;
+    }
+
+    if (slotAllowsCustomTitle(selectedSlotIndex) && !customWorkTitle.trim()) {
+      setErrorMessage("กรุณากรอกชื่อชิ้นงาน/ชื่อเรื่องก่อนส่งงานชิ้นนี้");
       return;
     }
 
@@ -437,6 +466,7 @@ export default function SubmitSection() {
       const effectivePosition = (roundProfile?.position || position).trim();
       const effectiveGradeLevel = roundProfile?.gradeLevel || gradeLevel;
       const effectiveSubjectGroup = roundProfile?.subjectGroup || subjectGroup;
+      const finalTitle = finalWorkTitle(selectedSlotIndex);
 
       let fileURL = "";
       let ext = "drive";
@@ -457,7 +487,7 @@ export default function SubmitSection() {
             submitterName: effectiveFullName,
             workSlotId: slotIdAt(selectedSlotIndex),
             // File name: "งานชิ้นที่ N <admin's work title>" (strip a redundant "ชิ้นที่ N:" prefix)
-            workLabel: `งานชิ้นที่ ${selectedSlotIndex + 1} ${getSlotTitle(selectedSlotIndex)
+            workLabel: `งานชิ้นที่ ${selectedSlotIndex + 1} ${finalTitle
               .replace(/^\s*ชิ้นที่\s*\d+\s*[:：]?\s*/, "")
               .trim()}`.trim(),
             // Replacing a slot that already has a Drive file → update that file (new version),
@@ -506,8 +536,6 @@ export default function SubmitSection() {
         thumb = getGoogleDriveThumbnail(driveFileId);
         setUploadProgress(100);
       }
-
-      const finalTitle = getSlotTitle(selectedSlotIndex);
 
       const subData = {
         fullName: effectiveFullName,
@@ -582,6 +610,7 @@ export default function SubmitSection() {
     setSchool(settings?.schoolName || "โรงเรียนอนุบาลอุบลราชธานี");
     setProvince("");
     setDescription("");
+    setCustomWorkTitle("");
     setSelectedFile(null);
     setThumbnailDataUrl("");
     setIsPreparingFile(false);
@@ -596,6 +625,7 @@ export default function SubmitSection() {
     // Keep the selected teacher/profile fields and the refreshed submission
     // history. Only clear the previous work file and move to the next empty slot.
     setDescription("");
+    setCustomWorkTitle("");
     setSelectedFile(null);
     setThumbnailDataUrl("");
     setIsPreparingFile(false);
@@ -614,11 +644,16 @@ export default function SubmitSection() {
       if (nextEmpty >= 0) {
         setSelectedSlotIndex(nextEmpty);
         setReplacingSubmissionId(null);
+        setCustomWorkTitle("");
       } else {
         // Everything is complete: keep the same teacher and open the first work
         // as a replaceable item instead of accidentally creating a duplicate.
         setSelectedSlotIndex(0);
-        setReplacingSubmissionId(occupied.get(slotIdAt(0))?.id || null);
+        const firstSubmission = occupied.get(slotIdAt(0));
+        setReplacingSubmissionId(firstSubmission?.id || null);
+        setCustomWorkTitle(
+          slotAllowsCustomTitle(0) ? firstSubmission?.projectTitle || "" : "",
+        );
       }
     }
 
@@ -1022,6 +1057,33 @@ export default function SubmitSection() {
                         {/* Inline uploader for the selected work */}
                         {isSelected && (
                           <div className="px-4 pb-4 pt-4 space-y-4 border-t border-blue-100">
+                            {slotAllowsCustomTitle(idx) && (
+                              <label className="block space-y-2 rounded-2xl border border-violet-200 bg-violet-50/70 p-3.5">
+                                <span className="flex items-center justify-between gap-3">
+                                  <span className="text-sm font-extrabold text-violet-900">
+                                    ชื่อชิ้นงาน/ชื่อเรื่อง <span className="text-red-500">*</span>
+                                  </span>
+                                  <span className="text-[10px] font-bold text-violet-500">
+                                    {customWorkTitle.length}/150
+                                  </span>
+                                </span>
+                                <input
+                                  type="text"
+                                  value={customWorkTitle}
+                                  maxLength={150}
+                                  onChange={(event) => {
+                                    setCustomWorkTitle(event.target.value);
+                                    if (event.target.value.trim()) setErrorMessage("");
+                                  }}
+                                  placeholder="เช่น การจัดการเรียนรู้เรื่องเศษส่วนด้วยเกมดิจิทัล"
+                                  className="w-full rounded-xl border border-violet-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                                />
+                                <span className="block text-[11px] font-semibold text-violet-700">
+                                  หัวข้อที่แอดมินกำหนด: {getSlotTitle(idx)}
+                                </span>
+                              </label>
+                            )}
+
                             <div className="inline-flex items-center bg-slate-100 p-1 rounded-2xl">
                               <button
                                 type="button"
@@ -1141,7 +1203,7 @@ export default function SubmitSection() {
                 ยืนยันการลบและอัปโหลดไฟล์แทนที่?
               </h3>
               <p className="text-xs text-slate-600 font-medium leading-relaxed">
-                ท่านกำลังส่งผลงานแทนที่ <span className="font-bold text-amber-600">ชิ้นงานที่ {selectedSlotIndex + 1} ({getSlotTitle(selectedSlotIndex)})</span> 
+                ท่านกำลังส่งผลงานแทนที่ <span className="font-bold text-amber-600">ชิ้นงานที่ {selectedSlotIndex + 1} ({finalWorkTitle(selectedSlotIndex) || getSlotTitle(selectedSlotIndex)})</span>
                 ไฟล์ผลงานเดิมจะถูกลบออก และถูกแทนที่ด้วยไฟล์ผลงานใหม่นี้ทันที
               </p>
             </div>

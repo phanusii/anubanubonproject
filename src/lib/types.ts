@@ -254,6 +254,8 @@ export interface Project {
   openDate?: string;
   closeDate?: string;
   workSlotTitles: string[];
+  /** Per-slot switch: when true, the teacher must provide the displayed work title. */
+  workSlotAllowCustomTitle?: boolean[];
   maxUpload: number;
   status?: 'active' | 'closed';
   createdAt?: number;

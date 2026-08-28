@@ -78,6 +78,7 @@ export default function PersonWorksView({ name, field = "grade", value }: Person
         setProjects(visibleProjects);
         const visibleIds = new Set(visibleProjects.map((project) => project.id));
         const projectOrder = new Map(visibleProjects.map((project, index) => [project.id, index]));
+        const projectById = new Map(visibleProjects.map((project) => [project.id, project]));
         const projectByName = new Map(visibleProjects.map((project) => [project.name.trim(), project]));
         const slotOrder = new Map<string, number>();
         for (const project of visibleProjects) {
@@ -85,6 +86,12 @@ export default function PersonWorksView({ name, field = "grade", value }: Person
             slotOrder.set(`${project.id}::${title.trim()}`, index);
           });
         }
+        const submissionSlotIndex = (submission: Submission, project?: Project): number => {
+          const slotMatch = submission.workSlotId?.match(/^slot-(\d+)$/);
+          if (slotMatch) return Math.max(0, Number(slotMatch[1]) - 1);
+          if (!project) return Number.MAX_SAFE_INTEGER;
+          return slotOrder.get(`${project.id}::${submission.projectTitle.trim()}`) ?? Number.MAX_SAFE_INTEGER;
+        };
         const mine = all
           .filter((submission) => {
             if (norm(submission.fullName) !== norm(name)) return false;
@@ -104,17 +111,19 @@ export default function PersonWorksView({ name, field = "grade", value }: Person
           })
           .sort((a, b) => {
             const aProject = a.projectId
-              ? visibleProjects.find((project) => project.id === a.projectId)
+              ? projectById.get(a.projectId)
               : projectByName.get((a.projectName || "").trim());
             const bProject = b.projectId
-              ? visibleProjects.find((project) => project.id === b.projectId)
+              ? projectById.get(b.projectId)
               : projectByName.get((b.projectName || "").trim());
             const aProjectIndex = aProject ? projectOrder.get(aProject.id) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
             const bProjectIndex = bProject ? projectOrder.get(bProject.id) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
             if (aProjectIndex !== bProjectIndex) return aProjectIndex - bProjectIndex;
 
-            const aSlot = aProject ? slotOrder.get(`${aProject.id}::${a.projectTitle.trim()}`) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
-            const bSlot = bProject ? slotOrder.get(`${bProject.id}::${b.projectTitle.trim()}`) ?? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+            // Custom titles deliberately differ from the Admin's slot label.
+            // Prefer the stable slot id and keep title matching for old records.
+            const aSlot = submissionSlotIndex(a, aProject);
+            const bSlot = submissionSlotIndex(b, bProject);
             if (aSlot !== bSlot) return aSlot - bSlot;
             return (a.createdAt || 0) - (b.createdAt || 0);
           });

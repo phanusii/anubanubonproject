@@ -28,6 +28,7 @@ function blankProject(settings: TrainingSettings | null): Project {
     openDate: "",
     closeDate: "",
     workSlotTitles: [...titles],
+    workSlotAllowCustomTitle: titles.map(() => false),
     maxUpload: titles.length || 3,
     status: "active",
     createdAt: Date.now(),
@@ -108,7 +109,15 @@ export default function AdminProjectsPage() {
     const titles = Array.from({ length: count }).map(
       (_, i) => editing.workSlotTitles?.[i] || `ชิ้นที่ ${i + 1}: ผลงานการเรียนรู้/สื่อการสอน`
     );
-    setEditing({ ...editing, maxUpload: count, workSlotTitles: titles });
+    const customTitleFlags = Array.from({ length: count }).map(
+      (_, i) => editing.workSlotAllowCustomTitle?.[i] || false,
+    );
+    setEditing({
+      ...editing,
+      maxUpload: count,
+      workSlotTitles: titles,
+      workSlotAllowCustomTitle: customTitleFlags,
+    });
   };
 
   const handleSlotTitleChange = (idx: number, val: string) => {
@@ -116,6 +125,15 @@ export default function AdminProjectsPage() {
     const titles = [...editing.workSlotTitles];
     titles[idx] = val;
     setEditing({ ...editing, workSlotTitles: titles });
+  };
+
+  const toggleSlotCustomTitle = (idx: number) => {
+    if (!editing) return;
+    const flags = Array.from({ length: editing.maxUpload }).map(
+      (_, index) => editing.workSlotAllowCustomTitle?.[index] || false,
+    );
+    flags[idx] = !flags[idx];
+    setEditing({ ...editing, workSlotAllowCustomTitle: flags });
   };
 
   const toggleAttendee = (id: string) => {
@@ -532,16 +550,43 @@ export default function AdminProjectsPage() {
               <div className="space-y-2">
                 <span className="text-xs font-bold text-slate-700 block">หัวข้อผลงานแต่ละชิ้น:</span>
                 {editing.workSlotTitles.map((title, idx) => (
-                  <div key={idx} className="flex items-center gap-3 p-3 rounded-2xl border border-slate-200 bg-slate-50/50">
-                    <span className="font-extrabold text-xs text-blue-600 bg-blue-100 px-3 py-1 rounded-xl shrink-0">
-                      ชิ้นที่ {idx + 1}
-                    </span>
-                    <input
-                      type="text"
-                      value={title}
-                      onChange={(e) => handleSlotTitleChange(idx, e.target.value)}
-                      className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 font-semibold text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    />
+                  <div key={idx} className="p-3 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-2.5">
+                    <div className="flex items-center gap-3">
+                      <span className="font-extrabold text-xs text-blue-600 bg-blue-100 px-3 py-1 rounded-xl shrink-0">
+                        ชิ้นที่ {idx + 1}
+                      </span>
+                      <input
+                        type="text"
+                        value={title}
+                        onChange={(e) => handleSlotTitleChange(idx, e.target.value)}
+                        className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 font-semibold text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={Boolean(editing.workSlotAllowCustomTitle?.[idx])}
+                      onClick={() => toggleSlotCustomTitle(idx)}
+                      className={`w-full flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left transition-colors ${
+                        editing.workSlotAllowCustomTitle?.[idx]
+                          ? "border-violet-200 bg-violet-50 text-violet-800"
+                          : "border-slate-200 bg-white text-slate-500"
+                      }`}
+                    >
+                      <span>
+                        <span className="block text-xs font-extrabold">ให้ครูตั้งชื่อชิ้นงาน/ชื่อเรื่องเอง</span>
+                        <span className="block text-[10px] font-semibold opacity-75 mt-0.5">
+                          {editing.workSlotAllowCustomTitle?.[idx]
+                            ? "เปิด — ครูต้องกรอกชื่อเรื่องก่อนส่งงานชิ้นนี้"
+                            : "ปิด — ใช้หัวข้อที่แอดมินกำหนดด้านบน"}
+                        </span>
+                      </span>
+                      {editing.workSlotAllowCustomTitle?.[idx] ? (
+                        <ToggleRight className="w-7 h-7 shrink-0" />
+                      ) : (
+                        <ToggleLeft className="w-7 h-7 shrink-0" />
+                      )}
+                    </button>
                   </div>
                 ))}
               </div>
