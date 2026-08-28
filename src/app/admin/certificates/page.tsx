@@ -27,7 +27,6 @@ import {
   inspectCertificateTemplate,
   previewEditedCertificate,
   reissueEditedCertificate,
-  removeCertificateScheduler,
   revokeCertificate,
   runCertificateBatch,
   startCertificateBatch,
@@ -82,6 +81,42 @@ function extractSlidesId(value: string): string {
   return value.trim().match(/[-\w]{20,}/)?.[0] || "";
 }
 
+function prepareCertificateSettings(
+  project: Project,
+  config: CertificateSettings,
+): CertificateSettings {
+  const slideId = extractSlidesId(
+    config.slideTemplateId || config.slideTemplateUrl || "",
+  );
+  const configToSave: Partial<CertificateSettings> = { ...config };
+  delete configToSave.certificateFinalizeAt;
+  const normalizedConfig: CertificateSettings = {
+    ...(configToSave as CertificateSettings),
+    issueForComplete: true,
+    issueForPartial: false,
+    slideTemplateId: slideId,
+    slideTemplateUrl: `https://docs.google.com/presentation/d/${slideId}/edit`,
+    templateType: "google-slides",
+  };
+  const previousComparable: Partial<CertificateSettings> = {
+    ...(project.certificate || {}),
+  };
+  const nextComparable: Partial<CertificateSettings> = {
+    ...normalizedConfig,
+  };
+  delete previousComparable.templateVersion;
+  delete nextComparable.templateVersion;
+  const settingsChanged =
+    JSON.stringify(previousComparable) !== JSON.stringify(nextComparable);
+  const currentVersion = Number(
+    project.certificate?.templateVersion || config.templateVersion || 1,
+  );
+  return {
+    ...normalizedConfig,
+    templateVersion: settingsChanged ? currentVersion + 1 : currentVersion,
+  };
+}
+
 function toThaiDigits(value: string): string {
   const digits = ["๐", "๑", "๒", "๓", "๔", "๕", "๖", "๗", "๘", "๙"];
   return value.replace(/[0-9]/g, (digit) => digits[Number(digit)]);
@@ -112,6 +147,43 @@ function StepTitle({
 // The data comes from a slow Apps Script round-trip, so we paint the last snapshot
 // instantly and refresh in the background.
 type CertCache = { records?: CertificateRecord[]; candidates?: CertificateCandidate[]; issued?: number };
+type CertificateEditorDraft = {
+  baseTemplateVersion: number;
+  config: CertificateSettings;
+};
+
+function readCertificateDraft(projectId: string): CertificateEditorDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return JSON.parse(
+      localStorage.getItem(`certificate_editor_draft_${projectId}`) || "null",
+    ) as CertificateEditorDraft | null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCertificateDraft(
+  projectId: string,
+  baseTemplateVersion: number,
+  config: CertificateSettings,
+) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(
+      `certificate_editor_draft_${projectId}`,
+      JSON.stringify({ baseTemplateVersion, config }),
+    );
+  } catch {
+    /* storage full / disabled — the explicit Firestore save still works */
+  }
+}
+
+function clearCertificateDraft(projectId: string) {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(`certificate_editor_draft_${projectId}`);
+}
+
 function readCertCache(pid: string): CertCache | null {
   if (typeof window === "undefined") return null;
   try {
@@ -142,6 +214,8 @@ export default function CertificatesAdminPage() {
   const [job, setJob] = useState<CertificateBatchJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [configDirty, setConfigDirty] = useState(false);
+  const [templateSource, setTemplateSource] = useState<"saved" | "draft" | "reusable">("saved");
   const [slideFields, setSlideFields] = useState<CertificateSlideField[]>([]);
   const [tab, setTab] = useState<"waiting" | "incomplete" | "issued">("waiting");
   const [search, setSearch] = useState("");
@@ -181,12 +255,23 @@ export default function CertificatesAdminPage() {
       ...defaults(project),
       ...(project.certificate || {}),
     };
-    const hasSavedSlides = Boolean(
-      extractSlidesId(draft.slideTemplateId || draft.slideTemplateUrl || "") &&
-      draft.slideNameField &&
-      draft.slideNumberField,
+    let source: "saved" | "draft" | "reusable" = "saved";
+    const baseTemplateVersion = Number(project.certificate?.templateVersion || 0);
+    const localDraft = readCertificateDraft(project.id);
+    if (localDraft && localDraft.baseTemplateVersion === baseTemplateVersion) {
+      draft = { ...draft, ...localDraft.config };
+      source = "draft";
+    }
+    // Never replace a Slides link saved for this round just because its text
+    // mappings are incomplete. That was the reason a newly entered template
+    // appeared to revert to an older round's certificate.
+    const hasOwnSlides = Boolean(
+      extractSlidesId(project.certificate?.slideTemplateId || project.certificate?.slideTemplateUrl || ""),
     );
-    if (!hasSavedSlides) {
+    const hasDraftSlides = Boolean(
+      extractSlidesId(draft.slideTemplateId || draft.slideTemplateUrl || ""),
+    );
+    if (!hasOwnSlides && !hasDraftSlides) {
       const reusable = projects.find((item) =>
         item.id !== project.id &&
         Boolean(
@@ -196,6 +281,7 @@ export default function CertificatesAdminPage() {
         ),
       )?.certificate;
       if (reusable) {
+        source = "reusable";
         draft = {
           ...draft,
           slideTemplateId: reusable.slideTemplateId,
@@ -209,6 +295,8 @@ export default function CertificatesAdminPage() {
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setConfig(draft);
+    setConfigDirty(source === "draft");
+    setTemplateSource(source);
     setSlideFields([]);
     let cancelled = false;
     // Paint the last snapshot for this round instantly (the live data comes from a
@@ -245,6 +333,21 @@ export default function CertificatesAdminPage() {
     };
   }, [project, projects]);
 
+  useEffect(() => {
+    if (!project || !config || !configDirty) return;
+    writeCertificateDraft(
+      project.id,
+      Number(project.certificate?.templateVersion || 0),
+      config,
+    );
+  }, [config, configDirty, project]);
+
+  const updateConfig = (next: CertificateSettings) => {
+    setConfig(next);
+    setConfigDirty(true);
+    setTemplateSource("draft");
+  };
+
   const save = async () => {
     if (!project || !config) return;
     const slideId = extractSlidesId(
@@ -256,42 +359,15 @@ export default function CertificatesAdminPage() {
     }
     setBusy(true);
     try {
-      const normalizedConfig = {
-        ...config,
-        certificateFinalizeAt: undefined,
-        issueForComplete: true,
-        issueForPartial: false,
-        slideTemplateId: slideId,
-        slideTemplateUrl: `https://docs.google.com/presentation/d/${slideId}/edit`,
-        templateType: "google-slides" as const,
-      };
-      const previousComparable = {
-        ...(project.certificate || {}),
-      } as Partial<CertificateSettings>;
-      const nextComparable = {
-        ...normalizedConfig,
-      } as Partial<CertificateSettings>;
-      delete previousComparable.templateVersion;
-      delete nextComparable.templateVersion;
-      const settingsChanged =
-        JSON.stringify(previousComparable) !== JSON.stringify(nextComparable);
-      const nextConfig = {
-        ...normalizedConfig,
-        templateVersion: settingsChanged
-          ? Number(
-              project.certificate?.templateVersion ||
-                config.templateVersion ||
-                1,
-            ) + 1
-          : Number(
-              project.certificate?.templateVersion ||
-                config.templateVersion ||
-                1,
-            ),
-      };
+      // Omit retired/undefined values completely. Firestore rejects an entire
+      // project write if even one nested field is explicitly `undefined`.
+      const nextConfig = prepareCertificateSettings(project, config);
       const updated = { ...project, certificate: nextConfig };
       await saveProject(updated);
-      await removeCertificateScheduler();
+      clearCertificateDraft(project.id);
+      setConfig(nextConfig);
+      setConfigDirty(false);
+      setTemplateSource("saved");
       setProjects((items) =>
         items.map((item) => (item.id === updated.id ? updated : item)),
       );
@@ -316,8 +392,13 @@ export default function CertificatesAdminPage() {
     if (!project || !config) return;
     setBusy(true);
     try {
-      const updated = { ...project, certificate: config };
+      const nextConfig = prepareCertificateSettings(project, config);
+      const updated = { ...project, certificate: nextConfig };
       await saveProject(updated);
+      clearCertificateDraft(project.id);
+      setConfig(nextConfig);
+      setConfigDirty(false);
+      setTemplateSource("saved");
       setProjects((items) =>
         items.map((item) => (item.id === updated.id ? updated : item)),
       );
@@ -366,7 +447,7 @@ export default function CertificatesAdminPage() {
     const selected = slideFields.find(
       (item) => `${item.slideIndex}:${item.objectId}` === value,
     );
-    setConfig({ ...config, [key]: selected });
+    updateConfig({ ...config, [key]: selected });
   };
 
   const fieldValue = (value?: CertificateSlideField) =>
@@ -573,9 +654,7 @@ export default function CertificatesAdminPage() {
     ? `https://docs.google.com/presentation/d/${slideId}/preview?rm=minimal`
     : "";
   const usingReusableTemplate = Boolean(
-    project &&
-    !extractSlidesId(project.certificate?.slideTemplateId || project.certificate?.slideTemplateUrl || "") &&
-    slideId,
+    templateSource === "reusable" && slideId,
   );
   const fieldsReady = Boolean(
     config?.slideNameField && config?.slideNumberField,
@@ -707,7 +786,7 @@ export default function CertificatesAdminPage() {
                           <input
                             value={config.budgetYear}
                             onChange={(e) =>
-                              setConfig({
+                              updateConfig({
                                 ...config,
                                 budgetYear: e.target.value,
                               })
@@ -722,7 +801,7 @@ export default function CertificatesAdminPage() {
                             min="1"
                             value={config.numberStart}
                             onChange={(e) =>
-                              setConfig({
+                              updateConfig({
                                 ...config,
                                 numberStart: Number(e.target.value) || 1,
                               })
@@ -747,20 +826,42 @@ export default function CertificatesAdminPage() {
                           config.slideTemplateId ||
                           ""
                         }
-                        onChange={(e) =>
-                          setConfig({
+                        onChange={(e) => {
+                          const nextUrl = e.target.value;
+                          const nextId = extractSlidesId(nextUrl);
+                          const currentId = extractSlidesId(
+                            config.slideTemplateId || config.slideTemplateUrl || "",
+                          );
+                          const templateChanged = Boolean(nextId && nextId !== currentId);
+                          if (templateChanged) setSlideFields([]);
+                          updateConfig({
                             ...config,
-                            slideTemplateUrl: e.target.value,
-                            slideTemplateId: extractSlidesId(e.target.value),
+                            slideTemplateUrl: nextUrl,
+                            slideTemplateId: nextId,
                             templateType: "google-slides",
-                          })
-                        }
+                            // Object IDs belong to one Slides presentation only.
+                            // Keeping fields from the previous deck can generate
+                            // an old-looking certificate or make issuance fail.
+                            ...(templateChanged
+                              ? {
+                                  slideNameField: undefined,
+                                  slideNumberField: undefined,
+                                  slideDateField: undefined,
+                                }
+                              : {}),
+                          });
+                        }}
                         placeholder="วางลิงก์ Google Slides"
                         className="w-full px-3 py-2.5 rounded-xl border border-blue-200 bg-white text-sm"
                       />
                       {usingReusableTemplate && (
                         <p className="text-[11px] font-bold text-emerald-700">
                           ✓ ใช้แม่แบบล่าสุดที่เคยบันทึกไว้ — กด “บันทึก” เพื่อผูกกับรอบนี้
+                        </p>
+                      )}
+                      {configDirty && !usingReusableTemplate && (
+                        <p className="text-[11px] font-bold text-amber-700">
+                          • มีการแก้ไขที่ยังไม่บันทึก ระบบจำฉบับร่างไว้ในเครื่องนี้แล้ว
                         </p>
                       )}
                       <div className="flex gap-2">
@@ -839,7 +940,7 @@ export default function CertificatesAdminPage() {
                         type="checkbox"
                         checked={config.enabled}
                         onChange={(e) =>
-                          setConfig({ ...config, enabled: e.target.checked })
+                          updateConfig({ ...config, enabled: e.target.checked })
                         }
                         className="w-5 h-5 accent-emerald-600"
                       />
@@ -883,8 +984,9 @@ export default function CertificatesAdminPage() {
                       >
                         {templatePreview ? (
                           <iframe
+                            key={`${slideId}-${config.templateVersion}-${templateSource}`}
                             title="ตัวอย่าง Google Slides"
-                            src={templatePreview}
+                            src={`${templatePreview}&v=${config.templateVersion}`}
                             className="absolute inset-0 w-full h-full border-0"
                             allowFullScreen
                           />

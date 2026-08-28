@@ -6,6 +6,23 @@ import { getTrainingSettings, updateTrainingSettings } from "./submission-servic
 // High-performance in-memory cache (mirrors masters-service pattern)
 let cachedProjects: Project[] | null = null;
 
+// Firestore rejects `undefined` anywhere inside a document. Project editor
+// objects contain several optional fields, so clean them before writing instead
+// of reporting a local-cache update as a successful database save.
+function withoutUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => withoutUndefined(item)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [key, withoutUndefined(item)]),
+    ) as T;
+  }
+  return value;
+}
+
 /** Return the last cached rounds immediately while Firestore refreshes in background. */
 export function getInstantProjects(): Project[] {
   if (cachedProjects) return [...cachedProjects];
@@ -67,22 +84,22 @@ export async function getProjects(forceRefresh = false): Promise<Project[]> {
 }
 
 export async function saveProject(project: Project): Promise<Project[]> {
+  const persisted = withoutUndefined(project);
   const current = await getProjects();
-  const idx = current.findIndex((p) => p.id === project.id);
+  const idx = current.findIndex((p) => p.id === persisted.id);
   const next = [...current];
-  if (idx >= 0) next[idx] = project;
-  else next.push(project);
+  if (idx >= 0) next[idx] = persisted;
+  else next.push(persisted);
+
+  // Do not update the durable browser cache until Firestore accepts the write.
+  // Previously a rejected write was swallowed, so the UI said “saved” and then
+  // reverted to the old server value on the next forced refresh.
+  await setDoc(doc(db, "projects", persisted.id), persisted, { merge: true });
 
   const sorted = sortProjects(next);
   cachedProjects = sorted;
   if (typeof window !== "undefined") {
     localStorage.setItem("app_projects", JSON.stringify(sorted));
-  }
-
-  try {
-    await setDoc(doc(db, "projects", project.id), project, { merge: true });
-  } catch (err) {
-    console.warn("Firestore saveProject error, saved to local cache:", err);
   }
 
   return sorted;
