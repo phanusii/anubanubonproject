@@ -41,6 +41,11 @@ import {
   Project,
 } from "@/lib/types";
 import { getUserProjectSubmissions } from "@/lib/submission-service";
+import {
+  getInstantTeachers,
+  getTeachers,
+  type TeacherItem,
+} from "@/lib/teachers-service";
 import { displayWorkTitle } from "@/lib/format";
 
 const field = (y: number, size: number): CertificateTextField => ({
@@ -115,6 +120,33 @@ function prepareCertificateSettings(
     ...normalizedConfig,
     templateVersion: settingsChanged ? currentVersion + 1 : currentVersion,
   };
+}
+
+function resolveProjectAttendees(
+  project: Project,
+  teachers: TeacherItem[],
+): Project {
+  if (!project.attendeeIds?.length) return project;
+  const teacherById = new Map(teachers.map((teacher) => [teacher.id, teacher]));
+  const attendeeProfiles = { ...(project.attendeeProfiles || {}) };
+  project.attendeeIds.forEach((id) => {
+    const roundProfile = attendeeProfiles[id] || {};
+    const master = teacherById.get(id);
+    if (!roundProfile.fullName && !master?.fullName) return;
+    attendeeProfiles[id] = {
+      fullName: roundProfile.fullName || master?.fullName || "",
+      position: roundProfile.position || master?.position || "",
+      gradeLevel: roundProfile.gradeLevel || master?.gradeLevel || "",
+      subjectGroup: roundProfile.subjectGroup || master?.subjectGroup || "",
+    };
+  });
+  return { ...project, attendeeProfiles };
+}
+
+function attendeeNames(project: Project): string[] {
+  return (project.attendeeIds || [])
+    .map((id) => project.attendeeProfiles?.[id]?.fullName || "")
+    .filter(Boolean);
 }
 
 function toThaiDigits(value: string): string {
@@ -216,6 +248,7 @@ export default function CertificatesAdminPage() {
   const [message, setMessage] = useState("");
   const [configDirty, setConfigDirty] = useState(false);
   const [templateSource, setTemplateSource] = useState<"saved" | "draft" | "reusable">("saved");
+  const [resolvedAttendeeNames, setResolvedAttendeeNames] = useState<string[]>([]);
   const [slideFields, setSlideFields] = useState<CertificateSlideField[]>([]);
   const [tab, setTab] = useState<"waiting" | "incomplete" | "issued">("waiting");
   const [search, setSearch] = useState("");
@@ -308,22 +341,40 @@ export default function CertificatesAdminPage() {
       if (typeof cached.issued === "number") setIssuedTotal(cached.issued);
     }
     if (!cached || typeof cached.issued !== "number") setIssuedTotal(null);
-    // One Apps Script execution returns the entire dashboard. Previously this
-    // made four cold-start calls and repeated three of them every 15 seconds.
-    void getCertificateDashboard(project.id, false, project)
-      .then((dashboard) => {
-        if (cancelled) return;
-        setRecords(dashboard.certificates);
-        setJob(dashboard.job);
-        setCandidates(dashboard.candidates);
-        setIssuedTotal(dashboard.issued);
-        mergeCertCache(project.id, {
-          records: dashboard.certificates,
-          candidates: dashboard.candidates,
-          issued: dashboard.issued,
-        });
-      })
-      .catch((error) => {
+    // Resolve roster ids through the compact teacher snapshot before asking the
+    // server to filter certificates. attendeeProfiles intentionally stores only
+    // per-round overrides, so using it alone hid master-roster attendees.
+    const instantRoster = resolveProjectAttendees(project, getInstantTeachers());
+    setResolvedAttendeeNames(attendeeNames(instantRoster));
+    const rosterIsComplete =
+      !project.attendeeIds?.length ||
+      attendeeNames(instantRoster).length === project.attendeeIds.length;
+
+    // One Apps Script execution returns the entire dashboard. The teacher list
+    // is one compact cached snapshot (not one read per teacher) and is fetched
+    // only if the browser cache cannot resolve every attendee id.
+    void (async () => {
+      const dashboardProject = rosterIsComplete
+        ? instantRoster
+        : resolveProjectAttendees(project, await getTeachers());
+      if (cancelled) return;
+      setResolvedAttendeeNames(attendeeNames(dashboardProject));
+      const dashboard = await getCertificateDashboard(
+        project.id,
+        false,
+        dashboardProject,
+      );
+      if (cancelled) return;
+      setRecords(dashboard.certificates);
+      setJob(dashboard.job);
+      setCandidates(dashboard.candidates);
+      setIssuedTotal(dashboard.issued);
+      mergeCertCache(project.id, {
+        records: dashboard.certificates,
+        candidates: dashboard.candidates,
+        issued: dashboard.issued,
+      });
+    })().catch((error) => {
         if (!cancelled) {
           setMessage(`อ่านทะเบียนเกียรติบัตรไม่สำเร็จ: ${error instanceof Error ? error.message : "กรุณาลองใหม่"}`);
         }
@@ -700,13 +751,16 @@ export default function CertificatesAdminPage() {
   // A configured attendee roster is authoritative. Candidate caches can outlive
   // roster edits, so also filter in the browser while Apps Script refreshes.
   const attendeeKeys = new Set(
-    (project?.attendeeIds || [])
-      .map((id) => project?.attendeeProfiles?.[id]?.fullName || "")
+    resolvedAttendeeNames
       .map(certificateRecipientKey)
       .filter(Boolean),
   );
   const isCurrentAttendee = (name: string) =>
-    !project?.attendeeIds?.length || attendeeKeys.has(certificateRecipientKey(name));
+    !project?.attendeeIds?.length ||
+    // Do not hide server-filtered records while the compact roster snapshot is
+    // still loading. Once names resolve, the browser applies the same guard.
+    !attendeeKeys.size ||
+    attendeeKeys.has(certificateRecipientKey(name));
   const rosterCandidates = candidates.filter((item) => isCurrentAttendee(item.fullName));
   const waiting = rosterCandidates.filter((item) => item.eligible && item.qualificationType === "complete" && notIssued(item.fullName) && matchesFilters(item));
   const incomplete = rosterCandidates.filter(
